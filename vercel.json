@@ -4,7 +4,7 @@
     "rewrites": [
         {
             "source": "/api/:path*",
-            "destination": "https://YOUR_NGROK_URL/api/:path*"
+            "destination": "https://trena-frenular-fixatedly.ngrok-free.dev/api/:path*"
         }
     ]
 }
