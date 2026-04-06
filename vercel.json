@@ -1,10 +1,5 @@
 {
     "buildCommand": "npm install --include=dev && npm run build",
     "outputDirectory": ".next",
-    "rewrites": [
-        {
-            "source": "/api/:path*",
-            "destination": "https://trena-frenular-fixatedly.ngrok-free.dev/api/:path*"
-        }
-    ]
+    "rewrites": []
 }
