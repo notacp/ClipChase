@@ -110,14 +110,19 @@ async def search(
                     if transcript_language in tried_transcript_languages:
                         continue
                     tried_transcript_languages.add(transcript_language)
+                    transcript_search_terms = service.expand_search_terms_for_transcript(
+                        search_terms,
+                        transcript_data["segments"],
+                        transcript_language or query_language,
+                    )
 
                     print(
                         f"DEBUG: Transcript found for {video['id']} in {transcript_language or 'unknown'}. "
-                        f"Searching for {search_terms}..."
+                        f"Searching for {transcript_search_terms}..."
                     )
                     matches = service.search_in_transcript(
                         transcript_data["segments"],
-                        search_terms,
+                        transcript_search_terms,
                         transcript_language=transcript_language or query_language,
                     )
                     if matches:
@@ -128,7 +133,7 @@ async def search(
                             thumbnail=video["thumbnail"],
                             transcript_language_code=transcript_language or query_language,
                             transcript_language_label=transcript_data.get("language_label") or transcript_language or query_language,
-                            search_terms_used=search_terms,
+                            search_terms_used=transcript_search_terms,
                             matches=matches,
                         )
                         break

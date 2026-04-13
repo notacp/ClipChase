@@ -235,10 +235,12 @@ def _romanized_forms_similar(latin_keyword: str, romanized_token: str, threshold
     - Token must be at least max(4, 0.7 * len(keyword)) chars to prevent very
       short tokens from passing via prefix truncation alone.
     - Normalized edit distance (edit_dist / len(keyword)) must be <= threshold.
+      Note: max_dist uses int() truncation, so the effective ratio is at most
+      `threshold` but may be slightly lower for short keywords.
 
-    Threshold 0.45 chosen empirically: accepts "startup"→"staartaapa" (distance
-    3/7=0.43) while rejecting "meditate"→"maaindaseta" (distance 6/8=0.75) and
-    "meditate"→"mentaalitii" (distance 5/8=0.625).
+    Threshold 0.45 chosen empirically: for "startup" (len 7), allows int(7*0.45)=3
+    edits, accepting "startup"→"staartaapa" (distance 3). For "meditate" (len 8),
+    allows int(8*0.45)=3 edits, rejecting "meditate"→"maaindaseta" (distance 6).
     """
     if not latin_keyword or not romanized_token:
         return False
