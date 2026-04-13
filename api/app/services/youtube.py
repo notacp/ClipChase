@@ -144,23 +144,24 @@ def _phonetic_tokens(text: str) -> List[str]:
 
 
 def _cross_script_phonetic_match(text: str, keyword: str) -> bool:
-    text_has_devanagari = _is_devanagari_text(text)
+    text_has_devanagari    = _is_devanagari_text(text)
+    keyword_has_latin      = _contains_latin_text(keyword)
+    text_has_latin         = _contains_latin_text(text)
     keyword_has_devanagari = _is_devanagari_text(keyword)
-    text_has_latin = _contains_latin_text(text)
-    keyword_has_latin = _contains_latin_text(keyword)
 
-    if not ((text_has_devanagari and keyword_has_latin) or (text_has_latin and keyword_has_devanagari)):
+    if keyword_has_latin and text_has_devanagari:
+        for token in DEVANAGARI_TOKEN_RE.findall(_normalize_text(text)):
+            if _romanized_forms_similar(keyword, _romanize_devanagari(token)):
+                return True
         return False
 
-    text_keys = _phonetic_tokens(text)
-    keyword_keys = _phonetic_tokens(keyword)
-    if not text_keys or not keyword_keys:
+    if keyword_has_devanagari and text_has_latin:
+        romanized_kw = _romanize_devanagari(keyword)
+        for token in LATIN_TOKEN_RE.findall(_normalize_text(text)):
+            if _romanized_forms_similar(romanized_kw, token):
+                return True
         return False
 
-    window = len(keyword_keys)
-    for index in range(len(text_keys) - window + 1):
-        if text_keys[index:index + window] == keyword_keys:
-            return True
     return False
 
 

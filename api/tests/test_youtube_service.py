@@ -5,6 +5,7 @@ from unittest.mock import patch
 from api.app.services.youtube import (
     YouTubeService,
     _romanized_forms_similar,
+    _cross_script_phonetic_match,
 )
 
 ENGLISH_TRANSCRIPT = [
@@ -210,3 +211,23 @@ def test_expand_adds_direct_devanagari_borrowing_for_meditate():
         ["meditate"], transcript, transcript_language="hi"
     )
     assert "मेडिटेट" in expanded
+
+
+# ---------------------------------------------------------------------------
+# _cross_script_phonetic_match — behaviour tests (regression + correctness)
+# These are written before the refactor so they pin what must stay true.
+# ---------------------------------------------------------------------------
+
+def test_cross_script_match_latin_keyword_matches_devanagari_borrowing():
+    # "मेडिटेट" is a phonetic copy of "meditate" — must match
+    assert _cross_script_phonetic_match("रोज मेडिटेट करो", "meditate") is True
+
+
+def test_cross_script_match_latin_keyword_rejects_unrelated_devanagari():
+    # "माइंडसेट" (mindset) shares no phonetic similarity with "meditate"
+    assert _cross_script_phonetic_match("माइंडसेट जरूरी है", "meditate") is False
+
+
+def test_cross_script_match_devanagari_keyword_matches_latin_text():
+    # Reverse direction: Hindi keyword "स्टार्टअप" vs English caption
+    assert _cross_script_phonetic_match("We are building a startup", "स्टार्टअप") is True
