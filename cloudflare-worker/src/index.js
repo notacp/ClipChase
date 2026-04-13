@@ -4,8 +4,8 @@
  * Fetches YouTube transcripts from Cloudflare's edge IPs, bypassing
  * YouTube's datacenter IP blocks that affect Vercel/Railway/AWS etc.
  *
- * GET /transcript?video_id=<VIDEO_ID>
- * Returns: [{ text, start, duration }, ...]  (same shape as youtube-transcript-api)
+ * GET /transcript?video_id=<VIDEO_ID>&preferred_langs=en,hi
+ * Returns: { language_code, language_label, is_generated, segments }
  */
 
 const BROWSER_HEADERS = {
@@ -32,13 +32,101 @@ export default {
       });
     }
 
+    if (url.pathname === "/debug-headers") {
+      const videoId = url.searchParams.get("video_id") ?? "dQw4w9WgXcQ";
+      const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
+
+      const HEADER_SETS = {
+        "1_bare": {},
+        "2_useragent_only": {
+          "User-Agent": BROWSER_HEADERS["User-Agent"],
+        },
+        "3_browser_headers": BROWSER_HEADERS,
+        "4_browser_plus_referer": {
+          ...BROWSER_HEADERS,
+          "Referer": "https://www.youtube.com/",
+        },
+        "5_full": {
+          ...BROWSER_HEADERS,
+          "Referer": "https://www.youtube.com/",
+          "Accept-Encoding": "gzip, deflate, br",
+          "Connection": "keep-alive",
+          "Sec-Fetch-Dest": "document",
+          "Sec-Fetch-Mode": "navigate",
+          "Sec-Fetch-Site": "same-origin",
+          "Upgrade-Insecure-Requests": "1",
+        },
+      };
+
+      // Run all fetches in parallel
+      const results = await Promise.all(
+        Object.entries(HEADER_SETS).map(async ([label, headers]) => {
+          const res = await fetch(ytUrl, { headers });
+          const body = await res.text();
+          return [label, {
+            status: res.status,
+            has_player_response: body.includes("ytInitialPlayerResponse"),
+            has_captions: body.includes("captionTracks"),
+            body_length: body.length,
+          }];
+        })
+      );
+
+      const watchResults = Object.fromEntries(results);
+
+      // If any watch page fetch succeeded, try fetching the caption URL
+      const firstSuccess = results.find(([, r]) => r.status === 200 && r.has_captions);
+      let captionResult = null;
+
+      if (firstSuccess) {
+        const [successLabel, ] = firstSuccess;
+        const headers = HEADER_SETS[successLabel];
+        const watchRes = await fetch(ytUrl, { headers });
+        const html = await watchRes.text();
+        const cookies = (watchRes.headers.getSetCookie?.() ?? []).map(c => c.split(";")[0]).join("; ");
+
+        const marker = "ytInitialPlayerResponse = ";
+        const markerIdx = html.indexOf(marker);
+        let depth = 0, i = markerIdx + marker.length;
+        for (; i < html.length; i++) {
+          if (html[i] === "{") depth++;
+          else if (html[i] === "}") { if (--depth === 0) break; }
+        }
+        const playerData = JSON.parse(html.slice(markerIdx + marker.length, i + 1));
+        const tracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+        const track = tracks?.[0];
+
+        if (track) {
+          const capRes = await fetch(track.baseUrl, {
+            headers: { ...BROWSER_HEADERS, "Referer": ytUrl, ...(cookies ? { "Cookie": cookies } : {}) },
+          });
+          const capBody = await capRes.text();
+          captionResult = {
+            status: capRes.status,
+            body_length: capBody.length,
+            looks_like_xml: capBody.trim().startsWith("<"),
+          };
+        }
+      }
+
+      return json({
+        video_id: videoId,
+        conclusion: firstSuccess
+          ? `Watch page succeeded with header set "${firstSuccess[0]}". See caption_fetch for step 2 result.`
+          : "All watch page fetches failed — likely an IP-level block, not fingerprinting.",
+        watch_page_tests: watchResults,
+        caption_fetch: captionResult,
+      });
+    }
+
     if (url.pathname !== "/transcript") return json({ error: "Not found" }, 404);
 
     const videoId = url.searchParams.get("video_id");
     if (!videoId) return json({ error: "video_id query param is required" }, 400);
 
     try {
-      const transcript = await fetchTranscript(videoId);
+      const preferredLangs = parsePreferredLangs(url.searchParams.get("preferred_langs"));
+      const transcript = await fetchTranscript(videoId, preferredLangs);
       return json(transcript);
     } catch (e) {
       return json({ error: e.message }, e.status ?? 500);
@@ -46,7 +134,36 @@ export default {
   },
 };
 
-async function fetchTranscript(videoId) {
+function normalizeLanguageCode(languageCode) {
+  return (languageCode ?? "").toLowerCase().split("-")[0];
+}
+
+function parsePreferredLangs(raw) {
+  const requested = (raw ?? "")
+    .split(",")
+    .map(lang => normalizeLanguageCode(lang.trim()))
+    .filter(Boolean);
+
+  for (const fallback of ["en", "hi"]) {
+    if (!requested.includes(fallback)) requested.push(fallback);
+  }
+
+  return requested;
+}
+
+function pickTrack(tracks, preferredLangs) {
+  for (const lang of preferredLangs) {
+    const manual = tracks.find(track => normalizeLanguageCode(track.languageCode) === lang && track.kind !== "asr");
+    if (manual) return manual;
+
+    const generated = tracks.find(track => normalizeLanguageCode(track.languageCode) === lang);
+    if (generated) return generated;
+  }
+
+  return null;
+}
+
+async function fetchTranscript(videoId, preferredLangs = ["en", "hi"]) {
   // Step 1 — Fetch the YouTube watch page.
   // This gives us the signed caption track URLs embedded in ytInitialPlayerResponse.
   // Cloudflare's HTTP client has a browser-like TLS fingerprint, so this isn't blocked.
@@ -81,12 +198,8 @@ async function fetchTranscript(videoId) {
 
   if (!tracks?.length) throw httpError(404, "No captions available for this video");
 
-  // Step 3 — Pick the best English track.
-  // Prefer manual captions over auto-generated ("asr") ones for better quality.
-  const track =
-    tracks.find(t => (t.languageCode === "en" || t.languageCode === "en-US") && t.kind !== "asr") ??
-    tracks.find(t => t.languageCode === "en" || t.languageCode === "en-US") ??
-    tracks[0];
+  const track = pickTrack(tracks, preferredLangs);
+  if (!track) throw httpError(404, "No supported captions available for this video");
 
   // Step 4 — Fetch the caption XML.
   // The baseUrl is a signed timedtext URL. We include cookies from the watch page
@@ -121,7 +234,13 @@ async function fetchTranscript(videoId) {
     if (text) segments.push({ text, start: parseFloat(m[1]), duration: parseFloat(m[2]) });
   }
 
-  return segments;
+  const languageCode = normalizeLanguageCode(track.languageCode);
+  return {
+    language_code: languageCode,
+    language_label: track.name?.simpleText ?? (languageCode === "hi" ? "Hindi" : languageCode === "en" ? "English" : track.languageCode),
+    is_generated: track.kind === "asr",
+    segments,
+  };
 }
 
 function json(data, status = 200) {

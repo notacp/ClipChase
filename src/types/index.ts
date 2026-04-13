@@ -10,6 +10,9 @@ export interface SearchResult {
     title: string;
     published_at: string;
     thumbnail: string;
+    transcript_language_code: string;
+    transcript_language_label: string;
+    search_terms_used: string[];
     matches: Match[];
 }
 

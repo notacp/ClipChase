@@ -1,61 +1,185 @@
-import pytest
-from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock
 import os
+from unittest.mock import MagicMock, patch
+
+from fastapi.testclient import TestClient
 
 # Set dummy env vars before importing main to prevent auth failures globally
 os.environ["YT_API_KEY"] = "mock_api_key"
 
 from api.app.main import app
 
-# In newer httpx/starlette, TestClient requires the app to be passed properly.
 client = TestClient(app)
 
 
 @patch("api.app.routers.search.YouTubeService")
 def test_search_router_success(mock_yt_service_class):
-    # Mock the service instance
     mock_service = MagicMock()
     mock_yt_service_class.return_value = mock_service
-    
-    # Configure mock returns
+
     mock_service.resolve_channel_id.return_value = "UC123"
     mock_service.fetch_uploads_playlist_id.return_value = "PL123"
     mock_service.fetch_videos.return_value = [
-        {"id": "vid1", "title": "Test Video 1", "publishedAt": "2024-01-01T00:00:00Z", "thumbnail": "thumb1"}
+        {"id": "vid1", "title": "Test Video 1", "publishedAt": "2024-01-01T00:00:00Z", "thumbnail": "thumb1"},
     ]
-    mock_service.get_transcript.return_value = [{"start": 0, "text": "mock transcript"}]
+    mock_service.get_transcript.return_value = {
+        "language_code": "en",
+        "language_label": "English",
+        "is_generated": False,
+        "segments": [{"start": 0, "text": "mock transcript"}],
+    }
     mock_service.search_in_transcript.return_value = [{"start": 0, "text": "mock match", "context_before": "", "context_after": ""}]
     mock_service.block_detected = False
     mock_service.proxy_error_detected = False
-    
+
     response = client.get("/api/search?channel_url=fake&keyword=mock")
-    
+
     assert response.status_code == 200
     data = response.json()
     assert len(data) == 1
     assert data[0]["video_id"] == "vid1"
+    assert data[0]["transcript_language_code"] == "en"
+    assert data[0]["transcript_language_label"] == "English"
+    assert data[0]["search_terms_used"] == ["mock"]
     assert data[0]["matches"][0]["text"] == "mock match"
+    assert mock_service.get_transcript.call_count == 1
+    mock_service.get_transcript.assert_called_with("vid1", preferred_languages=["en", "hi"])
+    mock_service.search_in_transcript.assert_called_once_with(
+        [{"start": 0, "text": "mock transcript"}],
+        ["mock"],
+        transcript_language="en",
+    )
+
+
+@patch("api.app.routers.search.YouTubeService")
+def test_search_router_uses_romanized_variant_for_devanagari_query(mock_yt_service_class):
+    mock_service = MagicMock()
+    mock_yt_service_class.return_value = mock_service
+
+    mock_service.resolve_channel_id.return_value = "UC123"
+    mock_service.fetch_uploads_playlist_id.return_value = "PL123"
+    mock_service.fetch_videos.return_value = [
+        {"id": "vid1", "title": "Test", "publishedAt": "2024-01-01T00:00:00Z", "thumbnail": ""},
+    ]
+    mock_service.get_transcript.return_value = {
+        "language_code": "en",
+        "language_label": "English",
+        "is_generated": False,
+        "segments": [{"start": 0, "text": "startup"}],
+    }
+    mock_service.search_in_transcript.return_value = [{"start": 0, "text": "startup", "context_before": "", "context_after": ""}]
+    mock_service.block_detected = False
+    mock_service.proxy_error_detected = False
+
+    response = client.get("/api/search?channel_url=fake&keyword=%E0%A4%B8%E0%A5%8D%E0%A4%9F%E0%A4%BE%E0%A4%B0%E0%A5%8D%E0%A4%9F%E0%A4%85%E0%A4%AA")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data[0]["search_terms_used"] == ["स्टार्टअप", "staartapa"]
+    assert mock_service.get_transcript.call_count == 1
+    mock_service.get_transcript.assert_called_with("vid1", preferred_languages=["hi", "en"])
+    mock_service.search_in_transcript.assert_called_once_with(
+        [{"start": 0, "text": "startup"}],
+        ["स्टार्टअप", "staartapa"],
+        transcript_language="en",
+    )
+
+
+@patch("api.app.routers.search.YouTubeService")
+def test_search_router_keeps_latin_query_without_translation(mock_yt_service_class):
+    mock_service = MagicMock()
+    mock_yt_service_class.return_value = mock_service
+
+    mock_service.resolve_channel_id.return_value = "UC123"
+    mock_service.fetch_uploads_playlist_id.return_value = "PL123"
+    mock_service.fetch_videos.return_value = [
+        {"id": "vid1", "title": "Test", "publishedAt": "2024-01-01T00:00:00Z", "thumbnail": ""},
+    ]
+    mock_service.get_transcript.return_value = {
+        "language_code": "hi",
+        "language_label": "Hindi",
+        "is_generated": False,
+        "segments": [{"start": 0, "text": "स्टार्टअप"}],
+    }
+    mock_service.search_in_transcript.return_value = [{"start": 0, "text": "स्टार्टअप", "context_before": "", "context_after": ""}]
+    mock_service.block_detected = False
+    mock_service.proxy_error_detected = False
+
+    response = client.get("/api/search?channel_url=fake&keyword=startup")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data[0]["search_terms_used"] == ["startup"]
+    assert mock_service.get_transcript.call_count == 1
+    mock_service.get_transcript.assert_called_with("vid1", preferred_languages=["en", "hi"])
+    mock_service.search_in_transcript.assert_called_once_with(
+        [{"start": 0, "text": "स्टार्टअप"}],
+        ["startup"],
+        transcript_language="hi",
+    )
+
+
+@patch("api.app.routers.search.YouTubeService")
+def test_search_router_falls_back_to_hindi_track_when_english_track_misses(mock_yt_service_class):
+    mock_service = MagicMock()
+    mock_yt_service_class.return_value = mock_service
+
+    mock_service.resolve_channel_id.return_value = "UC123"
+    mock_service.fetch_uploads_playlist_id.return_value = "PL123"
+    mock_service.fetch_videos.return_value = [
+        {"id": "vid1", "title": "Test", "publishedAt": "2024-01-01T00:00:00Z", "thumbnail": ""},
+    ]
+    mock_service.get_transcript.side_effect = [
+        {
+            "language_code": "en",
+            "language_label": "English",
+            "is_generated": False,
+            "segments": [{"start": 0, "text": "we did not invest"}],
+        },
+        {
+            "language_code": "hi",
+            "language_label": "Hindi",
+            "is_generated": False,
+            "segments": [{"start": 12, "text": "हमने क्लाइंट्स को इन्वेस्ट नहीं किया"}],
+        },
+    ]
+    mock_service.search_in_transcript.side_effect = [
+        [],
+        [{"start": 12, "text": "हमने क्लाइंट्स को इन्वेस्ट नहीं किया", "context_before": "", "context_after": ""}],
+    ]
+    mock_service.block_detected = False
+    mock_service.proxy_error_detected = False
+
+    response = client.get("/api/search?channel_url=fake&keyword=invest")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data[0]["transcript_language_code"] == "hi"
+    assert data[0]["search_terms_used"] == ["invest"]
+    assert mock_service.get_transcript.call_args_list == [
+        (( "vid1",), {"preferred_languages": ["en", "hi"]}),
+        (( "vid1",), {"preferred_languages": ["hi", "en"]}),
+    ]
+    assert mock_service.search_in_transcript.call_args_list[0].kwargs["transcript_language"] == "en"
+    assert mock_service.search_in_transcript.call_args_list[1].kwargs["transcript_language"] == "hi"
+
 
 @patch("api.app.routers.search.YouTubeService")
 def test_search_router_returns_403_on_block(mock_yt_service_class):
     mock_service = MagicMock()
     mock_yt_service_class.return_value = mock_service
-    
+
     mock_service.resolve_channel_id.return_value = "UC123"
     mock_service.fetch_uploads_playlist_id.return_value = "PL123"
     mock_service.fetch_videos.return_value = [{"id": "vid1", "title": "Test", "publishedAt": "2024-01-01T00:00:00Z", "thumbnail": ""}]
-    
-    # Simulate a transcript fetch that sets the block_detected flag
-    mock_service.get_transcript.return_value = []
+    mock_service.get_transcript.return_value = None
     mock_service.block_detected = True
     mock_service.proxy_error_detected = False
-    
+
     response = client.get("/api/search?channel_url=fake&keyword=mock")
-    
-    # Assert we surface the 403
+
     assert response.status_code == 403
     assert "YouTube blocked the request" in response.json()["detail"]
+
 
 @patch("api.app.routers.search.YouTubeService")
 def test_search_router_returns_502_on_proxy_error(mock_yt_service_class):
@@ -74,18 +198,17 @@ def test_search_router_returns_502_on_proxy_error(mock_yt_service_class):
     assert response.status_code == 502
     assert "Proxy connection failed" in response.json()["detail"]
 
+
 @patch("api.app.routers.search.YouTubeService")
 def test_search_router_sanitizes_500_errors(mock_yt_service_class):
     mock_service = MagicMock()
     mock_yt_service_class.return_value = mock_service
-    
+
     mock_service.resolve_channel_id.return_value = "UC123"
-    # Simulate an unexpected critical failure in playlist fetching
     mock_service.fetch_uploads_playlist_id.side_effect = Exception("SENSITIVE_DB_OR_NETWORK_ERROR")
-    
+
     response = client.get("/api/search?channel_url=fake&keyword=mock")
-    
-    # Assert we surface a 500, but NOT the sensitive error string
+
     assert response.status_code == 500
     detail = response.json()["detail"]
     assert "An internal server error occurred" in detail

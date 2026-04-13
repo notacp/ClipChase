@@ -47,3 +47,7 @@ next-env.d.ts
 .dev.vars*
 !.dev.vars.example
 !.env.example
+
+.agents
+.claude
+.stitch

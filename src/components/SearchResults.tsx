@@ -38,9 +38,14 @@ export function SearchResults({ results, onSelectVideo }: SearchResultsProps) {
                                 <h3 className="font-bold text-lg leading-tight group-hover:text-yt-red transition-colors line-clamp-2">
                                     {video.title}
                                 </h3>
-                                <p className="text-yt-light-gray text-sm mt-1">
-                                    {new Date(video.published_at).toLocaleDateString()}
-                                </p>
+                                <div className="flex flex-wrap items-center gap-2 mt-1">
+                                    <p className="text-yt-light-gray text-sm">
+                                        {new Date(video.published_at).toLocaleDateString()}
+                                    </p>
+                                    <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] uppercase tracking-wide text-yt-light-gray">
+                                        {video.transcript_language_label} transcript
+                                    </span>
+                                </div>
                             </div>
                         </div>
 

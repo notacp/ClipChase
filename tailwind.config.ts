@@ -12,10 +12,11 @@ const config: Config = {
                 background: "var(--background)",
                 foreground: "var(--foreground)",
                 yt: {
-                    red: "#FF0000",
+                    red: "#E03030",
                     black: "#0F0F0F",
-                    gray: "#272727",
-                    "light-gray": "#AAAAAA",
+                    gray: "#1E1E1E",
+                    "light-gray": "#909090",
+                    elevated: "#181818",
                 }
             },
         },

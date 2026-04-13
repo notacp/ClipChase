@@ -24,6 +24,8 @@ export async function GET(
         );
     }
 
-    const data = await response.json();
-    return NextResponse.json(data, { status: response.status });
+    return new NextResponse(response.body, { 
+        status: response.status,
+        headers: { "content-type": contentType }
+    });
 }

@@ -1,16 +1,216 @@
-import os
+import html
 import re
-from typing import List, Optional, Dict, Any
+import unicodedata
+from typing import Any, Dict, List, Optional
 
-def _keyword_matches(text: str, keyword: str) -> bool:
-    """Case-insensitive whole-word match so 'CRED' doesn't match 'incredible'."""
-    return bool(re.search(r'\b' + re.escape(keyword) + r'\b', text, re.IGNORECASE | re.UNICODE))
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
-from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
+from youtube_transcript_api import NoTranscriptFound, TranscriptsDisabled, YouTubeTranscriptApi
 
 YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
+SUPPORTED_TRANSCRIPT_LANGUAGES = ("en", "hi")
+DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]")
+LATIN_WORD_RE = re.compile(r"[A-Za-z0-9]")
+LATIN_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
+MIXED_TOKEN_RE = re.compile(r"[A-Za-z0-9]+|[\u0900-\u097F]+")
+DEVANAGARI_VIRAMA = "्"
+
+DEVANAGARI_CONSONANTS = {
+    "क": "k", "ख": "kh", "ग": "g", "घ": "gh", "ङ": "n",
+    "च": "ch", "छ": "chh", "ज": "j", "झ": "jh", "ञ": "n",
+    "ट": "t", "ठ": "th", "ड": "d", "ढ": "dh", "ण": "n",
+    "त": "t", "थ": "th", "द": "d", "ध": "dh", "न": "n",
+    "प": "p", "फ": "f", "ब": "b", "भ": "bh", "म": "m",
+    "य": "y", "र": "r", "ल": "l", "व": "v",
+    "श": "sh", "ष": "sh", "स": "s", "ह": "h",
+    "ळ": "l", "क़": "k", "ख़": "kh", "ग़": "g", "ज़": "z", "ड़": "d", "ढ़": "dh", "फ़": "f",
+}
+
+DEVANAGARI_INDEPENDENT_VOWELS = {
+    "अ": "a", "आ": "aa", "इ": "i", "ई": "ii", "उ": "u", "ऊ": "uu",
+    "ए": "e", "ऐ": "ai", "ओ": "o", "औ": "au", "ऋ": "ri",
+}
+
+DEVANAGARI_MATRAS = {
+    "ा": "aa", "ि": "i", "ी": "ii", "ु": "u", "ू": "uu",
+    "े": "e", "ै": "ai", "ो": "o", "ौ": "au", "ृ": "ri",
+}
+
+
+def normalize_language_code(language_code: Optional[str]) -> str:
+    code = (language_code or "").strip().lower()
+    if not code:
+        return ""
+    return code.split("-", 1)[0]
+
+
+def language_label_for_code(language_code: str, fallback: Optional[str] = None) -> str:
+    labels = {
+        "en": "English",
+        "hi": "Hindi",
+    }
+    return labels.get(language_code, fallback or language_code.upper() or "Unknown")
+
+
+def _normalize_text(text: str) -> str:
+    normalized = unicodedata.normalize("NFKC", html.unescape(text or ""))
+    normalized = normalized.replace("\u200c", "").replace("\u200d", "")
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
+
+
+def _is_devanagari_text(text: str) -> bool:
+    return bool(DEVANAGARI_RE.search(text or ""))
+
+
+def _contains_latin_text(text: str) -> bool:
+    return bool(LATIN_WORD_RE.search(text or ""))
+
+
+def _romanize_devanagari(text: str) -> str:
+    normalized = _normalize_text(text)
+    output: List[str] = []
+    i = 0
+
+    while i < len(normalized):
+        char = normalized[i]
+
+        if char in DEVANAGARI_INDEPENDENT_VOWELS:
+            output.append(DEVANAGARI_INDEPENDENT_VOWELS[char])
+            i += 1
+            continue
+
+        if char in DEVANAGARI_CONSONANTS:
+            base = DEVANAGARI_CONSONANTS[char]
+            next_char = normalized[i + 1] if i + 1 < len(normalized) else ""
+
+            if next_char in DEVANAGARI_MATRAS:
+                output.append(base + DEVANAGARI_MATRAS[next_char])
+                i += 2
+                continue
+
+            if next_char == DEVANAGARI_VIRAMA:
+                output.append(base)
+                i += 2
+                continue
+
+            output.append(base + "a")
+            i += 1
+            continue
+
+        if char == "ं" or char == "ँ":
+            output.append("n")
+        elif char == "ः":
+            output.append("h")
+        else:
+            output.append(char)
+        i += 1
+
+    return "".join(output)
+
+
+def _latin_phonetic_key(text: str) -> str:
+    normalized = _normalize_text(text).casefold()
+    replacements = (
+        ("ph", "f"),
+        ("ck", "k"),
+        ("q", "k"),
+        ("x", "ks"),
+        ("v", "w"),
+        ("z", "j"),
+    )
+    for source, target in replacements:
+        normalized = normalized.replace(source, target)
+
+    normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
+    normalized = re.sub(r"(.)\1+", r"\1", normalized)
+    normalized = re.sub(r"[aeiou]+", "", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
+
+
+def _phonetic_tokens(text: str) -> List[str]:
+    tokens = MIXED_TOKEN_RE.findall(_normalize_text(text))
+    keys: List[str] = []
+
+    for token in tokens:
+        latin_form = _romanize_devanagari(token) if _is_devanagari_text(token) else token
+        key = _latin_phonetic_key(latin_form)
+        if key:
+            keys.append(key)
+
+    return keys
+
+
+def _cross_script_phonetic_match(text: str, keyword: str) -> bool:
+    text_has_devanagari = _is_devanagari_text(text)
+    keyword_has_devanagari = _is_devanagari_text(keyword)
+    text_has_latin = _contains_latin_text(text)
+    keyword_has_latin = _contains_latin_text(keyword)
+
+    if not ((text_has_devanagari and keyword_has_latin) or (text_has_latin and keyword_has_devanagari)):
+        return False
+
+    text_keys = _phonetic_tokens(text)
+    keyword_keys = _phonetic_tokens(keyword)
+    if not text_keys or not keyword_keys:
+        return False
+
+    window = len(keyword_keys)
+    for index in range(len(text_keys) - window + 1):
+        if text_keys[index:index + window] == keyword_keys:
+            return True
+    return False
+
+
+def human_script_variants(keyword: str) -> List[str]:
+    normalized = _normalize_text(keyword)
+    variants = [normalized] if normalized else []
+
+    if _is_devanagari_text(normalized):
+        romanized = _romanize_devanagari(normalized)
+        if romanized:
+            variants.append(romanized)
+
+    deduped: List[str] = []
+    seen = set()
+    for variant in variants:
+        key = variant.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(variant)
+    return deduped
+
+
+def _keyword_matches(text: str, keyword: str, language_code: str) -> bool:
+    normalized_text = _normalize_text(text)
+    normalized_keyword = _normalize_text(keyword)
+    if not normalized_text or not normalized_keyword:
+        return False
+
+    if (language_code == "hi" or _is_devanagari_text(normalized_keyword)) and normalized_keyword in normalized_text:
+        return True
+
+    if LATIN_WORD_RE.search(normalized_keyword):
+        escaped = re.escape(normalized_keyword.casefold())
+        lowered_text = normalized_text.casefold()
+        if bool(re.search(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])", lowered_text)):
+            return True
+
+    if _cross_script_phonetic_match(normalized_text, normalized_keyword):
+        return True
+
+    return normalized_keyword.casefold() in normalized_text.casefold()
+
+
+def _segment_to_raw_data(segments: Any) -> List[Dict[str, Any]]:
+    if hasattr(segments, "to_raw_data"):
+        return segments.to_raw_data()
+    if isinstance(segments, list):
+        return segments
+    return list(segments)
+
 
 class YouTubeService:
     def __init__(self, api_key: str, proxy_url: Optional[str] = None, worker_url: Optional[str] = None):
@@ -23,13 +223,12 @@ class YouTubeService:
         self.worker_failures = 0
 
     def _get_http_client(self) -> Any:
-        import requests
         import random
-        
+        import requests
+
         session = requests.Session()
         session.trust_env = False
-        
-        # Randomize User-Agent to help bypass basic blocks
+
         user_agents = [
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
@@ -41,41 +240,35 @@ class YouTubeService:
             "User-Agent": random.choice(user_agents),
             "Accept-Language": "en-US,en;q=0.9",
         })
-        
-        # Configure proxy if provided
+
         if self.proxy_url:
             print("DEBUG: Configuring HTTP Client with Proxy")
             session.proxies = {
                 "http": self.proxy_url,
-                "https": self.proxy_url
+                "https": self.proxy_url,
             }
-            
+
         return session
 
     def resolve_channel_id(self, channel_url_or_id: str) -> Optional[str]:
         if not channel_url_or_id:
             return None
 
-        # 1. Direct Channel ID (UC...)
         if re.match(r"^UC[a-zA-Z0-9_-]{22}$", channel_url_or_id):
             return channel_url_or_id
 
-        # 2. Standard Channel URL (/channel/UC...)
         match = re.search(r"youtube\.com/channel/(UC[a-zA-Z0-9_-]{22})", channel_url_or_id)
         if match:
             return match.group(1)
 
-        # 3. Handle URL or just @handle
         match = re.search(r"(?:youtube\.com/)?@([a-zA-Z0-9_.-]+)", channel_url_or_id)
         if match:
             return self._resolve_name_to_channel_id(match.group(1))
 
-        # 4. Custom/Vanity URL (/c/name or /user/name)
         match = re.search(r"youtube\.com/(?:c|user)/([a-zA-Z0-9_.-]+)", channel_url_or_id)
         if match:
             return self._resolve_name_to_channel_id(match.group(1))
 
-        # 5. Fallback: treat as a plain name/search query
         return self._resolve_name_to_channel_id(channel_url_or_id)
 
     def _resolve_name_to_channel_id(self, name_or_handle: str) -> Optional[str]:
@@ -85,7 +278,7 @@ class YouTubeService:
                 part="snippet",
                 q=name_or_handle,
                 type="channel",
-                maxResults=1
+                maxResults=1,
             ).execute()
 
             if search_response.get("items"):
@@ -101,7 +294,7 @@ class YouTubeService:
     def fetch_uploads_playlist_id(self, channel_id: str) -> str:
         response = self.youtube.channels().list(
             part="contentDetails",
-            id=channel_id
+            id=channel_id,
         ).execute()
 
         if not response.get("items"):
@@ -118,20 +311,20 @@ class YouTubeService:
                 part="contentDetails,snippet",
                 playlistId=playlist_id,
                 maxResults=min(50, max_videos - len(videos)),
-                pageToken=next_page_token
+                pageToken=next_page_token,
             ).execute()
 
-            for item in response.get('items', []):
-                snippet = item.get('snippet', {})
-                content_details = item.get('contentDetails', {})
+            for item in response.get("items", []):
+                snippet = item.get("snippet", {})
+                content_details = item.get("contentDetails", {})
                 videos.append({
-                    "id": content_details.get('videoId'),
-                    "title": snippet.get('title'),
-                    "publishedAt": snippet.get('publishedAt'),
-                    "thumbnail": snippet.get('thumbnails', {}).get('high', {}).get('url')
+                    "id": content_details.get("videoId"),
+                    "title": snippet.get("title"),
+                    "publishedAt": snippet.get("publishedAt"),
+                    "thumbnail": snippet.get("thumbnails", {}).get("high", {}).get("url"),
                 })
 
-            next_page_token = response.get('nextPageToken')
+            next_page_token = response.get("nextPageToken")
             if not next_page_token:
                 break
 
@@ -141,50 +334,60 @@ class YouTubeService:
         return videos
 
     def _filter_out_shorts(self, videos: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Remove Shorts (duration <= 60s) via a batched videos.list call."""
-        import re
         video_ids = [v["id"] for v in videos if v["id"]]
 
-        # videos.list accepts up to 50 IDs per request
         durations = {}
         for i in range(0, len(video_ids), 50):
             batch = video_ids[i:i + 50]
             response = self.youtube.videos().list(
                 part="contentDetails",
-                id=",".join(batch)
+                id=",".join(batch),
             ).execute()
             for item in response.get("items", []):
                 duration_str = item.get("contentDetails", {}).get("duration", "PT0S")
-                # ISO 8601 duration e.g. PT1M30S, PT59S, P0D
                 total_seconds = 0
                 for value, unit in re.findall(r"(\d+)([HMSD])", duration_str):
-                    if unit == "H": total_seconds += int(value) * 3600
-                    elif unit == "M": total_seconds += int(value) * 60
-                    elif unit == "S": total_seconds += int(value)
+                    if unit == "H":
+                        total_seconds += int(value) * 3600
+                    elif unit == "M":
+                        total_seconds += int(value) * 60
+                    elif unit == "S":
+                        total_seconds += int(value)
                 durations[item["id"]] = total_seconds
 
         filtered = [v for v in videos if durations.get(v["id"], 61) > 60]
         print(f"DEBUG: Filtered out {len(videos) - len(filtered)} Shorts (≤60s) from {len(videos)} videos")
         return filtered
 
-    def get_transcript(self, video_id: str) -> List[Dict[str, Any]]:
-        """Fetch transcript via Cloudflare Worker (production) or youtube-transcript-api (local dev)."""
+    def get_transcript(self, video_id: str, preferred_languages: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+        languages = self._normalize_preferred_languages(preferred_languages)
         if self.worker_url:
-            return self._get_transcript_from_worker(video_id)
-        return self._get_transcript_from_api(video_id)
+            return self._get_transcript_from_worker(video_id, languages)
+        return self._get_transcript_from_api(video_id, languages)
 
-    def _get_transcript_from_worker(self, video_id: str) -> List[Dict[str, Any]]:
-        """Call the Cloudflare Worker which fetches transcripts from YouTube's edge IPs."""
+    def _normalize_preferred_languages(self, preferred_languages: Optional[List[str]]) -> List[str]:
+        languages = [normalize_language_code(code) for code in (preferred_languages or [])]
+        languages = [code for code in languages if code in SUPPORTED_TRANSCRIPT_LANGUAGES]
+        for code in SUPPORTED_TRANSCRIPT_LANGUAGES:
+            if code not in languages:
+                languages.append(code)
+        return languages
+
+    def _get_transcript_from_worker(self, video_id: str, preferred_languages: List[str]) -> Optional[Dict[str, Any]]:
         import requests as req
+
         url = f"{self.worker_url}/transcript"
         try:
-            print(f"DEBUG: Fetching transcript via Worker for {video_id}")
-            response = req.get(url, params={"video_id": video_id}, timeout=30)
+            print(f"DEBUG: Fetching transcript via Worker for {video_id} ({preferred_languages})")
+            response = req.get(
+                url,
+                params={"video_id": video_id, "preferred_langs": ",".join(preferred_languages)},
+                timeout=30,
+            )
             if response.status_code == 200:
                 return response.json()
             if response.status_code == 404:
-                # Worker signals no captions available
-                return []
+                return None
             error = response.json().get("error", f"Worker returned {response.status_code}")
             print(f"DEBUG ERROR: Worker error for {video_id}: {error}")
             raise Exception(error)
@@ -193,16 +396,26 @@ class YouTubeService:
             print(f"DEBUG ERROR: Worker request failed for {video_id}: {e}")
             raise
 
-    def _get_transcript_from_api(self, video_id: str) -> List[Dict[str, Any]]:
-        """Fallback: fetch transcript using youtube-transcript-api (for local dev)."""
+    def _get_transcript_from_api(self, video_id: str, preferred_languages: List[str]) -> Optional[Dict[str, Any]]:
         try:
             http_client = self._get_http_client()
             ytt_api = YouTubeTranscriptApi(http_client=http_client)
-            transcript = ytt_api.fetch(video_id, languages=['en', 'en-US', 'hi'])
-            return transcript.to_raw_data()
+            transcript_list = self._list_transcripts(ytt_api, video_id)
+            transcript = self._select_local_transcript(transcript_list, preferred_languages)
+            if not transcript:
+                return None
+
+            segments = _segment_to_raw_data(transcript.fetch())
+            language_code = normalize_language_code(getattr(transcript, "language_code", ""))
+            return {
+                "language_code": language_code,
+                "language_label": language_label_for_code(language_code, getattr(transcript, "language", None)),
+                "is_generated": bool(getattr(transcript, "is_generated", False)),
+                "segments": segments,
+            }
         except (TranscriptsDisabled, NoTranscriptFound) as e:
             print(f"DEBUG: Transcript API error for {video_id}: {type(e).__name__}")
-            return []
+            return None
         except Exception as e:
             error_msg = str(e)
             error_msg_lower = error_msg.lower()
@@ -233,19 +446,59 @@ class YouTubeService:
                 print(f"DEBUG ERROR: Unexpected error fetching transcript for {video_id}: {error_msg}")
             raise
 
+    def _list_transcripts(self, ytt_api: Any, video_id: str) -> Any:
+        if hasattr(ytt_api, "list"):
+            return ytt_api.list(video_id)
+        if hasattr(ytt_api, "list_transcripts"):
+            return ytt_api.list_transcripts(video_id)
+        if hasattr(YouTubeTranscriptApi, "list_transcripts"):
+            return YouTubeTranscriptApi.list_transcripts(video_id)
+        raise RuntimeError("youtube-transcript-api does not support listing transcripts in this environment")
 
-    def search_in_transcript(self, transcript: List[Dict[str, Any]], keyword: str, extra_keywords: Optional[List[str]] = None) -> List[Dict[str, Any]]:
-        """Search transcript for keyword and any extra translated variants."""
-        all_keywords = [keyword] + list(extra_keywords or [])
+    def _select_local_transcript(self, transcript_list: Any, preferred_languages: List[str]) -> Optional[Any]:
+        transcripts = list(transcript_list)
+        for language in preferred_languages:
+            manual = next(
+                (
+                    transcript for transcript in transcripts
+                    if normalize_language_code(getattr(transcript, "language_code", "")) == language
+                    and not bool(getattr(transcript, "is_generated", False))
+                ),
+                None,
+            )
+            if manual:
+                return manual
+
+            generated = next(
+                (
+                    transcript for transcript in transcripts
+                    if normalize_language_code(getattr(transcript, "language_code", "")) == language
+                ),
+                None,
+            )
+            if generated:
+                return generated
+        return None
+
+    def search_in_transcript(
+        self,
+        transcript: List[Dict[str, Any]],
+        keywords: List[str],
+        transcript_language: str,
+    ) -> List[Dict[str, Any]]:
+        usable_keywords = [_normalize_text(keyword) for keyword in keywords if _normalize_text(keyword)]
         seen_starts = set()
         matches = []
+
         for i, segment in enumerate(transcript):
-            if any(_keyword_matches(segment['text'], k) for k in all_keywords) and segment['start'] not in seen_starts:
-                seen_starts.add(segment['start'])
+            if any(_keyword_matches(segment["text"], keyword, transcript_language) for keyword in usable_keywords):
+                if segment["start"] in seen_starts:
+                    continue
+                seen_starts.add(segment["start"])
                 matches.append({
-                    "start": segment['start'],
-                    "text": segment['text'],
-                    "context_before": transcript[i-1]['text'] if i > 0 else "",
-                    "context_after": transcript[i+1]['text'] if i < len(transcript) - 1 else ""
+                    "start": segment["start"],
+                    "text": segment["text"],
+                    "context_before": transcript[i - 1]["text"] if i > 0 else "",
+                    "context_after": transcript[i + 1]["text"] if i < len(transcript) - 1 else "",
                 })
         return matches

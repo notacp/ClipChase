@@ -11,11 +11,13 @@ import { TimeRangeSelector } from "@/components/TimeRangeSelector";
 import { SearchResults } from "@/components/SearchResults";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { BackgroundEffect } from "@/components/BackgroundEffect";
+import { LoadingStream } from "@/components/LoadingStream";
 
 export default function Home() {
-  const [channelUrl, setChannelUrl] = useState("");       // resolved value sent to API
-  const [channelDisplay, setChannelDisplay] = useState(""); // what's shown in the input
+  const [channelUrl, setChannelUrl] = useState("");
+  const [channelDisplay, setChannelDisplay] = useState("");
   const [suggestions, setSuggestions] = useState<ChannelSuggestion[]>([]);
+  const [isSuggestionsLoading, setIsSuggestionsLoading] = useState(false);
   const [keyword, setKeyword] = useState("");
   const [timeRange, setTimeRange] = useState<TimeRange>("30d");
   const [excludeShorts, setExcludeShorts] = useState(false);
@@ -26,18 +28,24 @@ export default function Home() {
   const [errorStatus, setErrorStatus] = useState<number | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [lastSearch, setLastSearch] = useState<{ channel: string; keyword: string } | null>(null);
+  const [formError, setFormError] = useState("");
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (channelDisplay.length < 2) {
       setSuggestions([]);
+      setIsSuggestionsLoading(false);
       return;
     }
     const timer = setTimeout(async () => {
+      setIsSuggestionsLoading(true);
       try {
         const res = await fetch(`/api/suggest-channels?q=${encodeURIComponent(channelDisplay)}`);
         if (res.ok) setSuggestions(await res.json());
       } catch {
         // suggestions are best-effort, ignore errors
+      } finally {
+        setIsSuggestionsLoading(false);
       }
     }, 350);
     return () => clearTimeout(timer);
@@ -53,12 +61,20 @@ export default function Home() {
 
   const handleChannelInputChange = (value: string) => {
     setChannelDisplay(value);
-    setChannelUrl(value); // keep in sync while user is typing manually
+    setChannelUrl(value);
+    if (formError) setFormError("");
   };
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!channelUrl || !keyword) return;
+  const handleKeywordChange = (value: string) => {
+    setKeyword(value);
+    if (formError) setFormError("");
+  };
+
+  const runSearch = async () => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
 
     setIsLoading(true);
     setError("");
@@ -71,29 +87,75 @@ export default function Home() {
     try {
       const publishedAfter = getPublishedAfterDate(timeRange);
       let url = `/api/search?channel_url=${encodeURIComponent(channelUrl)}&keyword=${encodeURIComponent(keyword)}&max_videos=20`;
-      if (publishedAfter) {
-        url += `&published_after=${encodeURIComponent(publishedAfter)}`;
-      }
-      if (excludeShorts) {
-        url += `&exclude_shorts=true`;
-      }
-      const response = await fetch(url);
+      if (publishedAfter) url += `&published_after=${encodeURIComponent(publishedAfter)}`;
+      if (excludeShorts) url += `&exclude_shorts=true`;
+
+      const response = await fetch(url, { signal: controller.signal });
 
       if (!response.ok) {
         setErrorStatus(response.status);
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({ detail: null }));
         throw new Error(errorData.detail || "Search failed");
       }
 
       const data = await response.json();
+      if (abortControllerRef.current !== controller) return;
       setResults(data);
       setLastSearch({ channel: channelUrl, keyword });
     } catch (err: any) {
-      setError(err.message);
+      if (abortControllerRef.current !== controller) return;
+      
+      if (err.name === "AbortError" || err.message?.includes("aborted") || err.message?.includes("fetch failed")) {
+        // If it was the current controller but aborted, it was the 60s timeout
+        setErrorStatus(408);
+        setError("The server took too long to respond.");
+      } else if (err.message === "Failed to fetch") {
+        setErrorStatus(0);
+        setError("Unable to connect to the server.");
+      } else {
+        setError(err.message);
+      }
     } finally {
-      setIsLoading(false);
-      setHasSearched(true);
+      clearTimeout(timeoutId);
+      if (abortControllerRef.current === controller) {
+         setIsLoading(false);
+         setHasSearched(true);
+      }
     }
+  };
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!channelUrl && !keyword) {
+      setFormError("Enter a channel and a keyword to search");
+      return;
+    }
+    if (!channelUrl) {
+      setFormError("Enter a YouTube channel URL or @handle");
+      return;
+    }
+    if (!keyword) {
+      setFormError("Enter a keyword to search for");
+      return;
+    }
+    setFormError("");
+    await runSearch();
+  };
+
+  const getErrorTitle = () => {
+    if (errorStatus === 0) return "Connection error";
+    if (errorStatus === 408) return "Request timed out";
+    if (errorStatus === 403 || errorStatus === 502) return "Something went wrong on our end";
+    if (errorStatus === 400) return "Channel not found";
+    return "Search failed";
+  };
+
+  const getErrorMessage = () => {
+    if (errorStatus === 0) return "Unable to reach the server. Check your internet connection and try again.";
+    if (errorStatus === 408) return "The search took too long. This can happen with large channels — please try again.";
+    if (errorStatus === 403 || errorStatus === 502) return "YouTube is temporarily blocking our server. This usually resolves itself — try again in a few minutes.";
+    if (errorStatus === 400) return "We couldn't find that YouTube channel. Double-check the URL or @handle and try again.";
+    return error || "Something went wrong. Please try again.";
   };
 
   return (
@@ -102,30 +164,26 @@ export default function Home() {
       <Header />
 
       <div className="relative z-10 max-w-7xl mx-auto px-6 py-20">
-        <Hero isCompact={results.length > 0 || (hasSearched && !isLoading)}>
+        <Hero isCompact={isLoading || results.length > 0 || hasSearched}>
           <SearchForm
             channelDisplay={channelDisplay}
             onChannelChange={handleChannelInputChange}
             onDismissSuggestions={handleDismissSuggestions}
             suggestions={suggestions}
+            isSuggestionsLoading={isSuggestionsLoading}
             onSelectSuggestion={handleSelectSuggestion}
             keyword={keyword}
-            setKeyword={setKeyword}
+            setKeyword={handleKeywordChange}
             handleSearch={handleSearch}
             isLoading={isLoading}
             excludeShorts={excludeShorts}
             setExcludeShorts={setExcludeShorts}
+            formError={formError}
           />
           <TimeRangeSelector timeRange={timeRange} setTimeRange={setTimeRange} />
 
           {isLoading && (
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="mt-4 text-sm text-yt-light-gray text-center"
-            >
-              Scanning videos for &ldquo;{keyword}&rdquo;… this may take up to 30 seconds
-            </motion.p>
+            <LoadingStream keyword={keyword} channel={channelDisplay} />
           )}
 
           {error && (
@@ -136,19 +194,18 @@ export default function Home() {
             >
               <h3 className="font-bold flex items-center gap-2 mb-2">
                 <span className="text-xl">⚠️</span>
-                {errorStatus === 403 || errorStatus === 502
-                  ? "Something went wrong on our end"
-                  : errorStatus === 400
-                  ? "Channel not found"
-                  : "Search failed"}
+                {getErrorTitle()}
               </h3>
               <p className="font-medium text-sm leading-relaxed text-yt-red/80">
-                {errorStatus === 403 || errorStatus === 502
-                  ? "YouTube is temporarily blocking our server. This usually resolves itself — try again in a few minutes."
-                  : errorStatus === 400
-                  ? "We couldn't find that YouTube channel. Double-check the URL or @handle and try again."
-                  : "Something went wrong. Please try again."}
+                {getErrorMessage()}
               </p>
+              <button
+                type="button"
+                onClick={runSearch}
+                className="mt-3 text-sm font-semibold text-yt-red hover:text-white border border-yt-red/40 hover:border-yt-red hover:bg-yt-red px-4 py-1.5 rounded-lg transition-all"
+              >
+                Try again
+              </button>
             </motion.div>
           )}
         </Hero>
@@ -173,6 +230,37 @@ export default function Home() {
               <li>• The channel may not have transcripts enabled</li>
             </ul>
           </motion.div>
+        )}
+
+        {/* Skeleton loading */}
+        {isLoading && (
+          <div className="mt-20 grid grid-cols-1 lg:grid-cols-2 gap-12">
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div className="h-6 w-20 bg-white/10 rounded animate-pulse" />
+                <div className="h-4 w-40 bg-white/10 rounded animate-pulse" />
+              </div>
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="glass p-6 rounded-2xl space-y-4">
+                  <div className="flex flex-col sm:flex-row gap-4">
+                    <div className="w-full sm:w-32 h-20 bg-white/10 rounded-lg animate-pulse" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-5 bg-white/10 rounded animate-pulse" />
+                      <div className="h-5 w-3/4 bg-white/10 rounded animate-pulse" />
+                      <div className="h-4 w-24 bg-white/10 rounded animate-pulse mt-1" />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="h-12 bg-white/10 rounded-lg animate-pulse" />
+                    <div className="h-12 w-5/6 bg-white/10 rounded-lg animate-pulse opacity-75" />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="lg:sticky lg:top-24 h-fit">
+              <div className="glass rounded-3xl aspect-video bg-white/5 animate-pulse" />
+            </div>
+          </div>
         )}
 
         {/* Results Section */}
