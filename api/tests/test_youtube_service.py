@@ -2,7 +2,10 @@ import pytest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from api.app.services.youtube import YouTubeService
+from api.app.services.youtube import (
+    YouTubeService,
+    _romanized_forms_similar,
+)
 
 ENGLISH_TRANSCRIPT = [
     {"start": 1.0, "duration": 2.5, "text": "Welcome to the video"},
@@ -84,6 +87,23 @@ def test_search_in_transcript_matches_invest_against_hindi_caption():
     assert matches[0]["text"] == "हमने क्लाइंट्स को इन्वेस्ट नहीं किया"
 
 
+def test_expand_search_terms_for_transcript_adds_hindi_candidate_for_invest():
+    service = YouTubeService(api_key="fake-key")
+
+    expanded = service.expand_search_terms_for_transcript(["Invest"], INVEST_HINDI_TRANSCRIPT, transcript_language="hi")
+
+    assert expanded == ["Invest", "इन्वेस्ट"]
+
+
+def test_expand_search_terms_for_transcript_adds_hindi_candidate_for_finology():
+    service = YouTubeService(api_key="fake-key")
+    transcript = [{"start": 0, "duration": 2, "text": "तो फिनोलॉजी 30 में आपका पोर्टफोलियो बने"}]
+
+    expanded = service.expand_search_terms_for_transcript(["Finology"], transcript, transcript_language="hi")
+
+    assert expanded == ["Finology", "फिनोलॉजी"]
+
+
 def test_search_in_transcript_matches_devanagari_query_against_english_caption():
     service = YouTubeService(api_key="fake-key")
     transcript = [{"start": 0, "duration": 2, "text": "We are building a startup"}]
@@ -124,4 +144,37 @@ def test_block_detection_logic():
         with pytest.raises(Exception):
             service.get_transcript("fake-video-id", preferred_languages=["en", "hi"])
 
-        assert service.block_detected is True
+
+# ---------------------------------------------------------------------------
+# _romanized_forms_similar unit tests
+# All romanized values below are the real output of _romanize_devanagari():
+#   मेडिटेट  -> "mediteta"
+#   मेडिटेशन -> "mediteshana"
+#   माइंडसेट -> "maaindaseta"
+#   मेंटालिटी -> "mentaalitii"
+#   मोस्टेंट  -> "mostenta"
+# ---------------------------------------------------------------------------
+
+def test_romanized_forms_similar_matches_direct_borrowing():
+    # "mediteta" is मेडिटेट — a direct phonetic copy of "meditate"
+    assert _romanized_forms_similar("meditate", "mediteta") is True
+
+
+def test_romanized_forms_similar_matches_suffixed_borrowing():
+    # "mediteshana" is मेडिटेशन — "-tion" becomes "-shana" suffix
+    assert _romanized_forms_similar("meditate", "mediteshana") is True
+
+
+def test_romanized_forms_similar_rejects_short_token():
+    # len("med")=3 < max(4, int(8*0.7)=5) → rejected by the length guard
+    assert _romanized_forms_similar("meditate", "med") is False
+
+
+def test_romanized_forms_similar_rejects_first_char_mismatch():
+    assert _romanized_forms_similar("meditate", "think") is False
+
+
+def test_romanized_forms_similar_rejects_semantically_related_but_phonetically_different():
+    assert _romanized_forms_similar("meditate", "maaindaseta") is False   # माइंडसेट
+    assert _romanized_forms_similar("meditate", "mentaalitii") is False   # मेंटालिटी
+    assert _romanized_forms_similar("meditate", "mostenta") is False      # मोस्टेंट

@@ -10,6 +10,7 @@ YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
 SUPPORTED_TRANSCRIPT_LANGUAGES = ("en", "hi")
 DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]")
+DEVANAGARI_TOKEN_RE = re.compile(r"[\u0900-\u097F]+")
 LATIN_WORD_RE = re.compile(r"[A-Za-z0-9]")
 LATIN_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 MIXED_TOKEN_RE = re.compile(r"[A-Za-z0-9]+|[\u0900-\u097F]+")
@@ -181,6 +182,116 @@ def human_script_variants(keyword: str) -> List[str]:
         seen.add(key)
         deduped.append(variant)
     return deduped
+
+
+def _dedupe_terms(terms: List[str]) -> List[str]:
+    deduped: List[str] = []
+    seen = set()
+    for term in terms:
+        normalized = _normalize_text(term)
+        if not normalized:
+            continue
+        key = normalized.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(normalized)
+    return deduped
+
+
+def _limited_edit_distance(left: str, right: str, max_distance: int) -> Optional[int]:
+    if abs(len(left) - len(right)) > max_distance:
+        return None
+
+    previous = list(range(len(right) + 1))
+    for i, left_char in enumerate(left, start=1):
+        current = [i]
+        row_min = current[0]
+        for j, right_char in enumerate(right, start=1):
+            insert_cost = current[j - 1] + 1
+            delete_cost = previous[j] + 1
+            replace_cost = previous[j - 1] + (left_char != right_char)
+            value = min(insert_cost, delete_cost, replace_cost)
+            current.append(value)
+            row_min = min(row_min, value)
+        if row_min > max_distance:
+            return None
+        previous = current
+
+    distance = previous[-1]
+    return distance if distance <= max_distance else None
+
+
+def _romanized_forms_similar(latin_keyword: str, romanized_token: str, threshold: float = 0.45) -> bool:
+    """
+    True if romanized_token is a plausible phonetic borrowing of latin_keyword.
+
+    Uses prefix-anchored comparison: the token may carry a suffix not in the
+    keyword (e.g. Hindi "-shana" for the English "-tion" ending), so we compare
+    the keyword against the first len(keyword) characters of the token.
+
+    Guards:
+    - First chars must match (quick reject).
+    - Token must be at least max(4, 0.7 * len(keyword)) chars to prevent very
+      short tokens from passing via prefix truncation alone.
+    - Normalized edit distance (edit_dist / len(keyword)) must be <= threshold.
+
+    Threshold 0.45 chosen empirically: accepts "startup"→"staartaapa" (distance
+    3/7=0.43) while rejecting "meditate"→"maaindaseta" (distance 6/8=0.75) and
+    "meditate"→"mentaalitii" (distance 5/8=0.625).
+    """
+    if not latin_keyword or not romanized_token:
+        return False
+
+    kw = latin_keyword.casefold()
+    tok = romanized_token.casefold()
+
+    if kw[0] != tok[0]:
+        return False
+
+    if len(tok) < max(4, int(len(kw) * 0.7)):
+        return False
+
+    cmp_len = len(kw)
+    tok_prefix = tok[:cmp_len]
+    max_dist = max(1, int(cmp_len * threshold))
+
+    return _limited_edit_distance(kw, tok_prefix, max_dist) is not None
+
+
+def _phonetic_keys_similar(left: str, right: str) -> bool:
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    if left[0] != right[0]:
+        return False
+
+    max_length = max(len(left), len(right))
+    if max_length <= 4:
+        max_distance = 1
+    elif max_length <= 8:
+        max_distance = 2
+    else:
+        max_distance = 3
+
+    return _limited_edit_distance(left, right, max_distance) is not None
+
+
+def _extract_devanagari_tokens(transcript: List[Dict[str, Any]]) -> List[str]:
+    tokens: List[str] = []
+    seen = set()
+
+    for segment in transcript:
+        for token in DEVANAGARI_TOKEN_RE.findall(_normalize_text(segment.get("text", ""))):
+            if len(token) < 3:
+                continue
+            if token in seen:
+                continue
+            seen.add(token)
+            tokens.append(token)
+
+    return tokens
 
 
 def _keyword_matches(text: str, keyword: str, language_code: str) -> bool:
@@ -479,6 +590,36 @@ class YouTubeService:
             if generated:
                 return generated
         return None
+
+    def expand_search_terms_for_transcript(
+        self,
+        keywords: List[str],
+        transcript: List[Dict[str, Any]],
+        transcript_language: str,
+    ) -> List[str]:
+        base_terms = _dedupe_terms(keywords)
+        if transcript_language != "hi":
+            return base_terms
+
+        transcript_tokens = _extract_devanagari_tokens(transcript)
+        if not transcript_tokens:
+            return base_terms
+
+        additions: List[str] = []
+        for keyword in base_terms:
+            if _is_devanagari_text(keyword) or not _contains_latin_text(keyword):
+                continue
+
+            keyword_key = _latin_phonetic_key(keyword)
+            if not keyword_key:
+                continue
+
+            for token in transcript_tokens:
+                token_key = _latin_phonetic_key(_romanize_devanagari(token))
+                if _phonetic_keys_similar(keyword_key, token_key):
+                    additions.append(token)
+
+        return _dedupe_terms(base_terms + additions)
 
     def search_in_transcript(
         self,
