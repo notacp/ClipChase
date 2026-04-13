@@ -144,6 +144,8 @@ def test_block_detection_logic():
         with pytest.raises(Exception):
             service.get_transcript("fake-video-id", preferred_languages=["en", "hi"])
 
+        assert service.block_detected is True
+
 
 # ---------------------------------------------------------------------------
 # _romanized_forms_similar unit tests
