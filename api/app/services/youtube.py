@@ -110,39 +110,6 @@ def _romanize_devanagari(text: str) -> str:
     return "".join(output)
 
 
-def _latin_phonetic_key(text: str) -> str:
-    normalized = _normalize_text(text).casefold()
-    replacements = (
-        ("ph", "f"),
-        ("ck", "k"),
-        ("q", "k"),
-        ("x", "ks"),
-        ("v", "w"),
-        ("z", "j"),
-    )
-    for source, target in replacements:
-        normalized = normalized.replace(source, target)
-
-    normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
-    normalized = re.sub(r"(.)\1+", r"\1", normalized)
-    normalized = re.sub(r"[aeiou]+", "", normalized)
-    normalized = re.sub(r"\s+", " ", normalized).strip()
-    return normalized
-
-
-def _phonetic_tokens(text: str) -> List[str]:
-    tokens = MIXED_TOKEN_RE.findall(_normalize_text(text))
-    keys: List[str] = []
-
-    for token in tokens:
-        latin_form = _romanize_devanagari(token) if _is_devanagari_text(token) else token
-        key = _latin_phonetic_key(latin_form)
-        if key:
-            keys.append(key)
-
-    return keys
-
-
 def _cross_script_phonetic_match(text: str, keyword: str) -> bool:
     text_has_devanagari    = _is_devanagari_text(text)
     keyword_has_latin      = _contains_latin_text(keyword)
@@ -260,25 +227,6 @@ def _romanized_forms_similar(latin_keyword: str, romanized_token: str, threshold
     max_dist = max(1, int(cmp_len * threshold))
 
     return _limited_edit_distance(kw, tok_prefix, max_dist) is not None
-
-
-def _phonetic_keys_similar(left: str, right: str) -> bool:
-    if not left or not right:
-        return False
-    if left == right:
-        return True
-    if left[0] != right[0]:
-        return False
-
-    max_length = max(len(left), len(right))
-    if max_length <= 4:
-        max_distance = 1
-    elif max_length <= 8:
-        max_distance = 2
-    else:
-        max_distance = 3
-
-    return _limited_edit_distance(left, right, max_distance) is not None
 
 
 def _extract_devanagari_tokens(transcript: List[Dict[str, Any]]) -> List[str]:
