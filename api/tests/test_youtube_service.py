@@ -180,3 +180,33 @@ def test_romanized_forms_similar_rejects_semantically_related_but_phonetically_d
     assert _romanized_forms_similar("meditate", "maaindaseta") is False   # माइंडसेट
     assert _romanized_forms_similar("meditate", "mentaalitii") is False   # मेंटालिटी
     assert _romanized_forms_similar("meditate", "mostenta") is False      # मोस्टेंट
+
+
+# ---------------------------------------------------------------------------
+# expand_search_terms_for_transcript — false positive regression tests
+# ---------------------------------------------------------------------------
+
+MEDITATE_HINDI_TRANSCRIPT = [
+    {"start": 0.0, "duration": 3.0, "text": "माइंडसेट और मेंटालिटी बहुत जरूरी है"},
+    {"start": 3.0, "duration": 2.0, "text": "मोस्टेंट से सीखें"},
+]
+
+
+def test_expand_does_not_add_mindset_or_mentality_for_meditate():
+    # Current buggy code adds माइंडसेट/मेंटालिटी because skeleton "mndst"/"mntlt"
+    # is within edit distance 2 of "mdtt". This test must fail before the fix.
+    service = YouTubeService(api_key="fake-key")
+    expanded = service.expand_search_terms_for_transcript(
+        ["meditate"], MEDITATE_HINDI_TRANSCRIPT, transcript_language="hi"
+    )
+    assert expanded == ["meditate"]
+
+
+def test_expand_adds_direct_devanagari_borrowing_for_meditate():
+    # "मेडिटेट" romanizes to "mediteta" — distance 2 from "meditate" → should be added
+    service = YouTubeService(api_key="fake-key")
+    transcript = [{"start": 0, "duration": 2, "text": "रोज मेडिटेट करो"}]
+    expanded = service.expand_search_terms_for_transcript(
+        ["meditate"], transcript, transcript_language="hi"
+    )
+    assert "मेडिटेट" in expanded

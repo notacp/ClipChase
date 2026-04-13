@@ -27,6 +27,7 @@ def test_search_router_success(mock_yt_service_class):
         "is_generated": False,
         "segments": [{"start": 0, "text": "mock transcript"}],
     }
+    mock_service.expand_search_terms_for_transcript.side_effect = lambda terms, transcript, transcript_language: terms
     mock_service.search_in_transcript.return_value = [{"start": 0, "text": "mock match", "context_before": "", "context_after": ""}]
     mock_service.block_detected = False
     mock_service.proxy_error_detected = False
@@ -66,6 +67,7 @@ def test_search_router_uses_romanized_variant_for_devanagari_query(mock_yt_servi
         "is_generated": False,
         "segments": [{"start": 0, "text": "startup"}],
     }
+    mock_service.expand_search_terms_for_transcript.return_value = ["स्टार्टअप", "staartapa"]
     mock_service.search_in_transcript.return_value = [{"start": 0, "text": "startup", "context_before": "", "context_after": ""}]
     mock_service.block_detected = False
     mock_service.proxy_error_detected = False
@@ -100,6 +102,7 @@ def test_search_router_keeps_latin_query_without_translation(mock_yt_service_cla
         "is_generated": False,
         "segments": [{"start": 0, "text": "स्टार्टअप"}],
     }
+    mock_service.expand_search_terms_for_transcript.return_value = ["startup", "स्टार्टअप"]
     mock_service.search_in_transcript.return_value = [{"start": 0, "text": "स्टार्टअप", "context_before": "", "context_after": ""}]
     mock_service.block_detected = False
     mock_service.proxy_error_detected = False
@@ -108,12 +111,12 @@ def test_search_router_keeps_latin_query_without_translation(mock_yt_service_cla
 
     assert response.status_code == 200
     data = response.json()
-    assert data[0]["search_terms_used"] == ["startup"]
+    assert data[0]["search_terms_used"] == ["startup", "स्टार्टअप"]
     assert mock_service.get_transcript.call_count == 1
     mock_service.get_transcript.assert_called_with("vid1", preferred_languages=["en", "hi"])
     mock_service.search_in_transcript.assert_called_once_with(
         [{"start": 0, "text": "स्टार्टअप"}],
-        ["startup"],
+        ["startup", "स्टार्टअप"],
         transcript_language="hi",
     )
 
@@ -142,6 +145,10 @@ def test_search_router_falls_back_to_hindi_track_when_english_track_misses(mock_
             "segments": [{"start": 12, "text": "हमने क्लाइंट्स को इन्वेस्ट नहीं किया"}],
         },
     ]
+    mock_service.expand_search_terms_for_transcript.side_effect = [
+        ["invest"],
+        ["invest", "इन्वेस्ट"],
+    ]
     mock_service.search_in_transcript.side_effect = [
         [],
         [{"start": 12, "text": "हमने क्लाइंट्स को इन्वेस्ट नहीं किया", "context_before": "", "context_after": ""}],
@@ -154,13 +161,48 @@ def test_search_router_falls_back_to_hindi_track_when_english_track_misses(mock_
     assert response.status_code == 200
     data = response.json()
     assert data[0]["transcript_language_code"] == "hi"
-    assert data[0]["search_terms_used"] == ["invest"]
+    assert data[0]["search_terms_used"] == ["invest", "इन्वेस्ट"]
     assert mock_service.get_transcript.call_args_list == [
         (( "vid1",), {"preferred_languages": ["en", "hi"]}),
         (( "vid1",), {"preferred_languages": ["hi", "en"]}),
     ]
     assert mock_service.search_in_transcript.call_args_list[0].kwargs["transcript_language"] == "en"
     assert mock_service.search_in_transcript.call_args_list[1].kwargs["transcript_language"] == "hi"
+
+
+@patch("api.app.routers.search.YouTubeService")
+def test_search_router_adds_finology_candidate_from_hindi_transcript(mock_yt_service_class):
+    mock_service = MagicMock()
+    mock_yt_service_class.return_value = mock_service
+
+    mock_service.resolve_channel_id.return_value = "UC123"
+    mock_service.fetch_uploads_playlist_id.return_value = "PL123"
+    mock_service.fetch_videos.return_value = [
+        {"id": "vid1", "title": "Test", "publishedAt": "2024-01-01T00:00:00Z", "thumbnail": ""},
+    ]
+    mock_service.get_transcript.return_value = {
+        "language_code": "hi",
+        "language_label": "Hindi",
+        "is_generated": False,
+        "segments": [{"start": 12, "text": "मेरे में आपका 30 स्टॉक्स का पोर्टफोलियो बने, तो फिनोलॉजी"}],
+    }
+    mock_service.expand_search_terms_for_transcript.return_value = ["Finology", "फिनोलॉजी"]
+    mock_service.search_in_transcript.return_value = [
+        {"start": 12, "text": "मेरे में आपका 30 स्टॉक्स का पोर्टफोलियो बने, तो फिनोलॉजी", "context_before": "", "context_after": ""}
+    ]
+    mock_service.block_detected = False
+    mock_service.proxy_error_detected = False
+
+    response = client.get("/api/search?channel_url=fake&keyword=Finology")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data[0]["search_terms_used"] == ["Finology", "फिनोलॉजी"]
+    mock_service.search_in_transcript.assert_called_once_with(
+        [{"start": 12, "text": "मेरे में आपका 30 स्टॉक्स का पोर्टफोलियो बने, तो फिनोलॉजी"}],
+        ["Finology", "फिनोलॉजी"],
+        transcript_language="hi",
+    )
 
 
 @patch("api.app.routers.search.YouTubeService")
@@ -172,6 +214,7 @@ def test_search_router_returns_403_on_block(mock_yt_service_class):
     mock_service.fetch_uploads_playlist_id.return_value = "PL123"
     mock_service.fetch_videos.return_value = [{"id": "vid1", "title": "Test", "publishedAt": "2024-01-01T00:00:00Z", "thumbnail": ""}]
     mock_service.get_transcript.return_value = None
+    mock_service.expand_search_terms_for_transcript.side_effect = lambda terms, transcript, transcript_language: terms
     mock_service.block_detected = True
     mock_service.proxy_error_detected = False
 
@@ -189,6 +232,7 @@ def test_search_router_returns_502_on_proxy_error(mock_yt_service_class):
     mock_service.resolve_channel_id.return_value = "UC123"
     mock_service.fetch_uploads_playlist_id.return_value = "PL123"
     mock_service.fetch_videos.return_value = [{"id": "vid1", "title": "Test", "publishedAt": "2024-01-01T00:00:00Z", "thumbnail": ""}]
+    mock_service.expand_search_terms_for_transcript.side_effect = lambda terms, transcript, transcript_language: terms
     mock_service.get_transcript.side_effect = Exception("ProxyError: 407 Proxy Authentication Required")
     mock_service.block_detected = False
     mock_service.proxy_error_detected = True
@@ -205,6 +249,7 @@ def test_search_router_sanitizes_500_errors(mock_yt_service_class):
     mock_yt_service_class.return_value = mock_service
 
     mock_service.resolve_channel_id.return_value = "UC123"
+    mock_service.expand_search_terms_for_transcript.side_effect = lambda terms, transcript, transcript_language: terms
     mock_service.fetch_uploads_playlist_id.side_effect = Exception("SENSITIVE_DB_OR_NETWORK_ERROR")
 
     response = client.get("/api/search?channel_url=fake&keyword=mock")

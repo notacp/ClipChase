@@ -612,13 +612,8 @@ class YouTubeService:
             if _is_devanagari_text(keyword) or not _contains_latin_text(keyword):
                 continue
 
-            keyword_key = _latin_phonetic_key(keyword)
-            if not keyword_key:
-                continue
-
             for token in transcript_tokens:
-                token_key = _latin_phonetic_key(_romanize_devanagari(token))
-                if _phonetic_keys_similar(keyword_key, token_key):
+                if _romanized_forms_similar(keyword, _romanize_devanagari(token)):
                     additions.append(token)
 
         return _dedupe_terms(base_terms + additions)
