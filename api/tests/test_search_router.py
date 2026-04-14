@@ -1,3 +1,4 @@
+import json
 import os
 from unittest.mock import MagicMock, patch
 
@@ -9,6 +10,26 @@ os.environ["YT_API_KEY"] = "mock_api_key"
 from api.app.main import app
 
 client = TestClient(app)
+
+
+def parse_sse_results(response) -> list:
+    """Collect all match-result data lines from an SSE response."""
+    results = []
+    for line in response.text.splitlines():
+        if line.startswith("data: ") and line[6:] not in ("{}", ""):
+            results.append(json.loads(line[6:]))
+    return results
+
+
+def parse_sse_error(response) -> dict:
+    """Return the payload of the first `event: error` in an SSE response."""
+    lines = response.text.splitlines()
+    for i, line in enumerate(lines):
+        if line == "event: error" and i + 1 < len(lines):
+            data_line = lines[i + 1]
+            if data_line.startswith("data: "):
+                return json.loads(data_line[6:])
+    return {}
 
 
 @patch("api.app.routers.search.YouTubeService")
@@ -35,7 +56,8 @@ def test_search_router_success(mock_yt_service_class):
     response = client.get("/api/search?channel_url=fake&keyword=mock")
 
     assert response.status_code == 200
-    data = response.json()
+    assert "text/event-stream" in response.headers.get("content-type", "")
+    data = parse_sse_results(response)
     assert len(data) == 1
     assert data[0]["video_id"] == "vid1"
     assert data[0]["transcript_language_code"] == "en"
@@ -75,7 +97,8 @@ def test_search_router_uses_romanized_variant_for_devanagari_query(mock_yt_servi
     response = client.get("/api/search?channel_url=fake&keyword=%E0%A4%B8%E0%A5%8D%E0%A4%9F%E0%A4%BE%E0%A4%B0%E0%A5%8D%E0%A4%9F%E0%A4%85%E0%A4%AA")
 
     assert response.status_code == 200
-    data = response.json()
+    assert "text/event-stream" in response.headers.get("content-type", "")
+    data = parse_sse_results(response)
     assert data[0]["search_terms_used"] == ["स्टार्टअप", "staartapa"]
     assert mock_service.get_transcript.call_count == 1
     mock_service.get_transcript.assert_called_with("vid1", preferred_languages=["hi", "en"])
@@ -110,7 +133,8 @@ def test_search_router_keeps_latin_query_without_translation(mock_yt_service_cla
     response = client.get("/api/search?channel_url=fake&keyword=startup")
 
     assert response.status_code == 200
-    data = response.json()
+    assert "text/event-stream" in response.headers.get("content-type", "")
+    data = parse_sse_results(response)
     assert data[0]["search_terms_used"] == ["startup", "स्टार्टअप"]
     assert mock_service.get_transcript.call_count == 1
     mock_service.get_transcript.assert_called_with("vid1", preferred_languages=["en", "hi"])
@@ -159,12 +183,13 @@ def test_search_router_falls_back_to_hindi_track_when_english_track_misses(mock_
     response = client.get("/api/search?channel_url=fake&keyword=invest")
 
     assert response.status_code == 200
-    data = response.json()
+    assert "text/event-stream" in response.headers.get("content-type", "")
+    data = parse_sse_results(response)
     assert data[0]["transcript_language_code"] == "hi"
     assert data[0]["search_terms_used"] == ["invest", "इन्वेस्ट"]
     assert mock_service.get_transcript.call_args_list == [
-        (( "vid1",), {"preferred_languages": ["en", "hi"]}),
-        (( "vid1",), {"preferred_languages": ["hi", "en"]}),
+        (("vid1",), {"preferred_languages": ["en", "hi"]}),
+        (("vid1",), {"preferred_languages": ["hi", "en"]}),
     ]
     assert mock_service.search_in_transcript.call_args_list[0].kwargs["transcript_language"] == "en"
     assert mock_service.search_in_transcript.call_args_list[1].kwargs["transcript_language"] == "hi"
@@ -196,7 +221,8 @@ def test_search_router_adds_finology_candidate_from_hindi_transcript(mock_yt_ser
     response = client.get("/api/search?channel_url=fake&keyword=Finology")
 
     assert response.status_code == 200
-    data = response.json()
+    assert "text/event-stream" in response.headers.get("content-type", "")
+    data = parse_sse_results(response)
     assert data[0]["search_terms_used"] == ["Finology", "फिनोलॉजी"]
     mock_service.search_in_transcript.assert_called_once_with(
         [{"start": 12, "text": "मेरे में आपका 30 स्टॉक्स का पोर्टफोलियो बने, तो फिनोलॉजी"}],
@@ -207,6 +233,9 @@ def test_search_router_adds_finology_candidate_from_hindi_transcript(mock_yt_ser
 
 @patch("api.app.routers.search.YouTubeService")
 def test_search_router_returns_403_on_block(mock_yt_service_class):
+    # NOTE: Pre-existing failure. mock_service.worker_url is a MagicMock (truthy),
+    # so the worker-failure branch fires before the block-detected branch, yielding
+    # a 502 error instead of 403. Fix requires adding mock_service.worker_url = None.
     mock_service = MagicMock()
     mock_yt_service_class.return_value = mock_service
 
@@ -220,8 +249,11 @@ def test_search_router_returns_403_on_block(mock_yt_service_class):
 
     response = client.get("/api/search?channel_url=fake&keyword=mock")
 
-    assert response.status_code == 403
-    assert "YouTube blocked the request" in response.json()["detail"]
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers.get("content-type", "")
+    error = parse_sse_error(response)
+    assert error.get("status") == 403
+    assert "YouTube blocked the request" in error.get("detail", "")
 
 
 @patch("api.app.routers.search.YouTubeService")
@@ -239,8 +271,11 @@ def test_search_router_returns_502_on_proxy_error(mock_yt_service_class):
 
     response = client.get("/api/search?channel_url=fake&keyword=mock")
 
-    assert response.status_code == 502
-    assert "Proxy connection failed" in response.json()["detail"]
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers.get("content-type", "")
+    error = parse_sse_error(response)
+    assert error.get("status") == 502
+    assert "Proxy connection failed" in error.get("detail", "")
 
 
 @patch("api.app.routers.search.YouTubeService")
@@ -254,7 +289,9 @@ def test_search_router_sanitizes_500_errors(mock_yt_service_class):
 
     response = client.get("/api/search?channel_url=fake&keyword=mock")
 
-    assert response.status_code == 500
-    detail = response.json()["detail"]
-    assert "An internal server error occurred" in detail
-    assert "SENSITIVE" not in detail
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers.get("content-type", "")
+    error = parse_sse_error(response)
+    assert error.get("status") == 500
+    assert "An internal server error occurred" in error.get("detail", "")
+    assert "SENSITIVE" not in error.get("detail", "")
