@@ -270,7 +270,21 @@ def _keyword_matches(text: str, keyword: str, language_code: str) -> bool:
     if _cross_script_phonetic_match(normalized_text, normalized_keyword):
         return True
 
-    return normalized_keyword.casefold() in normalized_text.casefold()
+    if normalized_keyword.casefold() in normalized_text.casefold():
+        return True
+
+    # Compound-word fallback: "PostHog" matches "post hog" in transcripts
+    if len(normalized_keyword) >= 5:
+        kw_lower = normalized_keyword.casefold()
+        words = normalized_text.casefold().split()
+        for i in range(len(words)):
+            for window in range(2, 4):
+                if i + window > len(words):
+                    break
+                if "".join(words[i : i + window]) == kw_lower:
+                    return True
+
+    return False
 
 
 def _segment_to_raw_data(segments: Any) -> List[Dict[str, Any]]:

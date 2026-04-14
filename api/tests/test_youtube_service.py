@@ -60,6 +60,25 @@ def test_search_in_transcript_avoids_false_positive_for_latin_words():
     assert matches == []
 
 
+def test_search_in_transcript_matches_compound_word_split_in_transcript():
+    service = YouTubeService(api_key="fake-key")
+    transcript = [{"start": 0, "duration": 2, "text": "we use post hog for analytics"}]
+
+    matches = service.search_in_transcript(transcript, ["PostHog"], transcript_language="en")
+
+    assert len(matches) == 1
+    assert matches[0]["text"] == "we use post hog for analytics"
+
+
+def test_search_in_transcript_rejects_partial_compound_match():
+    service = YouTubeService(api_key="fake-key")
+    transcript = [{"start": 0, "duration": 2, "text": "thank you tuber for watching"}]
+
+    matches = service.search_in_transcript(transcript, ["youtube"], transcript_language="en")
+
+    assert matches == []
+
+
 def test_search_in_transcript_matches_hindi_words_with_combining_marks():
     service = YouTubeService(api_key="fake-key")
 
