@@ -110,23 +110,80 @@ export default function Home() {
         buffer = lines.pop()!;
 
         for (const line of lines) {
-          if (line.startsWith("event: ")) {
+          if (line === "") {
+            // Empty line = event delimiter, reset event type
+            currentEventType = "";
+          } else if (line.startsWith("event: ")) {
+            currentEventType = line.slice(7).trim();
+          } else if (line.startsWith("data: ")) {
+            const payload = line.slice(6);
+            if (currentEventType === "" && payload !== "{}") {
+              // Default event type, treat as result
+              if (abortControllerRef.current !== controller) {
+                reader.cancel();
+                return;
+              }
+              try {
+                const result: SearchResult = JSON.parse(payload);
+                setResults(prev => [...prev, result]);
+              } catch (parseErr) {
+                console.error("[stream] Failed to parse result:", parseErr);
+                setError("Invalid response format from server");
+                setErrorStatus(500);
+                setIsLoading(false);
+                reader.cancel();
+                return;
+              }
+            } else if (currentEventType === "done") {
+              setIsLoading(false);
+            } else if (currentEventType === "error") {
+              try {
+                const { detail, status } = JSON.parse(payload);
+                setError(detail);
+                setErrorStatus(status);
+              } catch (parseErr) {
+                console.error("[stream] Failed to parse error:", parseErr);
+                setError("Invalid error response from server");
+                setErrorStatus(500);
+              }
+              setIsLoading(false);
+            }
+          }
+        }
+      }
+
+      // Final flush: decode any remaining buffered data and process remaining lines
+      buffer += decoder.decode();
+      if (buffer.trim()) {
+        const lines = buffer.split("\n");
+        for (const line of lines) {
+          if (line === "") {
+            currentEventType = "";
+          } else if (line.startsWith("event: ")) {
             currentEventType = line.slice(7).trim();
           } else if (line.startsWith("data: ")) {
             const payload = line.slice(6);
             if (currentEventType === "" && payload !== "{}") {
               if (abortControllerRef.current !== controller) return;
-              const result: SearchResult = JSON.parse(payload);
-              setResults(prev => [...prev, result]);
+              try {
+                const result: SearchResult = JSON.parse(payload);
+                setResults(prev => [...prev, result]);
+              } catch (parseErr) {
+                console.error("[stream] Failed to parse final result:", parseErr);
+                // Don't abort on final parse errors, just log
+              }
             } else if (currentEventType === "done") {
               setIsLoading(false);
             } else if (currentEventType === "error") {
-              const { detail, status } = JSON.parse(payload);
-              setError(detail);
-              setErrorStatus(status);
+              try {
+                const { detail, status } = JSON.parse(payload);
+                setError(detail);
+                setErrorStatus(status);
+              } catch (parseErr) {
+                console.error("[stream] Failed to parse final error:", parseErr);
+              }
               setIsLoading(false);
             }
-            currentEventType = "";
           }
         }
       }
