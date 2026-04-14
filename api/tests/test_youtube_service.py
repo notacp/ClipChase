@@ -169,8 +169,14 @@ def test_romanized_forms_similar_matches_suffixed_borrowing():
 
 
 def test_romanized_forms_similar_rejects_short_token():
-    # len("med")=3 < max(4, int(8*0.7)=5) → rejected by the length guard
+    # len("med")=3 < max(4, int(8*0.9)=7) → rejected by the length guard
     assert _romanized_forms_similar("meditate", "med") is False
+
+
+def test_romanized_forms_similar_rejects_milate_for_meditate():
+    # "milate" (_romanize_devanagari("मिलते") = "meet/see") — 6 chars < min 7
+    # edit_dist=3 would match at 0.45 threshold, but length guard rejects it first
+    assert _romanized_forms_similar("meditate", "milate") is False
 
 
 def test_romanized_forms_similar_rejects_first_char_mismatch():
@@ -190,6 +196,7 @@ def test_romanized_forms_similar_rejects_semantically_related_but_phonetically_d
 MEDITATE_HINDI_TRANSCRIPT = [
     {"start": 0.0, "duration": 3.0, "text": "माइंडसेट और मेंटालिटी बहुत जरूरी है"},
     {"start": 3.0, "duration": 2.0, "text": "मोस्टेंट से सीखें"},
+    {"start": 5.0, "duration": 2.0, "text": "फिर मिलते हैं"},
 ]
 
 

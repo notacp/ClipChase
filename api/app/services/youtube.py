@@ -125,7 +125,11 @@ def _cross_script_phonetic_match(text: str, keyword: str) -> bool:
     if keyword_has_devanagari and text_has_latin:
         romanized_kw = _romanize_devanagari(keyword)
         for token in LATIN_TOKEN_RE.findall(_normalize_text(text)):
-            if _romanized_forms_similar(romanized_kw, token):
+            # Args swapped: token is the "keyword", romanized_kw is the "token".
+            # Devanagari romanizations are longer than their Latin originals, so
+            # the min-length guard (len(tok) >= 0.9*len(kw)) must see the longer
+            # form as tok and the shorter Latin word as kw.
+            if _romanized_forms_similar(token, romanized_kw):
                 return True
         return False
 
@@ -200,8 +204,9 @@ def _romanized_forms_similar(latin_keyword: str, romanized_token: str, threshold
 
     Guards:
     - First chars must match (quick reject).
-    - Token must be at least max(4, 0.7 * len(keyword)) chars to prevent very
-      short tokens from passing via prefix truncation alone.
+    - Token must be at least max(4, 0.9 * len(keyword)) chars to prevent short
+      tokens from passing via prefix truncation alone (e.g. rejects "milate" for
+      "meditate": 6 < max(4,7)).
     - Normalized edit distance (edit_dist / len(keyword)) must be <= threshold.
       Note: max_dist uses int() truncation, so the effective ratio is at most
       `threshold` but may be slightly lower for short keywords.
@@ -219,7 +224,7 @@ def _romanized_forms_similar(latin_keyword: str, romanized_token: str, threshold
     if kw[0] != tok[0]:
         return False
 
-    if len(tok) < max(4, int(len(kw) * 0.7)):
+    if len(tok) < max(4, int(len(kw) * 0.9)):
         return False
 
     cmp_len = len(kw)
