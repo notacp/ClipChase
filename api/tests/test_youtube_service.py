@@ -189,6 +189,12 @@ def test_romanized_forms_similar_rejects_semantically_related_but_phonetically_d
     assert _romanized_forms_similar("meditate", "mostenta") is False      # मोस्टेंट
 
 
+def test_romanized_forms_similar_rejects_lekin_for_lemon():
+    # लेकिन ("but") romanizes to "lekina", prefix "lekin" — edit distance 2 from "lemon"
+    # Short-word threshold (≤6 chars) allows max 1 edit, so this must be rejected.
+    assert _romanized_forms_similar("lemon", "lekina") is False
+
+
 # ---------------------------------------------------------------------------
 # expand_search_terms_for_transcript — false positive regression tests
 # ---------------------------------------------------------------------------

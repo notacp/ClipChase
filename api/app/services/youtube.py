@@ -211,9 +211,10 @@ def _romanized_forms_similar(latin_keyword: str, romanized_token: str, threshold
       Note: max_dist uses int() truncation, so the effective ratio is at most
       `threshold` but may be slightly lower for short keywords.
 
-    Threshold 0.45 chosen empirically: for "startup" (len 7), allows int(7*0.45)=3
-    edits, accepting "startup"→"staartaapa" (distance 3). For "meditate" (len 8),
-    allows int(8*0.45)=3 edits, rejecting "meditate"→"maaindaseta" (distance 6).
+    Threshold 0.45 for keywords >6 chars: for "startup" (len 7), allows int(7*0.45)=3
+    edits, accepting "startup"→"staartaapa" (distance 3). For keywords ≤6 chars the
+    threshold drops to 0.25 (max 1 edit), preventing short native Hindi words from
+    false-matching short English keywords (e.g. "lekina" must not match "lemon").
     """
     if not latin_keyword or not romanized_token:
         return False
@@ -229,7 +230,8 @@ def _romanized_forms_similar(latin_keyword: str, romanized_token: str, threshold
 
     cmp_len = len(kw)
     tok_prefix = tok[:cmp_len]
-    max_dist = max(1, int(cmp_len * threshold))
+    effective_threshold = threshold if cmp_len > 6 else min(threshold, 0.25)
+    max_dist = max(1, int(cmp_len * effective_threshold))
 
     return _limited_edit_distance(kw, tok_prefix, max_dist) is not None
 
