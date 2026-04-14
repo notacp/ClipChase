@@ -1,9 +1,11 @@
+import json
 import os
 import re
 from datetime import datetime
-from typing import List, Optional
+from typing import Iterator, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..services.youtube import YouTubeService, human_script_variants, normalize_language_code
@@ -57,19 +59,14 @@ class SearchResult(BaseModel):
     matches: List[dict]
 
 
-@router.get("/search", response_model=List[SearchResult])
-async def search(
-    channel_url: str,
+def _search_stream(
+    service: YouTubeService,
+    channel_id: str,
     keyword: str,
-    max_videos: int = 20,
-    published_after: Optional[str] = None,
-    exclude_shorts: bool = False,
-    service: YouTubeService = Depends(get_yt_service),
-):
-    channel_id = service.resolve_channel_id(channel_url)
-    if not channel_id:
-        raise HTTPException(status_code=400, detail="Invalid YouTube channel URL or ID")
-
+    max_videos: int,
+    published_after: Optional[str],
+    exclude_shorts: bool,
+) -> Iterator[str]:
     try:
         playlist_id = service.fetch_uploads_playlist_id(channel_id)
         fetch_count = max_videos * 3 if (published_after or exclude_shorts) else max_videos
@@ -91,7 +88,7 @@ async def search(
         preferred_language_orders = transcript_language_orders(query_language)
         search_terms = human_script_variants(keyword)
 
-        results = []
+        found_any = False
         for video in videos:
             print(f"DEBUG: Analyzing Video {video['id']}: '{video['title']}'...")
 
@@ -140,7 +137,8 @@ async def search(
 
                 if match_result:
                     print(f"DEBUG: FOUND {len(match_result.matches)} matches in {video['id']}")
-                    results.append(match_result)
+                    found_any = True
+                    yield f"data: {match_result.model_dump_json()}\n\n"
                 elif transcript_attempted:
                     print(f"DEBUG: No matches found in {video['id']} across supported transcript tracks")
                 else:
@@ -148,22 +146,18 @@ async def search(
             except Exception as inner_e:
                 print(f"DEBUG ERROR: Failed analyzing video {video['id']}: {inner_e}")
 
-        if not results and getattr(service, "proxy_error_detected", False):
-            print("DEBUG ERROR: Search finished but proxy errors were detected. Raising 502.")
-            raise HTTPException(
-                status_code=502,
-                detail="Proxy connection failed. Verify PROXY_URL format and credentials.",
-            )
+        if not found_any and getattr(service, "proxy_error_detected", False):
+            print("DEBUG ERROR: Search finished but proxy errors were detected.")
+            yield f"event: error\ndata: {json.dumps({'detail': 'Proxy connection failed. Verify PROXY_URL format and credentials.', 'status': 502})}\n\n"
+            return
 
-        if not results and getattr(service, "worker_url", None) and getattr(service, "worker_failures", 0) > 0:
-            print("DEBUG ERROR: Search finished but all Worker transcript calls failed. Raising 502.")
-            raise HTTPException(
-                status_code=502,
-                detail="Cloudflare Worker failed to fetch transcripts. Check that the Worker is deployed and TRANSCRIPT_WORKER_URL is correct.",
-            )
+        if not found_any and getattr(service, "worker_url", None) and getattr(service, "worker_failures", 0) > 0:
+            print("DEBUG ERROR: Search finished but all Worker transcript calls failed.")
+            yield f"event: error\ndata: {json.dumps({'detail': 'Cloudflare Worker failed to fetch transcripts. Check that the Worker is deployed and TRANSCRIPT_WORKER_URL is correct.', 'status': 502})}\n\n"
+            return
 
-        if not results and service.block_detected:
-            print("DEBUG ERROR: Search finished but IP block was detected. Raising 403.")
+        if not found_any and service.block_detected:
+            print("DEBUG ERROR: Search finished but IP block was detected.")
             if getattr(service, "proxy_url", None):
                 detail = (
                     "YouTube blocked the request even with PROXY_URL. "
@@ -171,22 +165,40 @@ async def search(
                 )
             else:
                 detail = "YouTube blocked the request. Please configure PROXY_URL."
-            raise HTTPException(
-                status_code=403,
-                detail=detail,
-            )
+            yield f"event: error\ndata: {json.dumps({'detail': detail, 'status': 403})}\n\n"
+            return
 
-        print(f"DEBUG: Returning {len(results)} total video results")
-        return results
+        print(f"DEBUG: Streaming complete.")
+        yield "event: done\ndata: {}\n\n"
 
-    except HTTPException:
-        raise
     except Exception as e:
-        print(f"DEBUG ERROR: Unexpected error in search router: {str(e)}")
+        print(f"DEBUG ERROR: Unexpected error in search stream: {str(e)}")
         import traceback
-
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail="An internal server error occurred.")
+        yield f"event: error\ndata: {json.dumps({'detail': 'An internal server error occurred.', 'status': 500})}\n\n"
+
+
+@router.get("/search")
+async def search(
+    channel_url: str,
+    keyword: str,
+    max_videos: int = 20,
+    published_after: Optional[str] = None,
+    exclude_shorts: bool = False,
+    service: YouTubeService = Depends(get_yt_service),
+):
+    channel_id = service.resolve_channel_id(channel_url)
+    if not channel_id:
+        raise HTTPException(status_code=400, detail="Invalid YouTube channel URL or ID")
+
+    return StreamingResponse(
+        _search_stream(service, channel_id, keyword, max_videos, published_after, exclude_shorts),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/suggest-channels")
