@@ -15,6 +15,18 @@ export async function GET(
     });
 
     const contentType = response.headers.get("content-type") ?? "";
+
+    if (contentType.includes("text/event-stream")) {
+        return new NextResponse(response.body, {
+            status: response.status,
+            headers: {
+                "content-type": contentType,
+                "cache-control": "no-cache",
+                "x-accel-buffering": "no",
+            },
+        });
+    }
+
     if (!contentType.includes("application/json")) {
         const text = await response.text();
         console.error(`[proxy] Non-JSON response (${response.status}) from ${url}:`, text.slice(0, 300));
@@ -24,7 +36,7 @@ export async function GET(
         );
     }
 
-    return new NextResponse(response.body, { 
+    return new NextResponse(response.body, {
         status: response.status,
         headers: { "content-type": contentType }
     });
