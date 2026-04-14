@@ -74,7 +74,6 @@ export default function Home() {
     abortControllerRef.current?.abort();
     const controller = new AbortController();
     abortControllerRef.current = controller;
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
 
     setIsLoading(true);
     setError("");
@@ -98,15 +97,45 @@ export default function Home() {
         throw new Error(errorData.detail || "Search failed");
       }
 
-      const data = await response.json();
-      if (abortControllerRef.current !== controller) return;
-      setResults(data);
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let currentEventType = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop()!;
+
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            currentEventType = line.slice(7).trim();
+          } else if (line.startsWith("data: ")) {
+            const payload = line.slice(6);
+            if (currentEventType === "" && payload !== "{}") {
+              if (abortControllerRef.current !== controller) return;
+              const result: SearchResult = JSON.parse(payload);
+              setResults(prev => [...prev, result]);
+            } else if (currentEventType === "done") {
+              setIsLoading(false);
+            } else if (currentEventType === "error") {
+              const { detail, status } = JSON.parse(payload);
+              setError(detail);
+              setErrorStatus(status);
+              setIsLoading(false);
+            }
+            currentEventType = "";
+          }
+        }
+      }
+
       setLastSearch({ channel: channelUrl, keyword });
     } catch (err: any) {
       if (abortControllerRef.current !== controller) return;
-      
+
       if (err.name === "AbortError" || err.message?.includes("aborted") || err.message?.includes("fetch failed")) {
-        // If it was the current controller but aborted, it was the 60s timeout
         setErrorStatus(408);
         setError("The server took too long to respond.");
       } else if (err.message === "Failed to fetch") {
@@ -116,10 +145,9 @@ export default function Home() {
         setError(err.message);
       }
     } finally {
-      clearTimeout(timeoutId);
       if (abortControllerRef.current === controller) {
-         setIsLoading(false);
-         setHasSearched(true);
+        setIsLoading(false);
+        setHasSearched(true);
       }
     }
   };
@@ -233,7 +261,7 @@ export default function Home() {
         )}
 
         {/* Skeleton loading */}
-        {isLoading && (
+        {isLoading && results.length === 0 && (
           <div className="mt-20 grid grid-cols-1 lg:grid-cols-2 gap-12">
             <div className="space-y-6">
               <div className="flex items-center justify-between">
