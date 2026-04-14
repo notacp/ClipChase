@@ -233,9 +233,10 @@ def test_search_router_adds_finology_candidate_from_hindi_transcript(mock_yt_ser
 
 @patch("api.app.routers.search.YouTubeService")
 def test_search_router_returns_403_on_block(mock_yt_service_class):
-    # NOTE: Pre-existing failure. mock_service.worker_url is a MagicMock (truthy),
-    # so the worker-failure branch fires before the block-detected branch, yielding
-    # a 502 error instead of 403. Fix requires adding mock_service.worker_url = None.
+    # NOTE: Pre-existing failure. mock_service.worker_failures is a MagicMock (not int),
+    # so `getattr(service, "worker_failures", 0) > 0` raises TypeError, which the outer
+    # except handler catches and yields a 500 error event instead of reaching the 403 branch.
+    # Fix: add mock_service.worker_failures = 0 to the test setup.
     mock_service = MagicMock()
     mock_yt_service_class.return_value = mock_service
 
