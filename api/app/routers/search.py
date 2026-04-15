@@ -59,6 +59,50 @@ class SearchResult(BaseModel):
     matches: List[dict]
 
 
+# ── Extension API request / response models ───────────────────────────────────
+
+class VideoListRequest(BaseModel):
+    channel_url: str
+    max_videos: int = 20
+    published_after: Optional[str] = None
+    exclude_shorts: bool = False
+
+
+class VideoListResponse(BaseModel):
+    channel_id: str
+    videos: List[dict]
+
+
+class VideoInput(BaseModel):
+    id: str
+    title: str
+    publishedAt: str
+    thumbnail: str
+
+
+class SegmentInput(BaseModel):
+    start: float
+    duration: float
+    text: str
+
+
+class TranscriptInput(BaseModel):
+    language_code: str
+    language_label: str
+    is_generated: bool
+    segments: List[SegmentInput]
+
+
+class MatchRequest(BaseModel):
+    keyword: str
+    video: VideoInput
+    transcript: TranscriptInput
+
+
+class MatchResponse(BaseModel):
+    match_result: Optional[SearchResult] = None
+
+
 def _search_stream(
     service: YouTubeService,
     channel_id: str,
@@ -237,3 +281,76 @@ async def resolve_channel(
     if not channel_id:
         raise HTTPException(status_code=400, detail="Could not resolve channel")
     return {"channel_id": channel_id}
+
+
+@router.post("/videos", response_model=VideoListResponse)
+async def list_videos(
+    req: VideoListRequest,
+    service: YouTubeService = Depends(get_yt_service),
+):
+    """Return the video list for a channel — no transcript work."""
+    channel_id = service.resolve_channel_id(req.channel_url)
+    if not channel_id:
+        raise HTTPException(status_code=400, detail="Invalid YouTube channel URL or ID")
+
+    playlist_id = service.fetch_uploads_playlist_id(channel_id)
+    fetch_count = req.max_videos * 3 if (req.published_after or req.exclude_shorts) else req.max_videos
+    videos = service.fetch_videos(playlist_id, max_videos=fetch_count, exclude_shorts=req.exclude_shorts)
+
+    if req.published_after:
+        try:
+            cutoff_date = datetime.fromisoformat(req.published_after.replace("Z", "+00:00"))
+            videos = [
+                v for v in videos
+                if datetime.fromisoformat(v["publishedAt"].replace("Z", "+00:00")) >= cutoff_date
+            ][:req.max_videos]
+        except ValueError as e:
+            print(f"DEBUG: Invalid date format: {req.published_after}, error: {e}")
+
+    return VideoListResponse(channel_id=channel_id, videos=videos)
+
+
+@router.post("/match", response_model=MatchResponse)
+async def match_transcript(
+    req: MatchRequest,
+    service: YouTubeService = Depends(get_yt_service),
+):
+    """Match a single pre-fetched transcript against a keyword.
+
+    The extension fetches transcripts directly in the browser and sends them
+    here for phonetic / cross-script matching.  Returns match_result=null
+    (HTTP 200) when no matches are found so the per-video loop in the
+    extension can continue without treating misses as errors.
+    """
+    query_language = detect_query_language(req.keyword)
+    search_terms = human_script_variants(req.keyword)
+    transcript_language = normalize_language_code(req.transcript.language_code)
+    segments = [seg.model_dump() for seg in req.transcript.segments]
+
+    transcript_search_terms = service.expand_search_terms_for_transcript(
+        search_terms,
+        segments,
+        transcript_language or query_language,
+    )
+
+    matches = service.search_in_transcript(
+        segments,
+        transcript_search_terms,
+        transcript_language=transcript_language or query_language,
+    )
+
+    if not matches:
+        return MatchResponse(match_result=None)
+
+    return MatchResponse(
+        match_result=SearchResult(
+            video_id=req.video.id,
+            title=req.video.title,
+            published_at=req.video.publishedAt,
+            thumbnail=req.video.thumbnail,
+            transcript_language_code=transcript_language or query_language,
+            transcript_language_label=req.transcript.language_label or transcript_language or query_language,
+            search_terms_used=transcript_search_terms,
+            matches=matches,
+        )
+    )

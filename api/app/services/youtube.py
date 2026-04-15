@@ -270,8 +270,12 @@ def _keyword_matches(text: str, keyword: str, language_code: str) -> bool:
     if _cross_script_phonetic_match(normalized_text, normalized_keyword):
         return True
 
-    if normalized_keyword.casefold() in normalized_text.casefold():
-        return True
+    # Only fall back to bare substring for non-Latin keywords — for Latin text the
+    # word-boundary check above is authoritative and prevents partial matches like
+    # "cred" matching inside "incredible".
+    if not LATIN_WORD_RE.search(normalized_keyword):
+        if normalized_keyword.casefold() in normalized_text.casefold():
+            return True
 
     # Compound-word fallback: "PostHog" matches "post hog" in transcripts
     if len(normalized_keyword) >= 5:

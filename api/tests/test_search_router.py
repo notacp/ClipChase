@@ -280,6 +280,88 @@ def test_search_router_returns_502_on_proxy_error(mock_yt_service_class):
 
 
 @patch("api.app.routers.search.YouTubeService")
+def test_videos_endpoint_returns_video_list(mock_yt_service_class):
+    mock_service = MagicMock()
+    mock_yt_service_class.return_value = mock_service
+
+    mock_service.resolve_channel_id.return_value = "UC456"
+    mock_service.fetch_uploads_playlist_id.return_value = "PL456"
+    mock_service.fetch_videos.return_value = [
+        {"id": "v1", "title": "Video 1", "publishedAt": "2024-06-01T00:00:00Z", "thumbnail": "t1"},
+        {"id": "v2", "title": "Video 2", "publishedAt": "2024-05-01T00:00:00Z", "thumbnail": "t2"},
+    ]
+
+    response = client.post("/api/videos", json={"channel_url": "@fakechannel", "max_videos": 10})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["channel_id"] == "UC456"
+    assert len(data["videos"]) == 2
+    assert data["videos"][0]["id"] == "v1"
+    mock_service.resolve_channel_id.assert_called_once_with("@fakechannel")
+    mock_service.fetch_uploads_playlist_id.assert_called_once_with("UC456")
+    # No date filter / no shorts → fetch_count == max_videos
+    mock_service.fetch_videos.assert_called_once_with("PL456", max_videos=10, exclude_shorts=False)
+
+
+@patch("api.app.routers.search.YouTubeService")
+def test_match_endpoint_returns_match(mock_yt_service_class):
+    mock_service = MagicMock()
+    mock_yt_service_class.return_value = mock_service
+
+    mock_service.expand_search_terms_for_transcript.return_value = ["posthog"]
+    mock_service.search_in_transcript.return_value = [
+        {"start": 5.0, "text": "we use posthog for analytics", "context_before": "", "context_after": ""}
+    ]
+
+    payload = {
+        "keyword": "posthog",
+        "video": {"id": "abc", "title": "Test Video", "publishedAt": "2024-01-01T00:00:00Z", "thumbnail": ""},
+        "transcript": {
+            "language_code": "en",
+            "language_label": "English",
+            "is_generated": False,
+            "segments": [{"start": 5.0, "duration": 2.0, "text": "we use posthog for analytics"}],
+        },
+    }
+    response = client.post("/api/match", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["match_result"] is not None
+    assert data["match_result"]["video_id"] == "abc"
+    assert data["match_result"]["title"] == "Test Video"
+    assert data["match_result"]["transcript_language_code"] == "en"
+    assert data["match_result"]["search_terms_used"] == ["posthog"]
+    assert data["match_result"]["matches"][0]["start"] == 5.0
+
+
+@patch("api.app.routers.search.YouTubeService")
+def test_match_endpoint_returns_null_when_no_matches(mock_yt_service_class):
+    mock_service = MagicMock()
+    mock_yt_service_class.return_value = mock_service
+
+    mock_service.expand_search_terms_for_transcript.return_value = ["posthog"]
+    mock_service.search_in_transcript.return_value = []
+
+    payload = {
+        "keyword": "posthog",
+        "video": {"id": "abc", "title": "Test Video", "publishedAt": "2024-01-01T00:00:00Z", "thumbnail": ""},
+        "transcript": {
+            "language_code": "en",
+            "language_label": "English",
+            "is_generated": False,
+            "segments": [{"start": 0.0, "duration": 3.0, "text": "nothing relevant here"}],
+        },
+    }
+    response = client.post("/api/match", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["match_result"] is None
+
+
+@patch("api.app.routers.search.YouTubeService")
 def test_search_router_sanitizes_500_errors(mock_yt_service_class):
     mock_service = MagicMock()
     mock_yt_service_class.return_value = mock_service

@@ -1,0 +1,446 @@
+"use client";
+
+import { motion } from "framer-motion";
+import { ArrowRight, Clock, Globe, Lock, Puzzle, Youtube, Zap } from "lucide-react";
+import { BackgroundEffect } from "@/components/BackgroundEffect";
+
+const spring = { type: "spring" as const, stiffness: 100, damping: 20 };
+
+const CHROME_STORE_URL = "#"; // TODO: replace with live Chrome Web Store URL when published.
+
+export default function Landing() {
+  return (
+    <main className="min-h-screen bg-yt-black text-white selection:bg-yt-red/30 pb-20">
+      <BackgroundEffect />
+
+      <LandingHeader />
+
+      <div className="relative z-10 max-w-7xl mx-auto px-6">
+        <Hero />
+        <DemoMockup />
+        <HowItWorks />
+        <Features />
+        <ClosingCta />
+      </div>
+
+      <Footer />
+    </main>
+  );
+}
+
+// ── Header ────────────────────────────────────────────────────────────────────
+
+function LandingHeader() {
+  return (
+    <nav className="relative z-20 flex items-center justify-between px-6 py-5 max-w-7xl mx-auto border-b border-white/5">
+      <div className="flex items-center gap-2 group cursor-pointer">
+        <Youtube className="w-7 h-7 text-yt-red group-hover:scale-110 transition-transform" />
+        <span className="text-lg font-bold tracking-tight">TimeStitch</span>
+      </div>
+      <div className="flex items-center gap-5">
+        <a
+          href="#how"
+          className="text-sm text-yt-light-gray hover:text-white transition-colors hidden sm:inline"
+        >
+          How it works
+        </a>
+        <a
+          href={CHROME_STORE_URL}
+          className="bg-yt-red hover:bg-yt-red/90 active:translate-y-px text-white text-sm font-semibold px-4 py-2 rounded-lg transition-all flex items-center gap-1.5"
+        >
+          Add to Chrome
+          <ArrowRight className="w-4 h-4" />
+        </a>
+      </div>
+    </nav>
+  );
+}
+
+// ── Hero ──────────────────────────────────────────────────────────────────────
+
+function Hero() {
+  return (
+    <section className="flex flex-col items-center pt-20 md:pt-28 pb-16 text-center">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={spring}
+        className="inline-flex items-center gap-2 glass rounded-full px-3 py-1 text-xs font-mono text-yt-light-gray mb-6"
+      >
+        <span className="relative flex w-2 h-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yt-red/50" />
+          <span className="relative inline-flex w-2 h-2 rounded-full bg-yt-red" />
+        </span>
+        Chrome Extension
+      </motion.div>
+
+      <motion.h1
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...spring, delay: 0.05 }}
+        className="font-bold text-center tracking-tight text-5xl md:text-7xl mb-6 max-w-4xl"
+      >
+        Ctrl+F for <span className="text-yt-red">YouTube</span>
+      </motion.h1>
+
+      <motion.p
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...spring, delay: 0.12 }}
+        className="text-yt-light-gray text-lg md:text-xl leading-relaxed max-w-2xl px-4 mb-10"
+      >
+        Search every video on a YouTube channel for a keyword. Jump straight to the second it&rsquo;s spoken.
+      </motion.p>
+
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...spring, delay: 0.18 }}
+        className="flex flex-col sm:flex-row items-center gap-3"
+      >
+        <a
+          href={CHROME_STORE_URL}
+          className="bg-yt-red hover:bg-yt-red/90 active:translate-y-px text-white font-semibold px-7 py-3.5 rounded-xl flex items-center gap-2 transition-all"
+        >
+          <Puzzle className="w-5 h-5" />
+          Add to Chrome — Free
+        </a>
+        <a
+          href="#how"
+          className="text-yt-light-gray hover:text-white text-sm font-medium px-4 py-2 transition-colors"
+        >
+          See how it works ↓
+        </a>
+      </motion.div>
+    </section>
+  );
+}
+
+// ── Demo mockup ───────────────────────────────────────────────────────────────
+//
+// A static visual of the extension in use: side panel on the left showing a
+// search result, a stylized YouTube player on the right.  All CSS, no assets —
+// so it survives rebranding, theme changes, and missing screenshots.
+
+function DemoMockup() {
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 30 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-80px" }}
+      transition={spring}
+      className="pb-24"
+    >
+      <div className="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-6 max-w-5xl mx-auto">
+        {/* Side panel mock */}
+        <div className="glass rounded-2xl p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-mono tracking-widest text-yt-light-gray uppercase">
+              Side Panel
+            </span>
+            <div className="flex gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-white/10" />
+              <span className="w-1.5 h-1.5 rounded-full bg-white/10" />
+              <span className="w-1.5 h-1.5 rounded-full bg-white/10" />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="glass rounded-xl px-3 py-2.5 text-sm text-white/90">
+              @PostHog
+            </div>
+            <div className="glass rounded-xl px-3 py-2.5 text-sm text-white/90 flex items-center justify-between">
+              <span>posthog</span>
+              <span className="text-xs text-yt-light-gray font-mono">kw</span>
+            </div>
+          </div>
+
+          {/* Result card */}
+          <div className="glass rounded-xl p-3 space-y-2.5 border-yt-red/30">
+            <div className="flex gap-2.5">
+              <div className="w-16 h-10 rounded bg-white/5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-white leading-tight line-clamp-2">
+                  Why we rewrote our analytics pipeline
+                </p>
+                <p className="text-[10px] text-yt-light-gray mt-1 font-mono">
+                  Apr 12, 2026
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <div className="bg-yt-gray px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center gap-1 shrink-0 mt-0.5">
+                <Clock className="w-2.5 h-2.5" />
+                4:22
+              </div>
+              <p className="text-[11px] text-yt-light-gray leading-snug">
+                ...we use{" "}
+                <span className="text-white font-medium bg-yt-red/20 px-1 rounded">
+                  posthog
+                </span>{" "}
+                for product analytics...
+              </p>
+            </div>
+            <div className="flex items-start gap-2">
+              <div className="bg-yt-gray px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center gap-1 shrink-0 mt-0.5">
+                <Clock className="w-2.5 h-2.5" />
+                7:48
+              </div>
+              <p className="text-[11px] text-yt-light-gray leading-snug">
+                ...the{" "}
+                <span className="text-white font-medium bg-yt-red/20 px-1 rounded">
+                  post hog
+                </span>{" "}
+                dashboard gives us...
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* YouTube player mock */}
+        <div className="glass rounded-2xl overflow-hidden aspect-video relative flex items-center justify-center">
+          <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent" />
+          <div className="relative z-10 w-16 h-16 rounded-full bg-yt-red flex items-center justify-center">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="white">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          </div>
+          <div className="absolute bottom-0 left-0 right-0 p-4 flex items-center gap-3">
+            <div className="flex-1 h-1 rounded-full bg-white/10 overflow-hidden">
+              <div className="h-full w-[26%] bg-yt-red rounded-full" />
+            </div>
+            <span className="text-[10px] font-mono text-yt-light-gray">4:22 / 16:30</span>
+          </div>
+        </div>
+      </div>
+    </motion.section>
+  );
+}
+
+// ── How it works ──────────────────────────────────────────────────────────────
+
+function HowItWorks() {
+  const steps = [
+    {
+      n: "01",
+      title: "Install the extension",
+      body: "One click from the Chrome Web Store. No account, no setup.",
+    },
+    {
+      n: "02",
+      title: "Open the side panel",
+      body: "Click the toolbar icon. TimeStitch opens alongside whatever you're doing.",
+    },
+    {
+      n: "03",
+      title: "Search a channel",
+      body: "Paste a channel URL or @handle, type a keyword, hit search. Results stream in as each video is scanned.",
+    },
+  ];
+
+  return (
+    <section id="how" className="pb-28">
+      <SectionHeading
+        eyebrow="How it works"
+        title="Three steps, no configuration"
+      />
+
+      <ol className="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-10 mt-12">
+        {steps.map((step, i) => (
+          <motion.li
+            key={step.n}
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-40px" }}
+            transition={{ ...spring, delay: i * 0.08 }}
+            className="flex flex-col"
+          >
+            <span className="text-xs font-mono text-yt-red tracking-widest mb-3">
+              {step.n}
+            </span>
+            <h3 className="text-lg font-bold tracking-tight mb-2">{step.title}</h3>
+            <p className="text-yt-light-gray text-sm leading-relaxed">{step.body}</p>
+          </motion.li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+// ── Features ──────────────────────────────────────────────────────────────────
+//
+// 2×2 asymmetric grid.  DESIGN.md forbids 3-column equal grids; 2×2 keeps the
+// density high without that generic SaaS look, and lets the first feature
+// (the differentiator) take more vertical real estate if we later add depth.
+
+function Features() {
+  return (
+    <section className="pb-28">
+      <SectionHeading eyebrow="Features" title="Built for the way you actually search" />
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-12">
+        <Feature
+          icon={<Zap className="w-5 h-5" />}
+          title="Phonetic matching"
+          body="Transcripts say what they hear. TimeStitch matches the way words sound, not just how they're spelled."
+          example={
+            <Example
+              query="PostHog"
+              transcript="...and the post hog dashboard..."
+              highlight="post hog"
+            />
+          }
+        />
+
+        <Feature
+          icon={<Globe className="w-5 h-5" />}
+          title="Works across English and Hindi"
+          body="Search with Latin letters, match Devanagari captions — and the reverse. Auto-generated transcripts are noisy; TimeStitch is built for it."
+          example={
+            <Example
+              query="Finology"
+              transcript="...तो फिनोलॉजी का मतलब..."
+              highlight="फिनोलॉजी"
+            />
+          }
+        />
+
+        <Feature
+          icon={<Clock className="w-5 h-5" />}
+          title="Jump to the exact second"
+          body="Every match is a timestamped link. One click opens the video at the frame the word is spoken."
+        />
+
+        <Feature
+          icon={<Lock className="w-5 h-5" />}
+          title="Runs in your browser"
+          body="Transcripts are fetched by your browser, through your session. Not routed through a server. Captions you can see logged in, TimeStitch can see too."
+        />
+      </div>
+    </section>
+  );
+}
+
+function Feature({
+  icon,
+  title,
+  body,
+  example,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  body: string;
+  example?: React.ReactNode;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-40px" }}
+      transition={spring}
+      className="glass rounded-2xl p-6 flex flex-col gap-3"
+    >
+      <div className="w-9 h-9 rounded-lg bg-yt-red/10 border border-yt-red/20 text-yt-red flex items-center justify-center">
+        {icon}
+      </div>
+      <h3 className="text-lg font-bold tracking-tight">{title}</h3>
+      <p className="text-yt-light-gray text-sm leading-relaxed">{body}</p>
+      {example && <div className="mt-2">{example}</div>}
+    </motion.div>
+  );
+}
+
+function Example({
+  query,
+  transcript,
+  highlight,
+}: {
+  query: string;
+  transcript: string;
+  highlight: string;
+}) {
+  const parts = transcript.split(highlight);
+  return (
+    <div className="font-mono text-xs space-y-1.5 pt-3 border-t border-white/5">
+      <div className="flex gap-2">
+        <span className="text-yt-light-gray/60 select-none">query</span>
+        <span className="text-white">{query}</span>
+      </div>
+      <div className="flex gap-2">
+        <span className="text-yt-light-gray/60 select-none">match</span>
+        <span className="text-yt-light-gray">
+          {parts[0]}
+          <span className="text-white bg-yt-red/20 px-1 rounded">{highlight}</span>
+          {parts[1]}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ── Closing CTA ───────────────────────────────────────────────────────────────
+
+function ClosingCta() {
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 30 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-80px" }}
+      transition={spring}
+      className="pb-16"
+    >
+      <div className="glass rounded-3xl px-8 py-16 md:py-20 text-center">
+        <h2 className="text-3xl md:text-5xl font-bold tracking-tight mb-4 max-w-2xl mx-auto">
+          Stop scrubbing through videos.
+        </h2>
+        <p className="text-yt-light-gray text-base md:text-lg max-w-xl mx-auto mb-8">
+          Install the extension and search YouTube the way you search anything else.
+        </p>
+        <a
+          href={CHROME_STORE_URL}
+          className="inline-flex items-center gap-2 bg-yt-red hover:bg-yt-red/90 active:translate-y-px text-white font-semibold px-7 py-3.5 rounded-xl transition-all"
+        >
+          <Puzzle className="w-5 h-5" />
+          Add to Chrome — Free
+        </a>
+      </div>
+    </motion.section>
+  );
+}
+
+// ── Footer ────────────────────────────────────────────────────────────────────
+
+function Footer() {
+  return (
+    <footer className="relative z-10 border-t border-white/5 mt-8">
+      <div className="max-w-7xl mx-auto px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-yt-light-gray">
+        <div className="flex items-center gap-2">
+          <Youtube className="w-4 h-4 text-yt-red" />
+          <span className="font-medium text-white">TimeStitch</span>
+          <span className="font-mono text-xs text-yt-light-gray/60 ml-1">transcript search</span>
+        </div>
+        <div className="flex items-center gap-5">
+          <a href="#how" className="hover:text-white transition-colors">How it works</a>
+          <a href={CHROME_STORE_URL} className="hover:text-white transition-colors">
+            Install
+          </a>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function SectionHeading({ eyebrow, title }: { eyebrow: string; title: string }) {
+  return (
+    <div className="flex flex-col items-start gap-3">
+      <span className="text-xs font-mono text-yt-red tracking-widest uppercase">
+        {eyebrow}
+      </span>
+      <h2 className="text-3xl md:text-4xl font-bold tracking-tight max-w-2xl">
+        {title}
+      </h2>
+    </div>
+  );
+}
