@@ -32,6 +32,7 @@ export function VideoPlayer({ selectedVideo }: VideoPlayerProps) {
             src={`https://www.youtube.com/embed/${selectedVideo.id}?start=${Math.floor(selectedVideo.start)}&autoplay=1`}
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             allowFullScreen
+            referrerPolicy="no-referrer"
             onLoad={() => setIsIframeLoading(false)}
           />
         </motion.div>
