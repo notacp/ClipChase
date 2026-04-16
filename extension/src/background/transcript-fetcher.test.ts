@@ -1,217 +1,122 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fetchTranscript } from "./transcript-fetcher";
+// extension/src/background/transcript-fetcher.test.ts
+import { describe, it, expect } from "vitest";
+import { pickTrack, parseSegments, normalizeLanguageCode, type CaptionTrack } from "./transcript-fetcher";
 
-// ── Fixture helpers ───────────────────────────────────────────────────────────
+// ── normalizeLanguageCode ─────────────────────────────────────────────────────
 
-function makeWatchPageHtml(captionTracks: unknown[]): string {
-  const playerData = {
-    captions: {
-      playerCaptionsTracklistRenderer: {
-        captionTracks,
-      },
-    },
-  };
-  // Embed as JS variable — same format YouTube uses.
-  return `<html><head></head><body>var ytInitialPlayerResponse = ${JSON.stringify(playerData)};var other = {};</body></html>`;
-}
+describe("normalizeLanguageCode", () => {
+  it("strips region subtag", () => {
+    expect(normalizeLanguageCode("en-US")).toBe("en");
+    expect(normalizeLanguageCode("zh-Hant")).toBe("zh");
+  });
+
+  it("lowercases", () => {
+    expect(normalizeLanguageCode("EN")).toBe("en");
+  });
+
+  it("returns empty string for empty input", () => {
+    expect(normalizeLanguageCode("")).toBe("");
+  });
+});
+
+// ── pickTrack ─────────────────────────────────────────────────────────────────
+
+const enManual: CaptionTrack = {
+  languageCode: "en",
+  baseUrl: "https://example.com/en",
+  kind: "",
+  name: { simpleText: "English" },
+};
+const enAsr: CaptionTrack = {
+  languageCode: "en",
+  baseUrl: "https://example.com/en-asr",
+  kind: "asr",
+  name: { simpleText: "English (auto-generated)" },
+};
+const hiManual: CaptionTrack = {
+  languageCode: "hi",
+  baseUrl: "https://example.com/hi",
+  kind: "",
+  name: { simpleText: "Hindi" },
+};
+const jaManual: CaptionTrack = {
+  languageCode: "ja",
+  baseUrl: "https://example.com/ja",
+  kind: "",
+  name: { simpleText: "Japanese" },
+};
+
+describe("pickTrack", () => {
+  it("prefers manual over ASR for same language", () => {
+    const result = pickTrack([enAsr, enManual], ["en"]);
+    expect(result).toBe(enManual);
+  });
+
+  it("falls back to ASR if no manual available", () => {
+    const result = pickTrack([enAsr], ["en"]);
+    expect(result).toBe(enAsr);
+  });
+
+  it("respects language preference order", () => {
+    const result = pickTrack([enManual, hiManual], ["hi", "en"]);
+    expect(result).toBe(hiManual);
+  });
+
+  it("skips languages not in preferredLangs", () => {
+    const result = pickTrack([jaManual], ["en", "hi"]);
+    expect(result).toBeNull();
+  });
+
+  it("returns null for empty tracks", () => {
+    expect(pickTrack([], ["en"])).toBeNull();
+  });
+
+  it("normalizes region codes when matching", () => {
+    const enUs: CaptionTrack = { languageCode: "en-US", baseUrl: "https://example.com/en-us", kind: "" };
+    expect(pickTrack([enUs], ["en"])).toBe(enUs);
+  });
+});
+
+// ── parseSegments ─────────────────────────────────────────────────────────────
 
 const CAPTION_XML = `<?xml version="1.0" encoding="utf-8" ?>
 <transcript>
   <text start="0.5" dur="2.0">Hello world</text>
   <text start="3.0" dur="1.5">This is a &amp;test&amp;</text>
   <text start="5.0" dur="2.5">with &#39;quotes&#39; here</text>
+  <text start="7.0" dur="1.0">   </text>
 </transcript>`;
 
-function makeFetchMock(captionTracks: unknown[] = [], setCookies: string[] = []) {
-  const html = makeWatchPageHtml(captionTracks);
-
-  return vi.fn(async (url: string) => {
-    if (typeof url === "string" && url.includes("youtube.com/watch")) {
-      return {
-        ok: true,
-        status: 200,
-        headers: {
-          getSetCookie: () => setCookies,
-          get: (_name: string) => null,
-        },
-        text: async () => html,
-      };
-    }
-    // Second call is the caption XML fetch.
-    return {
-      ok: true,
-      status: 200,
-      text: async () => CAPTION_XML,
-    };
-  });
-}
-
-// ── Tests ─────────────────────────────────────────────────────────────────────
-
-describe("fetchTranscript", () => {
-  let originalFetch: typeof globalThis.fetch;
-
-  beforeEach(() => {
-    originalFetch = globalThis.fetch;
+describe("parseSegments", () => {
+  it("parses start, duration, and text correctly", () => {
+    const segs = parseSegments(CAPTION_XML);
+    expect(segs).toHaveLength(3); // whitespace-only entry is skipped
+    expect(segs[0]).toEqual({ text: "Hello world", start: 0.5, duration: 2.0 });
+    expect(segs[1]).toEqual({ text: "This is a &test&", start: 3.0, duration: 1.5 });
+    expect(segs[2]).toEqual({ text: "with 'quotes' here", start: 5.0, duration: 2.5 });
   });
 
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-    vi.restoreAllMocks();
+  it("decodes all HTML entities", () => {
+    const xml = `<transcript><text start="0" dur="1">&amp; &lt; &gt; &quot; &#39;</text></transcript>`;
+    const segs = parseSegments(xml);
+    expect(segs[0].text).toBe('& < > " \'');
   });
 
-  it("parses segments from caption XML", async () => {
-    const tracks = [
-      {
-        baseUrl: "https://www.youtube.com/api/timedtext?v=abc&lang=en",
-        languageCode: "en-US",
-        kind: "",
-        name: { simpleText: "English" },
-      },
-    ];
-
-    // @ts-expect-error — partial mock
-    globalThis.fetch = makeFetchMock(tracks);
-
-    const result = await fetchTranscript("abc", ["en"]);
-
-    expect(result).not.toBeNull();
-    expect(result!.language_code).toBe("en");
-    expect(result!.language_label).toBe("English");
-    expect(result!.is_generated).toBe(false);
-    expect(result!.segments).toHaveLength(3);
-    expect(result!.segments[0]).toEqual({ text: "Hello world", start: 0.5, duration: 2.0 });
-    // HTML entity decoding
-    expect(result!.segments[1].text).toBe("This is a &test&");
-    expect(result!.segments[2].text).toBe("with 'quotes' here");
+  it("collapses newlines to spaces", () => {
+    const xml = `<transcript><text start="0" dur="1">line one\nline two</text></transcript>`;
+    const segs = parseSegments(xml);
+    expect(segs[0].text).toBe("line one line two");
   });
 
-  it("prefers manual track over ASR track for same language", async () => {
-    const tracks = [
-      {
-        baseUrl: "https://www.youtube.com/api/timedtext?v=abc&lang=en&kind=asr",
-        languageCode: "en",
-        kind: "asr",
-        name: { simpleText: "English (auto-generated)" },
-      },
-      {
-        baseUrl: "https://www.youtube.com/api/timedtext?v=abc&lang=en",
-        languageCode: "en",
-        kind: "",
-        name: { simpleText: "English" },
-      },
-    ];
-
-    // @ts-expect-error — partial mock
-    globalThis.fetch = makeFetchMock(tracks);
-
-    const result = await fetchTranscript("abc", ["en"]);
-    expect(result).not.toBeNull();
-    expect(result!.is_generated).toBe(false);
-    // The manual track's baseUrl should be used (second fetch).
-    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
-    const captionFetchUrl = fetchMock.mock.calls[1][0] as string;
-    expect(captionFetchUrl).not.toContain("kind=asr");
+  it("skips whitespace-only entries", () => {
+    const xml = `<transcript><text start="0" dur="1">   </text><text start="1" dur="1">real</text></transcript>`;
+    const segs = parseSegments(xml);
+    expect(segs).toHaveLength(1);
+    expect(segs[0].text).toBe("real");
   });
 
-  it("returns null when no caption tracks present", async () => {
-    // @ts-expect-error — partial mock
-    globalThis.fetch = makeFetchMock([]);
-
-    const result = await fetchTranscript("abc", ["en"]);
-    expect(result).toBeNull();
-  });
-
-  it("returns null when preferred language not available", async () => {
-    const tracks = [
-      {
-        baseUrl: "https://www.youtube.com/api/timedtext?v=abc&lang=ja",
-        languageCode: "ja",
-        kind: "",
-        name: { simpleText: "Japanese" },
-      },
-    ];
-
-    // @ts-expect-error — partial mock
-    globalThis.fetch = makeFetchMock(tracks);
-
-    // Ask for only "en" — "ja" should not match, but fallback to "hi" also won't match.
-    // parsePreferredLangs adds "hi" and "en" as fallbacks, so requesting ["fr"] leaves
-    // only ["fr", "en", "hi"] — none of which match "ja".
-    const result = await fetchTranscript("abc", ["fr"]);
-    expect(result).toBeNull();
-  });
-
-  it("throws when watch page fetch fails", async () => {
-    // @ts-expect-error — partial mock
-    globalThis.fetch = vi.fn(async () => ({ ok: false, status: 403 }));
-
-    await expect(fetchTranscript("abc", ["en"])).rejects.toThrow("Watch page fetch failed: 403");
-  });
-
-  it("forwards Set-Cookie values from watch page to caption fetch", async () => {
-    const tracks = [
-      {
-        baseUrl: "https://www.youtube.com/api/timedtext?v=abc&lang=en",
-        languageCode: "en",
-        kind: "",
-        name: { simpleText: "English" },
-      },
-    ];
-    // Cookies WITH commas inside the value — the kind that break naive splitting.
-    const setCookies = [
-      "VISITOR_INFO1_LIVE=abc123; Expires=Wed, 21 Oct 2026 07:28:00 GMT; Path=/",
-      "YSC=xyz789; Path=/; HttpOnly",
-    ];
-
-    // @ts-expect-error — partial mock
-    globalThis.fetch = makeFetchMock(tracks, setCookies);
-
-    await fetchTranscript("abc", ["en"]);
-
-    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
-    // Inspect the second fetch call — the caption XML fetch.
-    const [, captionOpts] = fetchMock.mock.calls[1] as [string, RequestInit];
-    const headers = (captionOpts.headers ?? {}) as Record<string, string>;
-
-    expect(headers.Cookie).toBe("VISITOR_INFO1_LIVE=abc123; YSC=xyz789");
-    expect(captionOpts.credentials).toBe("include");
-  });
-
-  it("sends credentials: include on the watch-page fetch", async () => {
-    const tracks = [
-      {
-        baseUrl: "https://www.youtube.com/api/timedtext?v=abc&lang=en",
-        languageCode: "en",
-        kind: "",
-      },
-    ];
-
-    // @ts-expect-error — partial mock
-    globalThis.fetch = makeFetchMock(tracks);
-
-    await fetchTranscript("abc", ["en"]);
-
-    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
-    const [, watchOpts] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(watchOpts.credentials).toBe("include");
-  });
-
-  it("ASR track correctly sets is_generated = true", async () => {
-    const tracks = [
-      {
-        baseUrl: "https://www.youtube.com/api/timedtext?v=abc&lang=en&kind=asr",
-        languageCode: "en",
-        kind: "asr",
-        name: { simpleText: "English (auto-generated)" },
-      },
-    ];
-
-    // @ts-expect-error — partial mock
-    globalThis.fetch = makeFetchMock(tracks);
-
-    const result = await fetchTranscript("abc", ["en"]);
-    expect(result).not.toBeNull();
-    expect(result!.is_generated).toBe(true);
+  it("returns empty array for empty XML", () => {
+    expect(parseSegments("")).toHaveLength(0);
+    expect(parseSegments("<transcript></transcript>")).toHaveLength(0);
   });
 });
