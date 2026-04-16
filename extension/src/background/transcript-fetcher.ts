@@ -70,15 +70,6 @@ export async function fetchTranscript(
     throw new Error(`Watch page fetch failed: ${watchRes.status}`);
   }
 
-  // Capture session cookies for the subsequent timedtext fetch.
-  // Use getSetCookie() (Chrome 112+) — Headers.get("set-cookie") returns only
-  // the first value and splitting on "," corrupts Expires=... cookie values.
-  const setCookieHeaders: string[] = watchRes.headers.getSetCookie?.() ?? [];
-  const cookies = setCookieHeaders
-    .map((c) => c.split(";")[0].trim())
-    .filter(Boolean)
-    .join("; ");
-
   const html = await watchRes.text();
 
   // Step 2 — Extract ytInitialPlayerResponse via brace-walking (no regex).
@@ -107,13 +98,20 @@ export async function fetchTranscript(
   if (!track) return null; // preferred languages unavailable
 
   // Step 3 — Fetch the caption XML.
+  // credentials: "include" forwards the user's full YouTube cookie store automatically.
+  // Do NOT set a Cookie header manually — in extension service workers an explicit
+  // Cookie header overrides automatic credential sending, stripping auth cookies and
+  // causing YouTube to silently return an empty timedtext response.
+  // Timedtext URLs from ytInitialPlayerResponse are signed (they embed auth
+  // via signature/expire query params).  Sending credentials: "include" from
+  // a service worker adds Origin: chrome-extension://... which YouTube rejects
+  // with an empty body.  Omitting credentials lets the signed URL work as-is.
   const captionRes = await fetch(track.baseUrl, {
     headers: {
       ...BROWSER_HEADERS,
       Referer: `https://www.youtube.com/watch?v=${videoId}`,
-      ...(cookies ? { Cookie: cookies } : {}),
     },
-    credentials: "include",
+    credentials: "omit",
   });
 
   if (!captionRes.ok) {

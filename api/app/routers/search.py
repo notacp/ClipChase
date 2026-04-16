@@ -310,6 +310,26 @@ async def list_videos(
     return VideoListResponse(channel_id=channel_id, videos=videos)
 
 
+@router.get("/transcript/{video_id}")
+async def get_transcript(
+    video_id: str,
+    preferred_langs: str = "en,hi",
+    service: YouTubeService = Depends(get_yt_service),
+):
+    """Fetch a transcript server-side and return it for the extension.
+
+    The extension cannot fetch YouTube transcripts directly from a service
+    worker (YouTube silently returns an empty body when it detects the
+    chrome-extension Origin header).  This endpoint proxies the request
+    through the backend where youtube-transcript-api runs without restrictions.
+    """
+    langs = [lang.strip() for lang in preferred_langs.split(",") if lang.strip()]
+    transcript = service.get_transcript(video_id, preferred_languages=langs or None)
+    if transcript is None:
+        raise HTTPException(status_code=404, detail="No transcript available for this video")
+    return transcript
+
+
 @router.post("/match", response_model=MatchResponse)
 async def match_transcript(
     req: MatchRequest,

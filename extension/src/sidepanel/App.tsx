@@ -31,9 +31,16 @@ export function App() {
   // search has started, we bail out.  This prevents stale results from an
   // older search leaking into state after a newer search began.
   const searchGenRef = useRef(0);
+  // Prevents the suggestion effect from re-fetching when channelDisplay is set
+  // programmatically (i.e. by selecting a suggestion, not by the user typing).
+  const skipSuggestionFetchRef = useRef(false);
 
   // Channel suggestions — call backend directly (no Next.js proxy in extension).
   useEffect(() => {
+    if (skipSuggestionFetchRef.current) {
+      skipSuggestionFetchRef.current = false;
+      return;
+    }
     if (channelDisplay.length < 2) {
       setSuggestions([]);
       setIsSuggestionsLoading(false);
@@ -56,6 +63,7 @@ export function App() {
   }, [channelDisplay]);
 
   const handleSelectSuggestion = (suggestion: ChannelSuggestion) => {
+    skipSuggestionFetchRef.current = true;
     setChannelDisplay(suggestion.title);
     setChannelUrl(suggestion.id);
     setSuggestions([]);
@@ -107,21 +115,32 @@ export function App() {
 
       const { videos } = videosRes.data;
 
-      // Step 2 — For each video: fetch transcript (in-browser), match via backend.
+      // Step 2 — For each video: fetch transcript via backend, match via backend.
       for (const video of videos) {
         if (superseded()) return;
 
-        const txRes = await send({
-          type: "fetch-transcript",
-          videoId: video.id,
-          preferredLangs: ["en", "hi"],
-        });
+        let transcript: import("../shared/types").Transcript | null = null;
+        try {
+          const txRes = await fetch(
+            `${API_BASE}/api/transcript/${video.id}?preferred_langs=en,hi`
+          );
+          if (txRes.ok) {
+            transcript = await txRes.json();
+          } else if (txRes.status !== 404) {
+            console.warn(`[TimeStitch] transcript error for ${video.id}: HTTP ${txRes.status}`);
+          }
+        } catch (e) {
+          console.warn(`[TimeStitch] transcript fetch failed for ${video.id}:`, e);
+        }
         if (superseded()) return;
-        if (!txRes.ok || !txRes.data) continue; // no captions — skip
+        if (!transcript) {
+          console.warn(`[TimeStitch] transcript skipped for ${video.id}: not available`);
+          continue;
+        }
 
         const matchRes = await send({
           type: "match-transcript",
-          params: { keyword, video, transcript: txRes.data },
+          params: { keyword, video, transcript },
         });
         if (superseded()) return;
 
