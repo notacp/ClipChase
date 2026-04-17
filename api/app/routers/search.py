@@ -37,15 +37,7 @@ def get_yt_service():
     api_key = os.getenv("YT_API_KEY")
     if not api_key:
         raise HTTPException(status_code=500, detail="YouTube API key not configured")
-    proxy_url = os.getenv("PROXY_URL")
-    worker_url = os.getenv("TRANSCRIPT_WORKER_URL")
-    if worker_url:
-        print(f"DEBUG: Using Cloudflare Worker for transcripts: {worker_url}")
-    elif proxy_url:
-        print("DEBUG: PROXY_URL is configured for transcript requests.")
-    else:
-        print("DEBUG: No Worker or proxy configured — using direct transcript API (local dev only).")
-    return YouTubeService(api_key, proxy_url=proxy_url, worker_url=worker_url)
+    return YouTubeService(api_key)
 
 
 class SearchResult(BaseModel):
@@ -123,10 +115,8 @@ def _search_stream(
                     v for v in videos
                     if datetime.fromisoformat(v["publishedAt"].replace("Z", "+00:00")) >= cutoff_date
                 ][:max_videos]
-            except ValueError as e:
-                print(f"DEBUG: Invalid date format: {published_after}, error: {e}")
-
-        print(f"DEBUG: Found {len(videos)} videos in playlist {playlist_id} (after date filter)")
+            except ValueError:
+                pass
 
         query_language = detect_query_language(keyword)
         preferred_language_orders = transcript_language_orders(query_language)
@@ -134,8 +124,6 @@ def _search_stream(
 
         found_any = False
         for video in videos:
-            print(f"DEBUG: Analyzing Video {video['id']}: '{video['title']}'...")
-
             try:
                 transcript_attempted = False
                 tried_transcript_languages = set()
@@ -157,10 +145,6 @@ def _search_stream(
                         transcript_language or query_language,
                     )
 
-                    print(
-                        f"DEBUG: Transcript found for {video['id']} in {transcript_language or 'unknown'}. "
-                        f"Searching for {transcript_search_terms}..."
-                    )
                     matches = service.search_in_transcript(
                         transcript_data["segments"],
                         transcript_search_terms,
@@ -180,45 +164,14 @@ def _search_stream(
                         break
 
                 if match_result:
-                    print(f"DEBUG: FOUND {len(match_result.matches)} matches in {video['id']}")
                     found_any = True
                     yield f"data: {match_result.model_dump_json()}\n\n"
-                elif transcript_attempted:
-                    print(f"DEBUG: No matches found in {video['id']} across supported transcript tracks")
-                else:
-                    print(f"DEBUG: No supported transcript found for {video['id']}")
-            except Exception as inner_e:
-                print(f"DEBUG ERROR: Failed analyzing video {video['id']}: {inner_e}")
+            except Exception:
+                pass
 
-        if not found_any and getattr(service, "proxy_error_detected", False):
-            print("DEBUG ERROR: Search finished but proxy errors were detected.")
-            yield f"event: error\ndata: {json.dumps({'detail': 'Proxy connection failed. Verify PROXY_URL format and credentials.', 'status': 502})}\n\n"
-            return
-
-        if not found_any and getattr(service, "worker_url", None) and getattr(service, "worker_failures", 0) > 0:
-            print("DEBUG ERROR: Search finished but all Worker transcript calls failed.")
-            yield f"event: error\ndata: {json.dumps({'detail': 'Cloudflare Worker failed to fetch transcripts. Check that the Worker is deployed and TRANSCRIPT_WORKER_URL is correct.', 'status': 502})}\n\n"
-            return
-
-        if not found_any and service.block_detected:
-            print("DEBUG ERROR: Search finished but IP block was detected.")
-            if getattr(service, "proxy_url", None):
-                detail = (
-                    "YouTube blocked the request even with PROXY_URL. "
-                    "Verify proxy quality, rotation, and credentials."
-                )
-            else:
-                detail = "YouTube blocked the request. Please configure PROXY_URL."
-            yield f"event: error\ndata: {json.dumps({'detail': detail, 'status': 403})}\n\n"
-            return
-
-        print(f"DEBUG: Streaming complete.")
         yield "event: done\ndata: {}\n\n"
 
-    except Exception as e:
-        print(f"DEBUG ERROR: Unexpected error in search stream: {str(e)}")
-        import traceback
-        traceback.print_exc()
+    except Exception:
         yield f"event: error\ndata: {json.dumps({'detail': 'An internal server error occurred.', 'status': 500})}\n\n"
 
 
@@ -267,8 +220,7 @@ async def suggest_channels(
             }
             for item in response.get("items", [])
         ]
-    except Exception as e:
-        print(f"DEBUG: suggest-channels error: {e}")
+    except Exception:
         return []
 
 
@@ -304,30 +256,11 @@ async def list_videos(
                 v for v in videos
                 if datetime.fromisoformat(v["publishedAt"].replace("Z", "+00:00")) >= cutoff_date
             ][:req.max_videos]
-        except ValueError as e:
-            print(f"DEBUG: Invalid date format: {req.published_after}, error: {e}")
+        except ValueError:
+            pass
 
     return VideoListResponse(channel_id=channel_id, videos=videos)
 
-
-@router.get("/transcript/{video_id}")
-async def get_transcript(
-    video_id: str,
-    preferred_langs: str = "en,hi",
-    service: YouTubeService = Depends(get_yt_service),
-):
-    """Fetch a transcript server-side and return it for the extension.
-
-    The extension cannot fetch YouTube transcripts directly from a service
-    worker (YouTube silently returns an empty body when it detects the
-    chrome-extension Origin header).  This endpoint proxies the request
-    through the backend where youtube-transcript-api runs without restrictions.
-    """
-    langs = [lang.strip() for lang in preferred_langs.split(",") if lang.strip()]
-    transcript = service.get_transcript(video_id, preferred_languages=langs or None)
-    if transcript is None:
-        raise HTTPException(status_code=404, detail="No transcript available for this video")
-    return transcript
 
 
 @router.post("/match", response_model=MatchResponse)

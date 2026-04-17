@@ -50,9 +50,6 @@ def test_search_router_success(mock_yt_service_class):
     }
     mock_service.expand_search_terms_for_transcript.side_effect = lambda terms, transcript, transcript_language: terms
     mock_service.search_in_transcript.return_value = [{"start": 0, "text": "mock match", "context_before": "", "context_after": ""}]
-    mock_service.block_detected = False
-    mock_service.proxy_error_detected = False
-
     response = client.get("/api/search?channel_url=fake&keyword=mock")
 
     assert response.status_code == 200
@@ -91,8 +88,6 @@ def test_search_router_uses_romanized_variant_for_devanagari_query(mock_yt_servi
     }
     mock_service.expand_search_terms_for_transcript.return_value = ["स्टार्टअप", "staartapa"]
     mock_service.search_in_transcript.return_value = [{"start": 0, "text": "startup", "context_before": "", "context_after": ""}]
-    mock_service.block_detected = False
-    mock_service.proxy_error_detected = False
 
     response = client.get("/api/search?channel_url=fake&keyword=%E0%A4%B8%E0%A5%8D%E0%A4%9F%E0%A4%BE%E0%A4%B0%E0%A5%8D%E0%A4%9F%E0%A4%85%E0%A4%AA")
 
@@ -127,8 +122,6 @@ def test_search_router_keeps_latin_query_without_translation(mock_yt_service_cla
     }
     mock_service.expand_search_terms_for_transcript.return_value = ["startup", "स्टार्टअप"]
     mock_service.search_in_transcript.return_value = [{"start": 0, "text": "स्टार्टअप", "context_before": "", "context_after": ""}]
-    mock_service.block_detected = False
-    mock_service.proxy_error_detected = False
 
     response = client.get("/api/search?channel_url=fake&keyword=startup")
 
@@ -177,8 +170,6 @@ def test_search_router_falls_back_to_hindi_track_when_english_track_misses(mock_
         [],
         [{"start": 12, "text": "हमने क्लाइंट्स को इन्वेस्ट नहीं किया", "context_before": "", "context_after": ""}],
     ]
-    mock_service.block_detected = False
-    mock_service.proxy_error_detected = False
 
     response = client.get("/api/search?channel_url=fake&keyword=invest")
 
@@ -215,8 +206,6 @@ def test_search_router_adds_finology_candidate_from_hindi_transcript(mock_yt_ser
     mock_service.search_in_transcript.return_value = [
         {"start": 12, "text": "मेरे में आपका 30 स्टॉक्स का पोर्टफोलियो बने, तो फिनोलॉजी", "context_before": "", "context_after": ""}
     ]
-    mock_service.block_detected = False
-    mock_service.proxy_error_detected = False
 
     response = client.get("/api/search?channel_url=fake&keyword=Finology")
 
@@ -230,53 +219,6 @@ def test_search_router_adds_finology_candidate_from_hindi_transcript(mock_yt_ser
         transcript_language="hi",
     )
 
-
-@patch("api.app.routers.search.YouTubeService")
-def test_search_router_returns_403_on_block(mock_yt_service_class):
-    # NOTE: Pre-existing failure. mock_service.worker_failures is a MagicMock (not int),
-    # so `getattr(service, "worker_failures", 0) > 0` raises TypeError, which the outer
-    # except handler catches and yields a 500 error event instead of reaching the 403 branch.
-    # Fix: add mock_service.worker_failures = 0 to the test setup.
-    mock_service = MagicMock()
-    mock_yt_service_class.return_value = mock_service
-
-    mock_service.resolve_channel_id.return_value = "UC123"
-    mock_service.fetch_uploads_playlist_id.return_value = "PL123"
-    mock_service.fetch_videos.return_value = [{"id": "vid1", "title": "Test", "publishedAt": "2024-01-01T00:00:00Z", "thumbnail": ""}]
-    mock_service.get_transcript.return_value = None
-    mock_service.expand_search_terms_for_transcript.side_effect = lambda terms, transcript, transcript_language: terms
-    mock_service.block_detected = True
-    mock_service.proxy_error_detected = False
-
-    response = client.get("/api/search?channel_url=fake&keyword=mock")
-
-    assert response.status_code == 200
-    assert "text/event-stream" in response.headers.get("content-type", "")
-    error = parse_sse_error(response)
-    assert error.get("status") == 403
-    assert "YouTube blocked the request" in error.get("detail", "")
-
-
-@patch("api.app.routers.search.YouTubeService")
-def test_search_router_returns_502_on_proxy_error(mock_yt_service_class):
-    mock_service = MagicMock()
-    mock_yt_service_class.return_value = mock_service
-
-    mock_service.resolve_channel_id.return_value = "UC123"
-    mock_service.fetch_uploads_playlist_id.return_value = "PL123"
-    mock_service.fetch_videos.return_value = [{"id": "vid1", "title": "Test", "publishedAt": "2024-01-01T00:00:00Z", "thumbnail": ""}]
-    mock_service.expand_search_terms_for_transcript.side_effect = lambda terms, transcript, transcript_language: terms
-    mock_service.get_transcript.side_effect = Exception("ProxyError: 407 Proxy Authentication Required")
-    mock_service.block_detected = False
-    mock_service.proxy_error_detected = True
-
-    response = client.get("/api/search?channel_url=fake&keyword=mock")
-
-    assert response.status_code == 200
-    assert "text/event-stream" in response.headers.get("content-type", "")
-    error = parse_sse_error(response)
-    assert error.get("status") == 502
-    assert "Proxy connection failed" in error.get("detail", "")
 
 
 @patch("api.app.routers.search.YouTubeService")
