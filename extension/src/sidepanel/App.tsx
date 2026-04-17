@@ -115,8 +115,7 @@ export function App() {
 
       const { videos } = videosRes.data;
 
-      // Step 2 — For each video: fetch transcript via content-script injection,
-      //           then match via backend.
+      // Step 2 — For each video: fetch transcript via service worker, match via backend.
       for (const video of videos) {
         if (superseded()) return;
 
