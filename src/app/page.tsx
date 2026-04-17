@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { ArrowRight, Clock, Globe, Lock, Puzzle, Youtube, Zap } from "lucide-react";
 import { BackgroundEffect } from "@/components/BackgroundEffect";
+import Link from "next/link";
 
 const spring = { type: "spring" as const, stiffness: 100, damping: 20 };
 
@@ -421,6 +422,7 @@ function Footer() {
         </div>
         <div className="flex items-center gap-5">
           <a href="#how" className="hover:text-white transition-colors">How it works</a>
+          <Link href="/privacy" className="hover:text-white transition-colors">Privacy</Link>
           <a href={CHROME_STORE_URL} className="hover:text-white transition-colors">
             Install
           </a>
