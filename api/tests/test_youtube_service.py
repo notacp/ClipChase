@@ -148,24 +148,6 @@ def test_select_local_transcript_prefers_query_language_then_manual_track():
     assert selected.is_generated is False
 
 
-def test_proxy_wiring():
-    service = YouTubeService(api_key="fake", proxy_url="http://mock-proxy:8080")
-    session = service._get_http_client()
-
-    assert session.proxies["http"] == "http://mock-proxy:8080"
-    assert session.proxies["https"] == "http://mock-proxy:8080"
-    assert "User-Agent" in session.headers
-
-
-def test_block_detection_logic():
-    service = YouTubeService(api_key="fake")
-
-    with patch.object(service, "_list_transcripts", side_effect=Exception("YouTube is blocking requests from your IP...")):
-        with pytest.raises(Exception):
-            service.get_transcript("fake-video-id", preferred_languages=["en", "hi"])
-
-        assert service.block_detected is True
-
 
 # ---------------------------------------------------------------------------
 # _romanized_forms_similar unit tests

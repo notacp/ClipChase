@@ -300,42 +300,9 @@ def _segment_to_raw_data(segments: Any) -> List[Dict[str, Any]]:
 
 
 class YouTubeService:
-    def __init__(self, api_key: str, proxy_url: Optional[str] = None, worker_url: Optional[str] = None):
+    def __init__(self, api_key: str):
         self.api_key = api_key
-        self.proxy_url = proxy_url.strip() if proxy_url and proxy_url.strip() else None
-        self.worker_url = worker_url.rstrip("/") if worker_url and worker_url.strip() else None
         self.youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey=api_key)
-        self.block_detected = False
-        self.proxy_error_detected = False
-        self.worker_failures = 0
-
-    def _get_http_client(self) -> Any:
-        import random
-        import requests
-
-        session = requests.Session()
-        session.trust_env = False
-
-        user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:122.0) Gecko/20100101 Firefox/122.0",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15",
-        ]
-        session.headers.update({
-            "User-Agent": random.choice(user_agents),
-            "Accept-Language": "en-US,en;q=0.9",
-        })
-
-        if self.proxy_url:
-            print("DEBUG: Configuring HTTP Client with Proxy")
-            session.proxies = {
-                "http": self.proxy_url,
-                "https": self.proxy_url,
-            }
-
-        return session
 
     def resolve_channel_id(self, channel_url_or_id: str) -> Optional[str]:
         if not channel_url_or_id:
@@ -360,7 +327,6 @@ class YouTubeService:
 
     def _resolve_name_to_channel_id(self, name_or_handle: str) -> Optional[str]:
         try:
-            print(f"DEBUG: Resolving '{name_or_handle}' to Channel ID via search...")
             search_response = self.youtube.search().list(
                 part="snippet",
                 q=name_or_handle,
@@ -370,12 +336,9 @@ class YouTubeService:
 
             if search_response.get("items"):
                 channel_id = search_response["items"][0]["snippet"]["channelId"]
-                print(f"DEBUG: Resolved to {channel_id}")
                 return channel_id
-            print(f"DEBUG: No channel found for '{name_or_handle}'")
             return None
-        except Exception as e:
-            print(f"DEBUG: Error resolving channel name: {str(e)}")
+        except Exception:
             return None
 
     def fetch_uploads_playlist_id(self, channel_id: str) -> str:
@@ -443,13 +406,10 @@ class YouTubeService:
                 durations[item["id"]] = total_seconds
 
         filtered = [v for v in videos if durations.get(v["id"], 61) > 60]
-        print(f"DEBUG: Filtered out {len(videos) - len(filtered)} Shorts (≤60s) from {len(videos)} videos")
         return filtered
 
     def get_transcript(self, video_id: str, preferred_languages: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
         languages = self._normalize_preferred_languages(preferred_languages)
-        if self.worker_url:
-            return self._get_transcript_from_worker(video_id, languages)
         return self._get_transcript_from_api(video_id, languages)
 
     def _normalize_preferred_languages(self, preferred_languages: Optional[List[str]]) -> List[str]:
@@ -460,38 +420,13 @@ class YouTubeService:
                 languages.append(code)
         return languages
 
-    def _get_transcript_from_worker(self, video_id: str, preferred_languages: List[str]) -> Optional[Dict[str, Any]]:
-        import requests as req
-
-        url = f"{self.worker_url}/transcript"
-        try:
-            print(f"DEBUG: Fetching transcript via Worker for {video_id} ({preferred_languages})")
-            response = req.get(
-                url,
-                params={"video_id": video_id, "preferred_langs": ",".join(preferred_languages)},
-                timeout=30,
-            )
-            if response.status_code == 200:
-                return response.json()
-            if response.status_code == 404:
-                return None
-            error = response.json().get("error", f"Worker returned {response.status_code}")
-            print(f"DEBUG ERROR: Worker error for {video_id}: {error}")
-            raise Exception(error)
-        except Exception as e:
-            self.worker_failures += 1
-            print(f"DEBUG ERROR: Worker request failed for {video_id}: {e}")
-            raise
-
     def _get_transcript_from_api(self, video_id: str, preferred_languages: List[str]) -> Optional[Dict[str, Any]]:
         try:
-            http_client = self._get_http_client()
-            ytt_api = YouTubeTranscriptApi(http_client=http_client)
+            ytt_api = YouTubeTranscriptApi()
             transcript_list = self._list_transcripts(ytt_api, video_id)
             transcript = self._select_local_transcript(transcript_list, preferred_languages)
             if not transcript:
                 return None
-
             segments = _segment_to_raw_data(transcript.fetch())
             language_code = normalize_language_code(getattr(transcript, "language_code", ""))
             return {
@@ -500,37 +435,9 @@ class YouTubeService:
                 "is_generated": bool(getattr(transcript, "is_generated", False)),
                 "segments": segments,
             }
-        except (TranscriptsDisabled, NoTranscriptFound) as e:
-            print(f"DEBUG: Transcript API error for {video_id}: {type(e).__name__}")
+        except (TranscriptsDisabled, NoTranscriptFound):
             return None
-        except Exception as e:
-            error_msg = str(e)
-            error_msg_lower = error_msg.lower()
-
-            if (
-                "blocking requests from your ip" in error_msg_lower
-                or "blocked" in error_msg_lower
-                or "429" in error_msg_lower
-                or "too many requests" in error_msg_lower
-            ):
-                print(
-                    f"DEBUG ERROR: YouTube blocked transcript request for {video_id}. "
-                    f"proxy_configured={bool(self.proxy_url)}"
-                )
-                self.block_detected = True
-            elif (
-                "proxy" in error_msg_lower
-                or "407" in error_msg_lower
-                or "tunnel connection failed" in error_msg_lower
-                or "cannot connect to proxy" in error_msg_lower
-                or "proxyerror" in error_msg_lower
-            ):
-                print(
-                    f"DEBUG ERROR: Proxy failure while fetching transcript for {video_id}: {error_msg}"
-                )
-                self.proxy_error_detected = True
-            else:
-                print(f"DEBUG ERROR: Unexpected error fetching transcript for {video_id}: {error_msg}")
+        except Exception:
             raise
 
     def _list_transcripts(self, ytt_api: Any, video_id: str) -> Any:
