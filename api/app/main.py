@@ -12,10 +12,12 @@ load_dotenv(dotenv_path=env_path, override=True)
 
 app = FastAPI(title="TimeStitch API")
 
-# Add CORS middleware to allow requests from the frontend
+_origins_env = os.getenv("ALLOWED_ORIGINS", "*")
+_allowed_origins = [o.strip() for o in _origins_env.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, replace with specific frontend URL
+    allow_origins=_allowed_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
