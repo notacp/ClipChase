@@ -11,6 +11,7 @@ body {
   color: var(--foreground);
   background: var(--background);
   min-height: 100vh;
+  font-family: 'Outfit', sans-serif;
 }
 
 @layer utilities {

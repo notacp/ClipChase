@@ -175,6 +175,19 @@ def _search_stream(
         yield f"event: error\ndata: {json.dumps({'detail': 'An internal server error occurred.', 'status': 500})}\n\n"
 
 
+@router.get("/transcript/{video_id}")
+async def get_transcript(
+    video_id: str,
+    lang: str = "en",
+    service: YouTubeService = Depends(get_yt_service),
+):
+    preferred = [lang, "en", "hi"]
+    result = service.get_transcript(video_id, preferred_languages=preferred)
+    if not result:
+        raise HTTPException(status_code=404, detail="No transcript available")
+    return result
+
+
 @router.get("/search")
 async def search(
     channel_url: str,

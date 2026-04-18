@@ -17,6 +17,8 @@ const config: Config = {
                     gray: "#1E1E1E",
                     "light-gray": "#909090",
                     elevated: "#181818",
+                    "dark-gray": "#272727",
+                    hover: "#3D3D3D",
                 }
             },
         },

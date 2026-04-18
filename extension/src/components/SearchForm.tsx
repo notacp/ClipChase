@@ -138,7 +138,7 @@ export function SearchForm({
 
         <button
           disabled={isLoading}
-          className="bg-yt-red hover:bg-yt-red/90 disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-4 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all active:scale-95 w-full"
+          className="bg-yt-red hover:bg-yt-red/90 disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-4 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all active:translate-y-px w-full"
         >
           {isLoading ? (
             <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />

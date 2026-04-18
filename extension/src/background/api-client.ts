@@ -25,3 +25,10 @@ export const listVideos = (params: VideoListParams): Promise<VideoListResponse> 
 
 export const matchTranscript = (params: MatchParams): Promise<MatchResponse> =>
   postJson<MatchResponse>("/api/match", params);
+
+export async function fetchTranscript(videoId: string, lang = "en"): Promise<import("../shared/types").Transcript | null> {
+  const r = await fetch(`${API_BASE}/api/transcript/${videoId}?lang=${lang}`);
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error(`transcript ${r.status}`);
+  return r.json();
+}

@@ -1,6 +1,7 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { ArrowRight, Clock, Globe, Lock, Puzzle, Youtube, Zap } from "lucide-react";
 import { BackgroundEffect } from "@/components/BackgroundEffect";
 import Link from "next/link";
@@ -47,7 +48,7 @@ function LandingHeader() {
         </a>
         <a
           href={CHROME_STORE_URL}
-          className="bg-yt-red hover:bg-yt-red/90 active:translate-y-px text-white text-sm font-semibold px-4 py-2 rounded-lg transition-all flex items-center gap-1.5"
+          className="bg-yt-red hover:bg-yt-red/90 active:translate-y-px text-white text-sm font-semibold px-4 py-2 rounded-xl transition-all flex items-center gap-1.5"
         >
           Add to Chrome
           <ArrowRight className="w-4 h-4" />
@@ -119,11 +120,74 @@ function Hero() {
 
 // ── Demo mockup ───────────────────────────────────────────────────────────────
 //
-// A static visual of the extension in use: side panel on the left showing a
-// search result, a stylized YouTube player on the right.  All CSS, no assets —
-// so it survives rebranding, theme changes, and missing screenshots.
+// Real use case: @hubermanlab + "dopamine" — search across 400+ videos,
+// jump to the exact second it's spoken. Two videos, three matches.
+// Auto-cycles on load; stops when user clicks.
+
+/** Parse "h:mm:ss" or "m:ss" duration string into total seconds. */
+function parseDuration(d: string): number {
+  const parts = d.split(":").map(Number);
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return parts[0] * 60 + parts[1];
+}
+
+const DEMO_VIDEOS = [
+  {
+    title: "Controlling Your Dopamine For Motivation, Focus & Satisfaction",
+    date: "Sep 2021",
+    duration: "1:37:02",
+    youtubeId: "QmOF0crdyRU",
+    thumbnail: "https://i.ytimg.com/vi/QmOF0crdyRU/maxresdefault.jpg",
+    matches: [
+      { time: "9:58",  seconds: 598,  before: "...so let's talk about ", highlight: "dopamine", after: " — most people have heard of it..." },
+      { time: "18:14", seconds: 1094, before: "...", highlight: "dopamine", after: " can be released locally at synapses or broadly..." },
+    ],
+  },
+  {
+    title: "The Science of Making & Breaking Habits",
+    date: "Jan 2022",
+    duration: "1:00:16",
+    youtubeId: "Wcs2PFz5q6g",
+    thumbnail: "https://i.ytimg.com/vi/Wcs2PFz5q6g/maxresdefault.jpg",
+    matches: [
+      { time: "48:00", seconds: 2880, before: "...the science of ", highlight: "dopamine", after: " rewards and how to apply it to habits..." },
+    ],
+  },
+] as const;
+
+// Flat list of all moments for cycling
+const ALL_MOMENTS = DEMO_VIDEOS.flatMap((v, vi) =>
+  v.matches.map((m) => ({ ...m, video: v, videoIdx: vi }))
+);
 
 function DemoMockup() {
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [userActed, setUserActed] = useState(false);
+  const [playingIdx, setPlayingIdx] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (userActed) return;
+    const t = setInterval(
+      () => setActiveIdx((p) => (p + 1) % ALL_MOMENTS.length),
+      2800
+    );
+    return () => clearInterval(t);
+  }, [userActed]);
+
+  const select = (i: number) => {
+    setUserActed(true);
+    setActiveIdx(i);
+    setPlayingIdx(i);
+  };
+
+  const current = ALL_MOMENTS[activeIdx];
+  const currentPct =
+    (current.seconds / parseDuration(current.video.duration)) * 100;
+
+  // Flat index offset for each video's first match
+  const videoOffset = (vi: number) =>
+    DEMO_VIDEOS.slice(0, vi).reduce((s, v) => s + v.matches.length, 0);
+
   return (
     <motion.section
       initial={{ opacity: 0, y: 30 }}
@@ -132,86 +196,173 @@ function DemoMockup() {
       transition={spring}
       className="pb-24"
     >
-      <div className="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-6 max-w-5xl mx-auto">
-        {/* Side panel mock */}
-        <div className="glass rounded-2xl p-5 space-y-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-6 max-w-5xl mx-auto">
+        {/* ── Side panel ── */}
+        <div className="glass rounded-2xl p-4 flex flex-col gap-3">
+          {/* Header */}
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-mono tracking-widest text-yt-light-gray uppercase">
               Side Panel
             </span>
             <div className="flex gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-white/10" />
-              <span className="w-1.5 h-1.5 rounded-full bg-white/10" />
-              <span className="w-1.5 h-1.5 rounded-full bg-white/10" />
+              {[0, 1, 2].map((i) => (
+                <span key={i} className="w-1.5 h-1.5 rounded-full bg-white/10" />
+              ))}
             </div>
           </div>
 
-          <div className="space-y-2">
-            <div className="glass rounded-xl px-3 py-2.5 text-sm text-white/90">
-              @PostHog
+          {/* Inputs */}
+          <div className="flex flex-col gap-1.5">
+            <div className="glass rounded-xl px-3 py-2 text-sm text-white/90">
+              @hubermanlab
             </div>
-            <div className="glass rounded-xl px-3 py-2.5 text-sm text-white/90 flex items-center justify-between">
-              <span>posthog</span>
+            <div className="glass rounded-xl px-3 py-2 text-sm text-white/90 flex items-center justify-between">
+              <span>dopamine</span>
               <span className="text-xs text-yt-light-gray font-mono">kw</span>
             </div>
           </div>
 
-          {/* Result card */}
-          <div className="glass rounded-xl p-3 space-y-2.5 border-yt-red/30">
-            <div className="flex gap-2.5">
-              <div className="w-16 h-10 rounded bg-white/5 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-white leading-tight line-clamp-2">
-                  Why we rewrote our analytics pipeline
-                </p>
-                <p className="text-[10px] text-yt-light-gray mt-1 font-mono">
-                  Apr 12, 2026
-                </p>
+          {/* Results — grouped by video */}
+          <div className="flex flex-col gap-2">
+            {DEMO_VIDEOS.map((video, vi) => (
+              <div key={vi} className="glass rounded-xl overflow-hidden">
+                {/* Video header */}
+                <div className="px-3 pt-2.5 pb-2 border-b border-white/5">
+                  <p className="text-[11px] font-semibold text-white leading-tight line-clamp-1">
+                    {video.title}
+                  </p>
+                  <p className="text-[10px] text-yt-light-gray font-mono mt-0.5">
+                    {video.date} · {video.duration}
+                  </p>
+                </div>
+
+                {/* Match rows */}
+                <div className="p-1.5 flex flex-col gap-1">
+                  {video.matches.map((match, mi) => {
+                    const flatIdx = videoOffset(vi) + mi;
+                    const isActive = flatIdx === activeIdx;
+                    return (
+                      <button
+                        key={mi}
+                        type="button"
+                        onClick={() => select(flatIdx)}
+                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all text-left cursor-pointer ${
+                          isActive ? "bg-yt-red/10" : "hover:bg-white/5"
+                        }`}
+                      >
+                        <div
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center gap-1 shrink-0 transition-colors ${
+                            isActive
+                              ? "bg-yt-red text-white"
+                              : "bg-yt-gray text-white/60"
+                          }`}
+                        >
+                          <Clock className="w-2.5 h-2.5" />
+                          {match.time}
+                        </div>
+                        <p
+                          className={`text-[10px] leading-snug truncate transition-colors ${
+                            isActive ? "text-white/80" : "text-yt-light-gray"
+                          }`}
+                        >
+                          {match.before}
+                          <span className="text-white bg-yt-red/20 px-0.5 rounded">
+                            {match.highlight}
+                          </span>
+                          {match.after}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-            <div className="flex items-start gap-2">
-              <div className="bg-yt-gray px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center gap-1 shrink-0 mt-0.5">
-                <Clock className="w-2.5 h-2.5" />
-                4:22
-              </div>
-              <p className="text-[11px] text-yt-light-gray leading-snug">
-                ...we use{" "}
-                <span className="text-white font-medium bg-yt-red/20 px-1 rounded">
-                  posthog
-                </span>{" "}
-                for product analytics...
-              </p>
-            </div>
-            <div className="flex items-start gap-2">
-              <div className="bg-yt-gray px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center gap-1 shrink-0 mt-0.5">
-                <Clock className="w-2.5 h-2.5" />
-                7:48
-              </div>
-              <p className="text-[11px] text-yt-light-gray leading-snug">
-                ...the{" "}
-                <span className="text-white font-medium bg-yt-red/20 px-1 rounded">
-                  post hog
-                </span>{" "}
-                dashboard gives us...
-              </p>
-            </div>
+            ))}
           </div>
         </div>
 
-        {/* YouTube player mock */}
-        <div className="glass rounded-2xl overflow-hidden aspect-video relative flex items-center justify-center">
-          <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent" />
-          <div className="relative z-10 w-16 h-16 rounded-full bg-yt-red flex items-center justify-center">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="white">
-              <path d="M8 5v14l11-7z" />
-            </svg>
-          </div>
-          <div className="absolute bottom-0 left-0 right-0 p-4 flex items-center gap-3">
-            <div className="flex-1 h-1 rounded-full bg-white/10 overflow-hidden">
-              <div className="h-full w-[26%] bg-yt-red rounded-full" />
-            </div>
-            <span className="text-[10px] font-mono text-yt-light-gray">4:22 / 16:30</span>
-          </div>
+        {/* ── Player ── */}
+        <div className="glass rounded-2xl overflow-hidden aspect-video relative">
+          {playingIdx !== null ? (
+            // Real YouTube video — starts at the clicked timestamp
+            <motion.iframe
+              key={`yt-${playingIdx}`}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.3 }}
+              src={`https://www.youtube.com/embed/${ALL_MOMENTS[playingIdx].video.youtubeId}?start=${ALL_MOMENTS[playingIdx].seconds}&autoplay=1&rel=0&modestbranding=1`}
+              className="absolute inset-0 w-full h-full border-0"
+              allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+              allowFullScreen
+            />
+          ) : (
+            // Thumbnail state — auto-cycles to show what the tool finds
+            <>
+              <AnimatePresence mode="wait">
+                <motion.img
+                  key={`thumb-${activeIdx}`}
+                  src={current.video.thumbnail}
+                  alt=""
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.35 }}
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+              </AnimatePresence>
+              <div className="absolute inset-0 bg-black/45" />
+              <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-black/80 to-transparent" />
+
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={`cc-${activeIdx}`}
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -3 }}
+                  transition={{ duration: 0.18 }}
+                  className="absolute z-20 left-0 right-0 flex justify-center"
+                  style={{ bottom: "3rem" }}
+                >
+                  <div className="bg-black/85 backdrop-blur-sm rounded px-3 py-1.5 text-[11px] font-mono text-white/80 max-w-[80%] text-center leading-relaxed">
+                    {current.before}
+                    <span className="text-white font-semibold bg-yt-red/50 px-1 rounded">
+                      {current.highlight}
+                    </span>
+                    {current.after}
+                  </div>
+                </motion.div>
+              </AnimatePresence>
+
+              <div className="absolute bottom-0 left-0 right-0 z-20 px-3 py-2.5 flex items-center gap-2.5">
+                <motion.div
+                  key={`playbtn-${activeIdx}`}
+                  initial={{ scale: 1.25 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 24 }}
+                  className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center shrink-0"
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="white">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </motion.div>
+                <div className="flex-1 h-[3px] rounded-full bg-white/15 overflow-hidden">
+                  <motion.div
+                    className="h-full bg-yt-red rounded-full"
+                    animate={{ width: `${currentPct}%` }}
+                    transition={spring}
+                  />
+                </div>
+                <motion.span
+                  key={`ts-${activeIdx}`}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.2 }}
+                  className="text-[9px] font-mono text-white/40 tabular-nums shrink-0"
+                >
+                  {current.time} / {current.video.duration}
+                </motion.span>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </motion.section>
