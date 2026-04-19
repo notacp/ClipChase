@@ -4,13 +4,23 @@
   "version": "1.0.0",
   "description": "Search YouTube channel transcripts for keywords.",
   "minimum_chrome_version": "116",
-  "permissions": ["sidePanel", "scripting", "tabs"],
+  "permissions": ["sidePanel", "scripting", "tabs", "declarativeNetRequest", "declarativeNetRequestWithHostAccess"],
   "host_permissions": [
     "*://*.youtube.com/*",
+    "*://*.youtube-nocookie.com/*",
     "https://api.timestitch.app/*",
     "https://web-production-c3d10.up.railway.app/*",
     "http://localhost:8000/*"
   ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "ruleset_1",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://www.youtube-nocookie.com https://www.youtube.com"
   },
