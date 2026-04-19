@@ -72,55 +72,85 @@ async function fetchTranscriptFromYouTubePage(_videoId: string): Promise<{
       return { _debug: `no-baseUrl tracks=${tracks.length}` };
     }
 
-    // ── 2. Fetch subtitle data as JSON ────────────────────────────────────
-    // Append fmt=json3 to get structured JSON instead of XML
-    const separator = preferred.baseUrl.includes("?") ? "&" : "?";
-    const url = preferred.baseUrl + separator + "fmt=json3";
-    const res = await fetch(url, { credentials: "include" });
+    // ── 2. Fetch subtitle data ─────────────────────────────────────────────
+    // Use URL object to properly handle existing query params
+    const ttUrl = new URL(preferred.baseUrl);
+    ttUrl.searchParams.set("fmt", "json3");
 
-    if (!res.ok) {
-      return { _debug: `timedtext-status=${res.status} url=${url.slice(0, 80)}` };
+    // Try JSON3 first, then fall back to XML (srv3), then raw
+    let rawText = "";
+    let fetchUrl = ttUrl.toString();
+
+    for (const fmt of ["json3", "srv3", ""]) {
+      if (fmt) {
+        ttUrl.searchParams.set("fmt", fmt);
+      } else {
+        ttUrl.searchParams.delete("fmt");
+      }
+      fetchUrl = ttUrl.toString();
+      const res = await fetch(fetchUrl, { credentials: "include" });
+
+      if (!res.ok) {
+        return { _debug: `timedtext-status=${res.status} fmt=${fmt} urlLen=${fetchUrl.length}` };
+      }
+
+      rawText = await res.text();
+      if (rawText.length > 1) break;
     }
 
-    const rawText = await res.text();
     if (!rawText || rawText.length < 2) {
-      return { _debug: `timedtext-empty len=${rawText.length} url=${url.slice(0, 80)}` };
+      // Last resort: log the baseUrl so we can inspect it manually
+      return { _debug: `timedtext-all-empty baseUrlLen=${preferred.baseUrl.length} baseUrl=${preferred.baseUrl}` };
     }
 
-    let data: {
-      events?: {
-        tStartMs?: number;
-        dDurationMs?: number;
-        segs?: { utf8?: string }[];
-      }[];
-    };
-    try {
-      data = JSON.parse(rawText);
-    } catch {
-      return { _debug: `timedtext-not-json len=${rawText.length} preview=${rawText.slice(0, 100)}` };
-    }
+    // ── 2b. Parse response (JSON or XML) ──────────────────────────────────
+    let segments: { text: string; start: number; duration: number }[] = [];
 
-    if (!data.events) {
-      return { _debug: `no-events-in-json3 keys=${Object.keys(data).join(",")}` };
-    }
-
-    // ── 3. Parse events into segments ─────────────────────────────────────
-    const segments: { text: string; start: number; duration: number }[] = [];
-    for (const event of data.events) {
-      if (!event.segs || event.tStartMs === undefined) continue;
-      const text = event.segs
-        .map(s => s.utf8 ?? "")
-        .join("")
-        .replace(/\n/g, " ")
-        .trim();
-      if (!text || text === "\n") continue;
-      const start = (event.tStartMs ?? 0) / 1000;
-      const duration = (event.dDurationMs ?? 0) / 1000;
-      segments.push({ text, start, duration });
+    if (rawText.trimStart().startsWith("{")) {
+      // JSON3 format
+      let data: {
+        events?: {
+          tStartMs?: number;
+          dDurationMs?: number;
+          segs?: { utf8?: string }[];
+        }[];
+      };
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        return { _debug: `timedtext-bad-json len=${rawText.length} preview=${rawText.slice(0, 100)}` };
+      }
+      if (!data.events) {
+        return { _debug: `no-events keys=${Object.keys(data).join(",")}` };
+      }
+      for (const event of data.events) {
+        if (!event.segs || event.tStartMs === undefined) continue;
+        const text = event.segs.map(s => s.utf8 ?? "").join("").replace(/\n/g, " ").trim();
+        if (!text) continue;
+        segments.push({
+          text,
+          start: (event.tStartMs ?? 0) / 1000,
+          duration: (event.dDurationMs ?? 0) / 1000,
+        });
+      }
+    } else if (rawText.trimStart().startsWith("<")) {
+      // XML format — parse with DOMParser
+      const doc = new DOMParser().parseFromString(rawText, "text/xml");
+      const textElements = doc.querySelectorAll("text");
+      for (const el of textElements) {
+        const start = parseFloat(el.getAttribute("start") ?? "0");
+        const dur = parseFloat(el.getAttribute("dur") ?? "0");
+        const text = (el.textContent ?? "").replace(/\n/g, " ").trim();
+        if (text) {
+          segments.push({ text, start, duration: dur });
+        }
+      }
+    } else {
+      return { _debug: `timedtext-unknown-format len=${rawText.length} preview=${rawText.slice(0, 100)}` };
     }
 
     if (segments.length === 0) {
-      return { _debug: `parsed-0-segments events=${data.events.length}` };
+      return { _debug: `parsed-0-segments rawLen=${rawText.length}` };
     }
 
     const lc = (preferred.languageCode ?? "en").toLowerCase().split("-")[0];
