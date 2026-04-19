@@ -74,20 +74,31 @@ async function fetchTranscriptFromYouTubePage(_videoId: string): Promise<{
 
     // ── 2. Fetch subtitle data as JSON ────────────────────────────────────
     // Append fmt=json3 to get structured JSON instead of XML
-    const url = preferred.baseUrl + "&fmt=json3";
+    const separator = preferred.baseUrl.includes("?") ? "&" : "?";
+    const url = preferred.baseUrl + separator + "fmt=json3";
     const res = await fetch(url, { credentials: "include" });
 
     if (!res.ok) {
-      return { _debug: `timedtext-status=${res.status}` };
+      return { _debug: `timedtext-status=${res.status} url=${url.slice(0, 80)}` };
     }
 
-    const data = await res.json() as {
+    const rawText = await res.text();
+    if (!rawText || rawText.length < 2) {
+      return { _debug: `timedtext-empty len=${rawText.length} url=${url.slice(0, 80)}` };
+    }
+
+    let data: {
       events?: {
         tStartMs?: number;
         dDurationMs?: number;
         segs?: { utf8?: string }[];
       }[];
     };
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      return { _debug: `timedtext-not-json len=${rawText.length} preview=${rawText.slice(0, 100)}` };
+    }
 
     if (!data.events) {
       return { _debug: `no-events-in-json3 keys=${Object.keys(data).join(",")}` };
