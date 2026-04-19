@@ -30,7 +30,8 @@ export function VideoPlayer({ selectedVideo }: VideoPlayerProps) {
             )}
             <iframe
               className="w-full h-full rounded-xl"
-              src={`https://www.youtube-nocookie.com/embed/${selectedVideo.id}?start=${Math.floor(selectedVideo.start)}&autoplay=1`}
+              src={`https://www.youtube.com/embed/${selectedVideo.id}?start=${Math.floor(selectedVideo.start)}&autoplay=1`}
+              title="YouTube video player"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen
               referrerPolicy="strict-origin-when-cross-origin"
