@@ -8,7 +8,7 @@ import Link from "next/link";
 
 const spring = { type: "spring" as const, stiffness: 100, damping: 20 };
 
-const CHROME_STORE_URL = process.env.NEXT_PUBLIC_CHROME_STORE_URL ?? "#";
+const CHROME_STORE_URL = process.env.NEXT_PUBLIC_CHROME_STORE_URL ?? "https://chromewebstore.google.com/detail/ojgacfpcibnmggkenjndnogpfglmhefn?utm_source=item-share-cb";
 
 export default function Landing() {
   return (
