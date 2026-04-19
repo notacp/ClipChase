@@ -4,10 +4,11 @@
   "version": "1.0.0",
   "description": "Search YouTube channel transcripts for keywords.",
   "minimum_chrome_version": "116",
-  "permissions": ["sidePanel", "scripting", "tabs"],
+  "permissions": ["sidePanel"],
   "host_permissions": [
     "*://*.youtube.com/*",
     "https://api.timestitch.app/*",
+    "https://web-production-c3d10.up.railway.app/*",
     "http://localhost:8000/*"
   ],
   "content_security_policy": {
