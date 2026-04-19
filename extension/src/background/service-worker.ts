@@ -6,77 +6,100 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 });
 
-async function rawInnerTubeFetch(videoId: string) {
-  const v = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
-  const x = {
-    client: {
-      clientName: "ANDROID",
-      clientVersion: "20.10.38"
-    }
-  };
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  // Chrome forbids setting User-Agent directly in fetch, but MV3 might allow it or just drop it.
-  try {
-    headers["User-Agent"] = "com.google.android.youtube/20.10.38 (Linux; U; Android 14)";
-  } catch (e) {
-    // Ignore
-  }
-
-  const s = await fetch(v, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      context: x,
-      videoId: videoId
-    })
+async function createVideoTab(videoId: string): Promise<number> {
+  const tab = await chrome.tabs.create({
+    url: `https://www.youtube.com/watch?v=${videoId}`,
+    active: false,
   });
-  
-  if (!s.ok) {
-    return { _debug: `InnerTube POST failed ${s.status}`, segments: null };
-  }
+  const tabId = tab.id!;
+  await new Promise<void>((resolve) => {
+    chrome.tabs.onUpdated.addListener(function listener(tid, info) {
+      if (tid === tabId && info.status === "complete") {
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }
+    });
+  });
+  return tabId;
+}
 
-  const e = await s.json();
-  const tracks = e?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-  if (!tracks || !tracks.length) {
-    return { _debug: `No caption tracks in InnerTube JSON. keys=${Object.keys(e).join(",")}`, segments: null };
-  }
+// ─── Runs in MAIN world on YouTube page ───────────────────────────────────────
+// We must execute this from the YouTube tab to inherit its Origin: https://www.youtube.com
+// If we send this POST from the service worker, it sends Origin: chrome-extension://
+// which YouTube aggressively blocks with a 403 Google bot-captcha.
+async function fetchAndroidTranscriptInPage(videoId: string): Promise<{
+  _debug: string;
+  segments?: { text: string; start: number; duration: number }[];
+  langCode?: string;
+}> {
+  try {
+    const v = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
+    const x = {
+      client: {
+        clientName: "ANDROID",
+        clientVersion: "20.10.38"
+      }
+    };
 
-  const langCode = tracks.find((t: any) => t.languageCode === "en")?.baseUrl ? "en" : tracks[0].languageCode;
-  const baseUrl = tracks.find((t: any) => t.languageCode === langCode)?.baseUrl;
+    // 1. Fetch innerTube with ANDROID client 
+    // This gives us a baseUrl WITHOUT the exp=xpe bot-guard!
+    const s = await fetch(v, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ context: x, videoId })
+    });
+    
+    if (!s.ok) return { _debug: `POST failed ${s.status}` };
 
-  if (!baseUrl) {
-    return { _debug: `No baseUrl`, segments: null };
-  }
-
-  // Fetch from the Android baseUrl
-  const n = await fetch(baseUrl);
-  if (!n.ok) {
-    return { _debug: `baseUrl GET failed ${n.status}`, segments: null };
-  }
-
-  const text = await n.text();
-  if (!text || text.length < 2) {
-    return { _debug: `baseUrl GET empty text. url=${baseUrl}`, segments: null };
-  }
-
-  // Parse custom <p t="..."> XML
-  const segments: any[] = [];
-  const regex = /<p\s+t="(\d+)"\s+d="(\d+)"[^>]*>([\s\S]*?)<\/p>/g;
-  let match;
-  while ((match = regex.exec(text)) !== null) {
-    const textStr = match[3].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&apos;/g, "'").trim();
-    if (textStr) {
-      segments.push({
-        text: textStr,
-        start: parseInt(match[1], 10) / 1000,
-        duration: parseInt(match[2], 10) / 1000
-      });
+    const e = await s.json();
+    const tracks = e?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    
+    if (!tracks || !tracks.length) {
+      return { _debug: `No tracks JSON keys=${Object.keys(e).join(",")}` };
     }
-  }
 
-  return { _debug: `Success`, segments, langCode };
+    const preferred = tracks.find((t: any) => t.languageCode === "en") || tracks[0];
+    const baseUrl = preferred.baseUrl;
+    const langCode = preferred.languageCode;
+
+    if (!baseUrl) return { _debug: `No baseUrl` };
+
+    // 2. Fetch the actual XML subtitle data
+    const n = await fetch(baseUrl);
+    if (!n.ok) return { _debug: `GET failed ${n.status}` };
+
+    const text = await n.text();
+    if (!text || text.length < 2) return { _debug: `GET empty text. url=${baseUrl}` };
+
+    // 3. Parse <p t="ms" d="ms"> format returned by Android API
+    const segments: { text: string; start: number; duration: number }[] = [];
+    const regex = /<p\s+t="(\d+)"\s+d="(\d+)"[^>]*>([\s\S]*?)<\/p>/g;
+    let match;
+    
+    while ((match = regex.exec(text)) !== null) {
+      const textStr = match[3]
+        .replace(/<[^>]+>/g, "")
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&apos;/g, "'")
+        .trim();
+        
+      if (textStr) {
+        segments.push({
+          text: textStr,
+          start: parseInt(match[1], 10) / 1000,
+          duration: parseInt(match[2], 10) / 1000
+        });
+      }
+    }
+
+    return { _debug: "ok", segments, langCode };
+  } catch (err) {
+    return { _debug: `Threw: ${String(err)}` };
+  }
 }
 
 chrome.runtime.onMessage.addListener(
@@ -93,17 +116,34 @@ chrome.runtime.onMessage.addListener(
           case "fetch-transcript": {
             const videoId = msg.videoId as string;
             
-            const { _debug, segments, langCode } = await rawInnerTubeFetch(videoId);
-            console.log("[TS-DBG]", videoId, _debug);
-
+            const tabId = await createVideoTab(videoId);
             let result: Transcript | null = null;
-            if (segments && segments.length > 0) {
-              result = {
-                language_code: langCode ?? "en",
-                language_label: langCode === "hi" ? "Hindi" : "English",
-                is_generated: true,
-                segments
-              };
+            
+            try {
+              // Wait briefly for the page to be ready just in case
+              await new Promise<void>(r => setTimeout(r, 500));
+              
+              const res = await chrome.scripting.executeScript({
+                target: { tabId },
+                func: fetchAndroidTranscriptInPage,
+                args: [videoId],
+                world: "MAIN" as chrome.scripting.ExecutionWorld,
+              });
+              
+              const extracted = res[0]?.result;
+              console.log("[TS-DBG]", videoId, extracted?._debug);
+
+              if (extracted?.segments && extracted.segments.length > 0) {
+                const langCode = extracted.langCode ?? "en";
+                result = {
+                  language_code: langCode,
+                  language_label: langCode === "hi" ? "Hindi" : "English",
+                  is_generated: true,
+                  segments: extracted.segments
+                };
+              }
+            } finally {
+              chrome.tabs.remove(tabId);
             }
 
             console.log("[TS]", videoId, result ? `${result.segments.length} segments` : "null");
