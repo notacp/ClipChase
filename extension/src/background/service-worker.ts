@@ -23,24 +23,21 @@ async function createVideoTab(videoId: string): Promise<number> {
   return tabId;
 }
 
-/**
- * Fetches transcript via caption track URLs in ytInitialPlayerResponse.
- * Runs in MAIN world. SELF-CONTAINED.
- *
- * ytInitialPlayerResponse always contains captionTracks with direct URLs
- * to subtitle files. We just fetch those — no InnerTube context needed.
- */
-async function fetchTranscriptFromYouTubePage(_videoId: string): Promise<{
-  languageCode: string;
-  languageLabel: string;
-  isGenerated: boolean;
-  segments: { text: string; start: number; duration: number }[];
+// ─── Phase 1: Runs in MAIN world on YouTube page ──────────────────────────────
+// Extracts caption track info from ytInitialPlayerResponse.
+// Does NOT fetch anything — just reads the page's JS globals.
+function extractCaptionTracks(): {
+  tracks: {
+    baseUrl: string;
+    languageCode: string;
+    label: string;
+    kind: string;
+  }[];
   _debug: string;
-} | { _debug: string }> {
+} {
   try {
     const w = window as unknown as Record<string, unknown>;
 
-    // ── 1. Get caption tracks from ytInitialPlayerResponse ─────────────────
     const ytpr = w["ytInitialPlayerResponse"] as {
       captions?: {
         playerCaptionsTracklistRenderer?: {
@@ -54,75 +51,69 @@ async function fetchTranscriptFromYouTubePage(_videoId: string): Promise<{
       };
     } | undefined;
 
-    const tracks = ytpr?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-    if (!tracks || tracks.length === 0) {
-      const hasYtpr = !!ytpr;
-      const hasCaptions = !!ytpr?.captions;
-      return { _debug: `no-caption-tracks hasYtpr=${hasYtpr} hasCaptions=${hasCaptions}` };
+    const raw = ytpr?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (!raw || raw.length === 0) {
+      return {
+        tracks: [],
+        _debug: `no-tracks hasYtpr=${!!ytpr} hasCaptions=${!!ytpr?.captions}`,
+      };
     }
 
-    // Prefer English, then first available manual track, then first auto-generated
-    const preferred =
-      tracks.find(t => t.languageCode === "en" && t.kind !== "asr") ??
-      tracks.find(t => t.kind !== "asr") ??
-      tracks.find(t => t.languageCode === "en") ??
-      tracks[0];
+    const tracks = raw
+      .filter((t): t is typeof t & { baseUrl: string } => !!t.baseUrl)
+      .map(t => ({
+        baseUrl: t.baseUrl,
+        languageCode: t.languageCode ?? "en",
+        label: t.name?.simpleText ?? "",
+        kind: t.kind ?? "",
+      }));
 
-    if (!preferred?.baseUrl) {
-      return { _debug: `no-baseUrl tracks=${tracks.length}` };
+    return { tracks, _debug: `found ${tracks.length} tracks` };
+  } catch (e) {
+    return { tracks: [], _debug: `threw: ${String(e)}` };
+  }
+}
+
+// ─── Phase 2: Runs in service worker ──────────────────────────────────────────
+// Fetches the timedtext URL directly using the extension's network stack.
+// This bypasses YouTube's service worker which was returning empty responses.
+async function fetchTimedText(
+  baseUrl: string
+): Promise<{ text: string; start: number; duration: number }[] | null> {
+  const ttUrl = new URL(baseUrl);
+
+  // Try json3 first, then default XML
+  for (const fmt of ["json3", ""]) {
+    if (fmt) {
+      ttUrl.searchParams.set("fmt", fmt);
+    } else {
+      ttUrl.searchParams.delete("fmt");
     }
 
-    // ── 2. Fetch subtitle data ─────────────────────────────────────────────
-    // Use URL object to properly handle existing query params
-    const ttUrl = new URL(preferred.baseUrl);
-    ttUrl.searchParams.set("fmt", "json3");
-
-    // Try JSON3 first, then fall back to XML (srv3), then raw
-    let rawText = "";
-    let fetchUrl = ttUrl.toString();
-
-    for (const fmt of ["json3", "srv3", ""]) {
-      if (fmt) {
-        ttUrl.searchParams.set("fmt", fmt);
-      } else {
-        ttUrl.searchParams.delete("fmt");
-      }
-      fetchUrl = ttUrl.toString();
-      const res = await fetch(fetchUrl, { credentials: "include" });
-
-      if (!res.ok) {
-        return { _debug: `timedtext-status=${res.status} fmt=${fmt} urlLen=${fetchUrl.length}` };
-      }
-
-      rawText = await res.text();
-      if (rawText.length > 1) break;
+    const res = await fetch(ttUrl.toString());
+    if (!res.ok) {
+      console.log("[TS-DBG] timedtext fetch failed:", res.status, fmt);
+      continue;
     }
 
+    const rawText = await res.text();
     if (!rawText || rawText.length < 2) {
-      // Last resort: log the baseUrl so we can inspect it manually
-      return { _debug: `timedtext-all-empty baseUrlLen=${preferred.baseUrl.length} baseUrl=${preferred.baseUrl}` };
+      console.log("[TS-DBG] timedtext empty for fmt:", fmt);
+      continue;
     }
 
-    // ── 2b. Parse response (JSON or XML) ──────────────────────────────────
-    let segments: { text: string; start: number; duration: number }[] = [];
-
+    // JSON3 format
     if (rawText.trimStart().startsWith("{")) {
-      // JSON3 format
-      let data: {
+      const data = JSON.parse(rawText) as {
         events?: {
           tStartMs?: number;
           dDurationMs?: number;
           segs?: { utf8?: string }[];
         }[];
       };
-      try {
-        data = JSON.parse(rawText);
-      } catch {
-        return { _debug: `timedtext-bad-json len=${rawText.length} preview=${rawText.slice(0, 100)}` };
-      }
-      if (!data.events) {
-        return { _debug: `no-events keys=${Object.keys(data).join(",")}` };
-      }
+      if (!data.events) continue;
+
+      const segments: { text: string; start: number; duration: number }[] = [];
       for (const event of data.events) {
         if (!event.segs || event.tStartMs === undefined) continue;
         const text = event.segs.map(s => s.utf8 ?? "").join("").replace(/\n/g, " ").trim();
@@ -133,37 +124,35 @@ async function fetchTranscriptFromYouTubePage(_videoId: string): Promise<{
           duration: (event.dDurationMs ?? 0) / 1000,
         });
       }
-    } else if (rawText.trimStart().startsWith("<")) {
-      // XML format — parse with DOMParser
-      const doc = new DOMParser().parseFromString(rawText, "text/xml");
-      const textElements = doc.querySelectorAll("text");
-      for (const el of textElements) {
-        const start = parseFloat(el.getAttribute("start") ?? "0");
-        const dur = parseFloat(el.getAttribute("dur") ?? "0");
-        const text = (el.textContent ?? "").replace(/\n/g, " ").trim();
+      if (segments.length > 0) return segments;
+    }
+
+    // XML format
+    if (rawText.trimStart().startsWith("<")) {
+      // Service worker doesn't have DOMParser — parse XML with regex
+      const segments: { text: string; start: number; duration: number }[] = [];
+      const regex = /<text\s+start="([^"]*)"(?:\s+dur="([^"]*)")?[^>]*>([\s\S]*?)<\/text>/g;
+      let match;
+      while ((match = regex.exec(rawText)) !== null) {
+        const start = parseFloat(match[1]);
+        const dur = parseFloat(match[2] ?? "0");
+        const text = match[3]
+          .replace(/&amp;/g, "&")
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">")
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+          .replace(/\n/g, " ")
+          .trim();
         if (text) {
           segments.push({ text, start, duration: dur });
         }
       }
-    } else {
-      return { _debug: `timedtext-unknown-format len=${rawText.length} preview=${rawText.slice(0, 100)}` };
+      if (segments.length > 0) return segments;
     }
-
-    if (segments.length === 0) {
-      return { _debug: `parsed-0-segments rawLen=${rawText.length}` };
-    }
-
-    const lc = (preferred.languageCode ?? "en").toLowerCase().split("-")[0];
-    return {
-      languageCode: lc,
-      languageLabel: preferred.name?.simpleText ?? (lc === "hi" ? "Hindi" : "English"),
-      isGenerated: preferred.kind === "asr",
-      segments,
-      _debug: `ok segs=${segments.length} lang=${lc}`,
-    };
-  } catch (e) {
-    return { _debug: `threw: ${String(e)}` };
   }
+
+  return null;
 }
 
 chrome.runtime.onMessage.addListener(
@@ -186,25 +175,46 @@ chrome.runtime.onMessage.addListener(
               let result: Transcript | null = null;
               for (let attempt = 0; attempt < 10; attempt++) {
                 if (attempt > 0) await new Promise<void>(r => setTimeout(r, 500));
+
+                // Phase 1: Extract caption track URLs from the page
                 const res = await chrome.scripting.executeScript({
                   target: { tabId },
-                  func: fetchTranscriptFromYouTubePage,
-                  args: [videoId],
+                  func: extractCaptionTracks,
+                  args: [],
                   world: "MAIN" as chrome.scripting.ExecutionWorld,
                 });
-                const t = res[0]?.result ?? null;
-                if (t) {
-                  console.log("[TS-DBG]", videoId, t._debug);
-                  if ("segments" in t) {
-                    result = {
-                      language_code: t.languageCode,
-                      language_label: t.languageLabel,
-                      is_generated: t.isGenerated,
-                      segments: t.segments,
-                    };
-                    break;
-                  }
+                const extracted = res[0]?.result;
+                if (!extracted || extracted.tracks.length === 0) {
+                  console.log("[TS-DBG]", videoId, "extract:", extracted?._debug ?? "null");
+                  continue;
                 }
+
+                console.log("[TS-DBG]", videoId, extracted._debug);
+
+                // Prefer English, then first manual, then first auto-generated
+                const tracks = extracted.tracks;
+                const preferred =
+                  tracks.find(t => t.languageCode === "en" && t.kind !== "asr") ??
+                  tracks.find(t => t.kind !== "asr") ??
+                  tracks.find(t => t.languageCode === "en") ??
+                  tracks[0];
+
+                // Phase 2: Fetch timedtext from service worker (bypasses YT service worker)
+                const segments = await fetchTimedText(preferred.baseUrl);
+                if (!segments) {
+                  console.log("[TS-DBG]", videoId, "timedtext returned no segments");
+                  continue;
+                }
+
+                const lc = preferred.languageCode.toLowerCase().split("-")[0];
+                result = {
+                  language_code: lc,
+                  language_label: preferred.label || (lc === "hi" ? "Hindi" : "English"),
+                  is_generated: preferred.kind === "asr",
+                  segments,
+                };
+                console.log("[TS-DBG]", videoId, `ok segs=${segments.length} lang=${lc}`);
+                break;
               }
               console.log("[TS]", videoId, result ? `${result.segments.length} segments` : "null");
               data = result;
