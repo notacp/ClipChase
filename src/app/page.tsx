@@ -163,7 +163,6 @@ const ALL_MOMENTS = DEMO_VIDEOS.flatMap((v, vi) =>
 function DemoMockup() {
   const [activeIdx, setActiveIdx] = useState(0);
   const [userActed, setUserActed] = useState(false);
-  const [playingIdx, setPlayingIdx] = useState<number | null>(null);
 
   useEffect(() => {
     if (userActed) return;
@@ -177,7 +176,12 @@ function DemoMockup() {
   const select = (i: number) => {
     setUserActed(true);
     setActiveIdx(i);
-    setPlayingIdx(i);
+    const { video, seconds } = ALL_MOMENTS[i];
+    window.open(
+      `https://www.youtube.com/watch?v=${video.youtubeId}&t=${seconds}s`,
+      "_blank",
+      "noopener,noreferrer"
+    );
   };
 
   const current = ALL_MOMENTS[activeIdx];
@@ -282,87 +286,70 @@ function DemoMockup() {
 
         {/* ── Player ── */}
         <div className="glass rounded-2xl overflow-hidden aspect-video relative">
-          {playingIdx !== null ? (
-            // Real YouTube video — starts at the clicked timestamp
-            <motion.iframe
-              key={`yt-${playingIdx}`}
+          <AnimatePresence mode="wait">
+            <motion.img
+              key={`thumb-${activeIdx}`}
+              src={current.video.thumbnail}
+              alt=""
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ duration: 0.3 }}
-              src={`https://www.youtube.com/embed/${ALL_MOMENTS[playingIdx].video.youtubeId}?start=${ALL_MOMENTS[playingIdx].seconds}&autoplay=1&rel=0&modestbranding=1`}
-              className="absolute inset-0 w-full h-full border-0"
-              allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-              allowFullScreen
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.35 }}
+              className="absolute inset-0 w-full h-full object-cover"
             />
-          ) : (
-            // Thumbnail state — auto-cycles to show what the tool finds
-            <>
-              <AnimatePresence mode="wait">
-                <motion.img
-                  key={`thumb-${activeIdx}`}
-                  src={current.video.thumbnail}
-                  alt=""
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.35 }}
-                  className="absolute inset-0 w-full h-full object-cover"
-                />
-              </AnimatePresence>
-              <div className="absolute inset-0 bg-black/45" />
-              <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-black/80 to-transparent" />
+          </AnimatePresence>
+          <div className="absolute inset-0 bg-black/45" />
+          <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-black/80 to-transparent" />
 
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={`cc-${activeIdx}`}
-                  initial={{ opacity: 0, y: 5 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -3 }}
-                  transition={{ duration: 0.18 }}
-                  className="absolute z-20 left-0 right-0 flex justify-center"
-                  style={{ bottom: "3rem" }}
-                >
-                  <div className="bg-black/85 backdrop-blur-sm rounded px-3 py-1.5 text-[11px] font-mono text-white/80 max-w-[80%] text-center leading-relaxed">
-                    {current.before}
-                    <span className="text-white font-semibold bg-yt-red/50 px-1 rounded">
-                      {current.highlight}
-                    </span>
-                    {current.after}
-                  </div>
-                </motion.div>
-              </AnimatePresence>
-
-              <div className="absolute bottom-0 left-0 right-0 z-20 px-3 py-2.5 flex items-center gap-2.5">
-                <motion.div
-                  key={`playbtn-${activeIdx}`}
-                  initial={{ scale: 1.25 }}
-                  animate={{ scale: 1 }}
-                  transition={{ type: "spring", stiffness: 300, damping: 24 }}
-                  className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center shrink-0"
-                >
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="white">
-                    <path d="M8 5v14l11-7z" />
-                  </svg>
-                </motion.div>
-                <div className="flex-1 h-[3px] rounded-full bg-white/15 overflow-hidden">
-                  <motion.div
-                    className="h-full bg-yt-red rounded-full"
-                    animate={{ width: `${currentPct}%` }}
-                    transition={spring}
-                  />
-                </div>
-                <motion.span
-                  key={`ts-${activeIdx}`}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.2 }}
-                  className="text-[9px] font-mono text-white/40 tabular-nums shrink-0"
-                >
-                  {current.time} / {current.video.duration}
-                </motion.span>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={`cc-${activeIdx}`}
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -3 }}
+              transition={{ duration: 0.18 }}
+              className="absolute z-20 left-0 right-0 flex justify-center"
+              style={{ bottom: "3rem" }}
+            >
+              <div className="bg-black/85 backdrop-blur-sm rounded px-3 py-1.5 text-[11px] font-mono text-white/80 max-w-[80%] text-center leading-relaxed">
+                {current.before}
+                <span className="text-white font-semibold bg-yt-red/50 px-1 rounded">
+                  {current.highlight}
+                </span>
+                {current.after}
               </div>
-            </>
-          )}
+            </motion.div>
+          </AnimatePresence>
+
+          <div className="absolute bottom-0 left-0 right-0 z-20 px-3 py-2.5 flex items-center gap-2.5">
+            <motion.div
+              key={`playbtn-${activeIdx}`}
+              initial={{ scale: 1.25 }}
+              animate={{ scale: 1 }}
+              transition={{ type: "spring", stiffness: 300, damping: 24 }}
+              className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center shrink-0"
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="white">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            </motion.div>
+            <div className="flex-1 h-[3px] rounded-full bg-white/15 overflow-hidden">
+              <motion.div
+                className="h-full bg-yt-red rounded-full"
+                animate={{ width: `${currentPct}%` }}
+                transition={spring}
+              />
+            </div>
+            <motion.span
+              key={`ts-${activeIdx}`}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.2 }}
+              className="text-[9px] font-mono text-white/40 tabular-nums shrink-0"
+            >
+              {current.time} / {current.video.duration}
+            </motion.span>
+          </div>
         </div>
       </div>
     </motion.section>

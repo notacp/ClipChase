@@ -1,7 +1,7 @@
 {
-  "manifest_version": 3,
+  "manifest_version": 2,
   "name": "TimeStitch",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Search YouTube channel transcripts for keywords.",
   "minimum_chrome_version": "116",
   "permissions": ["sidePanel", "scripting", "tabs", "declarativeNetRequest", "declarativeNetRequestWithHostAccess"],

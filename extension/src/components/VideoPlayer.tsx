@@ -34,7 +34,7 @@ export function VideoPlayer({ selectedVideo }: VideoPlayerProps) {
               title="YouTube video player"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen
-              referrerPolicy="strict-origin-when-cross-origin"
+              referrerPolicy="no-referrer"
               onLoad={() => setIsIframeLoading(false)}
             />
           </div>
