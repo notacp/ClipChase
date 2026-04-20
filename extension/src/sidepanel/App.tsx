@@ -6,7 +6,6 @@ import { send } from "../shared/messaging";
 import { SearchForm } from "../components/SearchForm";
 import { TimeRangeSelector } from "../components/TimeRangeSelector";
 import { SearchResults } from "../components/SearchResults";
-import { VideoPlayer } from "../components/VideoPlayer";
 import { LoadingStream } from "../components/LoadingStream";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
@@ -22,7 +21,6 @@ export function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [error, setError] = useState("");
-  const [selectedVideo, setSelectedVideo] = useState<{ id: string; start: number } | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [lastSearch, setLastSearch] = useState<{ channel: string; keyword: string } | null>(null);
   const [formError, setFormError] = useState("");
@@ -89,7 +87,6 @@ export function App() {
     setIsLoading(true);
     setError("");
     setResults([]);
-    setSelectedVideo(null);
     setHasSearched(false);
     setSuggestions([]);
 
@@ -244,18 +241,20 @@ export function App() {
         </motion.div>
       )}
 
-      {/* Video player — sticky at top when a result is selected */}
-      {selectedVideo && (
-        <div className="mt-5">
-          <VideoPlayer selectedVideo={selectedVideo} />
-        </div>
-      )}
-
       {results.length > 0 && (
         <div className="mt-5">
           <SearchResults
             results={results}
-            onSelectVideo={(id, start) => setSelectedVideo({ id, start })}
+            onSelectVideo={(id, start) => {
+              chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                const tab = tabs[0];
+                if (tab?.id) {
+                  chrome.tabs.update(tab.id, {
+                    url: `https://www.youtube.com/watch?v=${id}&t=${Math.floor(start)}s`,
+                  });
+                }
+              });
+            }}
           />
         </div>
       )}
