@@ -375,6 +375,11 @@ function HowItWorks() {
       title: "Search a channel",
       body: "Paste a channel URL or @handle, type a keyword, hit search. Results stream in as each video is scanned.",
     },
+    {
+      n: "04",
+      title: "Jump to the moment",
+      body: "Click any timestamp. The video opens in YouTube at the exact second the word is spoken — no scrubbing.",
+    },
   ];
 
   return (
@@ -384,7 +389,7 @@ function HowItWorks() {
         title="Three steps, no configuration"
       />
 
-      <ol className="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-10 mt-12">
+      <ol className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-8 gap-y-10 mt-12">
         {steps.map((step, i) => (
           <motion.li
             key={step.n}
@@ -447,7 +452,7 @@ function Features() {
         <Feature
           icon={<Clock className="w-5 h-5" />}
           title="Jump to the exact second"
-          body="Every match is a timestamped link. One click opens the video at the frame the word is spoken."
+          body="Every match is a timestamped link. One click opens the video in YouTube at the exact frame the word is spoken — no scrubbing required."
         />
 
         <Feature

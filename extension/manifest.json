@@ -1,5 +1,5 @@
 {
-  "manifest_version": 2,
+  "manifest_version": 3,
   "name": "TimeStitch",
   "version": "1.0.1",
   "description": "Search YouTube channel transcripts for keywords.",

@@ -1,18 +1,19 @@
 import { motion } from "framer-motion";
 import { Play, ExternalLink } from "lucide-react";
-import { useState, useEffect } from "react";
+import { formatTime } from "../shared/utils";
+
+export interface SelectedVideo {
+  id: string;
+  start: number;
+  thumbnail: string;
+  title: string;
+}
 
 interface VideoPlayerProps {
-  selectedVideo: { id: string; start: number } | null;
+  selectedVideo: SelectedVideo | null;
 }
 
 export function VideoPlayer({ selectedVideo }: VideoPlayerProps) {
-  const [isIframeLoading, setIsIframeLoading] = useState(true);
-
-  useEffect(() => {
-    setIsIframeLoading(true);
-  }, [selectedVideo?.id, selectedVideo?.start]);
-
   return (
     <div className="sticky top-4">
       {selectedVideo ? (
@@ -23,20 +24,22 @@ export function VideoPlayer({ selectedVideo }: VideoPlayerProps) {
           className="flex flex-col gap-2"
         >
           <div className="glass p-3 rounded-2xl aspect-video relative overflow-hidden">
-            {isIframeLoading && (
-              <div className="absolute inset-0 flex items-center justify-center z-10">
-                <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-              </div>
+            {selectedVideo.thumbnail && (
+              <img
+                src={selectedVideo.thumbnail}
+                alt={selectedVideo.title}
+                className="absolute inset-0 w-full h-full object-cover rounded-xl"
+              />
             )}
-            <iframe
-              className="w-full h-full rounded-xl"
-              src={`https://www.youtube.com/embed/${selectedVideo.id}?start=${Math.floor(selectedVideo.start)}&autoplay=1`}
-              title="YouTube video player"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-              referrerPolicy="no-referrer"
-              onLoad={() => setIsIframeLoading(false)}
-            />
+            <div className="absolute inset-0 bg-black/60 rounded-xl flex flex-col items-center justify-center gap-2">
+              <div className="bg-yt-red rounded-full p-3">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              </div>
+              <p className="text-white text-xs font-medium">Opened in YouTube</p>
+              <p className="text-yt-light-gray text-[10px] font-mono">{formatTime(selectedVideo.start)}</p>
+            </div>
           </div>
           <div className="flex justify-end px-1">
             <a
