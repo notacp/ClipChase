@@ -61,7 +61,7 @@ export function LoadingStream({ keyword, channel }: LoadingStreamProps) {
           <div className="w-2 h-2 rounded-full bg-white/10" />
           <div className="w-2 h-2 rounded-full bg-white/10" />
           <div className="w-2 h-2 rounded-full bg-white/10" />
-          <span className="ml-2 text-white/20 text-xs font-mono tracking-wider">timestitch</span>
+          <span className="ml-2 text-white/20 text-xs font-mono tracking-wider">ctrl-f</span>
         </div>
 
         <div className="px-4 py-3 space-y-2">

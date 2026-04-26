@@ -53,7 +53,7 @@ function LandingHeader() {
       <nav className="flex items-center justify-between px-6 py-4 max-w-7xl mx-auto">
         <div className="flex items-center gap-2 group cursor-pointer">
           <Youtube className="w-7 h-7 text-yt-red group-hover:scale-110 transition-transform" />
-          <span className="text-lg font-bold tracking-tight">TimeStitch</span>
+          <span className="text-lg font-bold tracking-tight">Ctrl F for YouTube</span>
         </div>
         <div className="flex items-center gap-5">
           <a
@@ -388,7 +388,7 @@ function HowItWorks() {
     {
       n: "02",
       title: "Open the side panel",
-      body: "Click the toolbar icon. TimeStitch opens alongside whatever you're doing.",
+      body: "Click the toolbar icon. The panel opens alongside whatever you're doing.",
     },
     {
       n: "03",
@@ -446,7 +446,7 @@ function Features() {
         <Feature
           icon={<Zap className="w-5 h-5" />}
           title="Phonetic matching"
-          body="Transcripts say what they hear. TimeStitch matches the way words sound, not just how they're spelled."
+          body="Transcripts say what they hear. Ctrl F for YouTube matches the way words sound, not just how they're spelled."
           example={
             <Example
               query="PostHog"
@@ -459,7 +459,7 @@ function Features() {
         <Feature
           icon={<Globe className="w-5 h-5" />}
           title="Works across English and Hindi"
-          body="Search with Latin letters, match Devanagari captions — and the reverse. Auto-generated transcripts are noisy; TimeStitch is built for it."
+          body="Search with Latin letters, match Devanagari captions — and the reverse. Auto-generated transcripts are noisy; Ctrl F for YouTube is built for it."
           example={
             <Example
               query="Finology"
@@ -478,7 +478,7 @@ function Features() {
         <Feature
           icon={<Lock className="w-5 h-5" />}
           title="Runs in your browser"
-          body="Transcripts are fetched by your browser, through your session. Not routed through a server. Captions you can see logged in, TimeStitch can see too."
+          body="Transcripts are fetched by your browser, through your session. Not routed through a server. Captions you can see logged in, Ctrl F for YouTube can see too."
         />
       </div>
     </section>
@@ -581,7 +581,7 @@ function Footer() {
       <div className="max-w-7xl mx-auto px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-yt-light-gray">
         <div className="flex items-center gap-2">
           <Youtube className="w-4 h-4 text-yt-red" />
-          <span className="font-medium text-white">TimeStitch</span>
+          <span className="font-medium text-white">Ctrl F for YouTube</span>
           <span className="font-mono text-xs text-yt-light-gray/60 ml-1">transcript search</span>
         </div>
         <div className="flex items-center gap-5">

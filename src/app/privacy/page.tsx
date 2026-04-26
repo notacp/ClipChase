@@ -10,7 +10,7 @@ export default function PrivacyPolicy() {
       <nav className="relative z-20 flex items-center justify-between px-6 py-5 max-w-4xl mx-auto border-b border-white/5">
         <Link href="/" className="flex items-center gap-2 group cursor-pointer">
           <Youtube className="w-7 h-7 text-yt-red group-hover:scale-110 transition-transform" />
-          <span className="text-lg font-bold tracking-tight">TimeStitch</span>
+          <span className="text-lg font-bold tracking-tight">Ctrl F for YouTube</span>
         </Link>
         <Link
           href="/"
@@ -37,7 +37,7 @@ export default function PrivacyPolicy() {
           <section className="space-y-3">
             <h2 className="text-xl font-bold tracking-tight text-white">1. Information We Collect</h2>
             <p className="text-yt-light-gray text-base leading-relaxed">
-              TimeStitch operates primarily as a client-side tool. To provide you with the ability to search YouTube transcripts, the extension accesses the current YouTube video and its associated transcript data directly from your browser. We do not collect, store, or sell your personal data.
+              Ctrl F for YouTube operates primarily as a client-side tool. To provide you with the ability to search YouTube transcripts, the extension accesses the current YouTube video and its associated transcript data directly from your browser. We do not collect, store, or sell your personal data.
             </p>
           </section>
 
@@ -57,14 +57,14 @@ export default function PrivacyPolicy() {
           <section className="space-y-3">
             <h2 className="text-xl font-bold tracking-tight text-white">3. How Your Data is Handled</h2>
             <p className="text-yt-light-gray text-base leading-relaxed">
-              When you perform a search, the extension may communicate with our backend servers (<span className="text-white bg-yt-red/10 px-1 rounded font-mono text-[13px]">api.timestitch.app</span>) to process and deliver phonetic matches. The data transmitted is strictly limited to the transcript segments and your search query. We do not tie this data to your identity, IP address, or user account.
+              When you perform a search, the extension may communicate with our backend servers to process and deliver phonetic matches. The data transmitted is strictly limited to the transcript segments and your search query. We do not tie this data to your identity, IP address, or user account.
             </p>
           </section>
 
           <section className="space-y-3">
             <h2 className="text-xl font-bold tracking-tight text-white">4. Third-Party Services & Analytics</h2>
             <p className="text-yt-light-gray text-base leading-relaxed">
-              TimeStitch interacts with YouTube's services to function. Your use of YouTube is governed by YouTube's Terms of Service and Privacy Policy. TimeStitch is not affiliated with, endorsed, or sponsored by YouTube.
+              Ctrl F for YouTube interacts with YouTube's services to function. Your use of YouTube is governed by YouTube's Terms of Service and Privacy Policy. Ctrl F for YouTube is not affiliated with, endorsed, or sponsored by YouTube.
             </p>
             <p className="text-yt-light-gray text-base leading-relaxed">
               We use PostHog to collect anonymous, aggregated usage analytics to help us improve the extension. This data does not contain personally identifiable information.
@@ -81,7 +81,7 @@ export default function PrivacyPolicy() {
           <section className="space-y-3">
             <h2 className="text-xl font-bold tracking-tight text-white">6. Contact</h2>
             <p className="text-yt-light-gray text-base leading-relaxed">
-              If you have any questions or suggestions about our Privacy Policy, do not hesitate to contact us at <a href="mailto:support@timestitch.app" className="text-yt-red hover:underline">support@timestitch.app</a>.
+              If you have any questions or suggestions about our Privacy Policy, do not hesitate to contact us at <a href="mailto:pradyumnkhanchandani27@gmail.com" className="text-yt-red hover:underline">pradyumnkhanchandani27@gmail.com</a>.
             </p>
           </section>
         </div>

@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "TimeStitch",
+  "name": "Ctrl F for YouTube",
   "version": "1.0.4",
   "description": "Search YouTube channel transcripts for keywords.",
   "minimum_chrome_version": "116",
@@ -8,7 +8,6 @@
   "host_permissions": [
     "*://*.youtube.com/*",
     "*://*.youtube-nocookie.com/*",
-    "https://api.timestitch.app/*",
     "https://web-production-c3d10.up.railway.app/*",
     "http://localhost:8000/*",
     "https://us.i.posthog.com/*"
@@ -23,10 +22,10 @@
     ]
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://www.youtube-nocookie.com https://www.youtube.com; connect-src 'self' https://us.i.posthog.com https://api.timestitch.app https://web-production-c3d10.up.railway.app http://localhost:8000"
+    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://www.youtube-nocookie.com https://www.youtube.com; connect-src 'self' https://us.i.posthog.com https://web-production-c3d10.up.railway.app http://localhost:8000"
   },
   "action": {
-    "default_title": "Open TimeStitch"
+    "default_title": "Open Ctrl F for YouTube"
   },
   "side_panel": {
     "default_path": "src/sidepanel/index.html"

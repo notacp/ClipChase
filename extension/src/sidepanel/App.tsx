@@ -194,7 +194,7 @@ export function App() {
           <Youtube className="w-4 h-4 text-yt-red" />
         </div>
         <div>
-          <h1 className="text-sm font-bold text-white leading-none">TimeStitch</h1>
+          <h1 className="text-sm font-bold text-white leading-none">Ctrl F for YouTube</h1>
           <p className="text-yt-light-gray text-[10px] mt-0.5 leading-none">Search YouTube transcripts</p>
         </div>
       </div>
