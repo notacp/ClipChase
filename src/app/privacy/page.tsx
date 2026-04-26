@@ -32,7 +32,7 @@ export default function PrivacyPolicy() {
         </div>
         
         <div className="glass rounded-2xl p-8 md:p-10 space-y-10 border-white/5">
-          <p className="text-sm font-mono text-yt-light-gray/60">Last updated: April 17, 2026</p>
+          <p className="text-sm font-mono text-yt-light-gray/60">Last updated: April 26, 2026</p>
           
           <section className="space-y-3">
             <h2 className="text-xl font-bold tracking-tight text-white">1. Information We Collect</h2>
@@ -49,7 +49,8 @@ export default function PrivacyPolicy() {
             <ul className="text-yt-light-gray text-base leading-relaxed list-disc pl-5 space-y-2 mt-2">
               <li><strong className="text-white font-medium">sidePanel:</strong> To display the search interface alongside your video without interrupting playback.</li>
               <li><strong className="text-white font-medium">scripting & tabs:</strong> To interact with the current YouTube tab, such as jumping to a specific timestamp in the video when a search result is clicked.</li>
-              <li><strong className="text-white font-medium">Host Permissions (*://*.youtube.com/*):</strong> To fetch the transcript of the video you are currently watching.</li>
+              <li><strong className="text-white font-medium">declarativeNetRequest:</strong> To securely manage network requests required for reliable transcript fetching.</li>
+              <li><strong className="text-white font-medium">Host Permissions:</strong> To fetch the transcript of the video you are currently watching and communicate with our backend APIs.</li>
             </ul>
           </section>
 
@@ -61,9 +62,12 @@ export default function PrivacyPolicy() {
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-xl font-bold tracking-tight text-white">4. Third-Party Services</h2>
+            <h2 className="text-xl font-bold tracking-tight text-white">4. Third-Party Services & Analytics</h2>
             <p className="text-yt-light-gray text-base leading-relaxed">
               TimeStitch interacts with YouTube's services to function. Your use of YouTube is governed by YouTube's Terms of Service and Privacy Policy. TimeStitch is not affiliated with, endorsed, or sponsored by YouTube.
+            </p>
+            <p className="text-yt-light-gray text-base leading-relaxed">
+              We use PostHog to collect anonymous, aggregated usage analytics to help us improve the extension. This data does not contain personally identifiable information.
             </p>
           </section>
 
