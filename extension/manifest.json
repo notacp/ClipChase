@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Ctrl F for YouTube",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Search YouTube channel transcripts for keywords.",
   "minimum_chrome_version": "116",
   "permissions": ["sidePanel", "scripting", "tabs", "declarativeNetRequest", "declarativeNetRequestWithHostAccess"],
