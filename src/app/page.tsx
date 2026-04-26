@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowRight, Clock, Globe, Lock, Puzzle, Youtube, Zap } from "lucide-react";
+import { ArrowRight, Clock, Globe, Layers, Lock, Puzzle, Youtube, Zap } from "lucide-react";
 import { BackgroundEffect } from "@/components/BackgroundEffect";
 import Link from "next/link";
 
@@ -33,28 +33,44 @@ export default function Landing() {
 // ── Header ────────────────────────────────────────────────────────────────────
 
 function LandingHeader() {
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 20);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
   return (
-    <nav className="relative z-20 flex items-center justify-between px-6 py-5 max-w-7xl mx-auto border-b border-white/5">
-      <div className="flex items-center gap-2 group cursor-pointer">
-        <Youtube className="w-7 h-7 text-yt-red group-hover:scale-110 transition-transform" />
-        <span className="text-lg font-bold tracking-tight">TimeStitch</span>
-      </div>
-      <div className="flex items-center gap-5">
-        <a
-          href="#how"
-          className="text-sm text-yt-light-gray hover:text-white transition-colors hidden sm:inline"
-        >
-          How it works
-        </a>
-        <a
-          href={CHROME_STORE_URL}
-          className="bg-yt-red hover:bg-yt-red/90 active:translate-y-px text-white text-sm font-semibold px-4 py-2 rounded-xl transition-all flex items-center gap-1.5"
-        >
-          Add to Chrome
-          <ArrowRight className="w-4 h-4" />
-        </a>
-      </div>
-    </nav>
+    <header
+      className={`sticky top-0 z-20 transition-all duration-200 ${
+        scrolled
+          ? "bg-yt-black/80 backdrop-blur-md border-b border-white/10"
+          : "border-b border-white/5"
+      }`}
+    >
+      <nav className="flex items-center justify-between px-6 py-4 max-w-7xl mx-auto">
+        <div className="flex items-center gap-2 group cursor-pointer">
+          <Youtube className="w-7 h-7 text-yt-red group-hover:scale-110 transition-transform" />
+          <span className="text-lg font-bold tracking-tight">TimeStitch</span>
+        </div>
+        <div className="flex items-center gap-5">
+          <a
+            href="#how"
+            className="text-sm text-yt-light-gray hover:text-white transition-colors hidden sm:inline"
+          >
+            How it works
+          </a>
+          <a
+            href={CHROME_STORE_URL}
+            className="bg-yt-red hover:bg-yt-red/90 active:translate-y-px text-white text-sm font-semibold px-4 py-2 rounded-xl transition-all flex items-center gap-1.5"
+          >
+            Add to Chrome
+            <ArrowRight className="w-4 h-4" />
+          </a>
+        </div>
+      </nav>
+    </header>
   );
 }
 
@@ -67,13 +83,13 @@ function Hero() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={spring}
-        className="inline-flex items-center gap-2 glass rounded-full px-3 py-1 text-xs font-mono text-yt-light-gray mb-6"
+        className="inline-flex items-center gap-2 glass rounded-full px-4 py-1.5 text-xs font-mono text-yt-light-gray mb-6 hover:border-white/20 transition-colors"
       >
         <span className="relative flex w-2 h-2">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yt-red/50" />
           <span className="relative inline-flex w-2 h-2 rounded-full bg-yt-red" />
         </span>
-        Chrome Extension
+        Free · Chrome Extension
       </motion.div>
 
       <motion.h1
@@ -102,7 +118,7 @@ function Hero() {
       >
         <a
           href={CHROME_STORE_URL}
-          className="bg-yt-red hover:bg-yt-red/90 active:translate-y-px text-white font-semibold px-7 py-3.5 rounded-xl flex items-center gap-2 transition-all"
+          className="bg-yt-red hover:bg-yt-red/90 active:translate-y-px text-white font-semibold px-7 py-3.5 rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-yt-red/20"
         >
           <Puzzle className="w-5 h-5" />
           Add to Chrome — Free
@@ -386,7 +402,7 @@ function HowItWorks() {
     <section id="how" className="pb-28">
       <SectionHeading
         eyebrow="How it works"
-        title="Three steps, no configuration"
+        title="Four steps, no configuration"
       />
 
       <ol className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-8 gap-y-10 mt-12">
@@ -399,9 +415,9 @@ function HowItWorks() {
             transition={{ ...spring, delay: i * 0.08 }}
             className="flex flex-col"
           >
-            <span className="text-xs font-mono text-yt-red tracking-widest mb-3">
-              {step.n}
-            </span>
+            <div className="w-9 h-9 rounded-xl bg-yt-red/10 border border-yt-red/20 flex items-center justify-center mb-4">
+              <span className="text-xs font-mono font-bold text-yt-red">{step.n}</span>
+            </div>
             <h3 className="text-lg font-bold tracking-tight mb-2">{step.title}</h3>
             <p className="text-yt-light-gray text-sm leading-relaxed">{step.body}</p>
           </motion.li>
@@ -482,9 +498,9 @@ function Feature({
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-40px" }}
       transition={spring}
-      className="glass rounded-2xl p-6 flex flex-col gap-3"
+      className="glass rounded-2xl p-6 flex flex-col gap-3 group hover:border-white/20 transition-all"
     >
-      <div className="w-9 h-9 rounded-lg bg-yt-red/10 border border-yt-red/20 text-yt-red flex items-center justify-center">
+      <div className="w-9 h-9 rounded-lg bg-yt-red/10 border border-yt-red/20 text-yt-red flex items-center justify-center group-hover:bg-yt-red/20 group-hover:border-yt-red/40 transition-all">
         {icon}
       </div>
       <h3 className="text-lg font-bold tracking-tight">{title}</h3>
@@ -542,7 +558,7 @@ function ClosingCta() {
         </p>
         <a
           href={CHROME_STORE_URL}
-          className="inline-flex items-center gap-2 bg-yt-red hover:bg-yt-red/90 active:translate-y-px text-white font-semibold px-7 py-3.5 rounded-xl transition-all"
+          className="inline-flex items-center gap-2 bg-yt-red hover:bg-yt-red/90 active:translate-y-px text-white font-semibold px-7 py-3.5 rounded-xl transition-all shadow-lg shadow-yt-red/20"
         >
           <Puzzle className="w-5 h-5" />
           Add to Chrome — Free

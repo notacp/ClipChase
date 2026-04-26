@@ -386,26 +386,48 @@ class YouTubeService:
     def _filter_out_shorts(self, videos: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         video_ids = [v["id"] for v in videos if v["id"]]
 
-        durations = {}
+        video_meta = {}
         for i in range(0, len(video_ids), 50):
             batch = video_ids[i:i + 50]
             response = self.youtube.videos().list(
-                part="contentDetails",
+                part="contentDetails,snippet",
                 id=",".join(batch),
             ).execute()
             for item in response.get("items", []):
                 duration_str = item.get("contentDetails", {}).get("duration", "PT0S")
                 total_seconds = 0
-                for value, unit in re.findall(r"(\d+)([HMSD])", duration_str):
-                    if unit == "H":
+                for value, unit in re.findall(r"(\d+)([DHMS])", duration_str):
+                    if unit == "D":
+                        total_seconds += int(value) * 86400
+                    elif unit == "H":
                         total_seconds += int(value) * 3600
                     elif unit == "M":
                         total_seconds += int(value) * 60
                     elif unit == "S":
                         total_seconds += int(value)
-                durations[item["id"]] = total_seconds
 
-        filtered = [v for v in videos if durations.get(v["id"], 61) > 60]
+                snippet = item.get("snippet", {})
+                tags = [t.lower() for t in snippet.get("tags", [])]
+                title = snippet.get("title", "").lower()
+                description = snippet.get("description", "").lower()
+                has_shorts_tag = (
+                    "#shorts" in tags
+                    or "#shorts" in title
+                    or "#shorts" in description
+                )
+
+                # ≤60s → always a Short; 61–180s → Short only if tagged; >180s → never a Short
+                if total_seconds <= 60:
+                    is_short = True
+                elif total_seconds <= 180:
+                    is_short = has_shorts_tag
+                else:
+                    is_short = False
+
+                video_meta[item["id"]] = is_short
+
+        # default False keeps videos whose IDs weren't returned by the API
+        filtered = [v for v in videos if not video_meta.get(v["id"], False)]
         return filtered
 
     def get_transcript(self, video_id: str, preferred_languages: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:

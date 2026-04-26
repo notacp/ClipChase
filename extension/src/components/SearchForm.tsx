@@ -59,7 +59,7 @@ export function SearchForm({
       <div className="flex flex-col gap-2">
         {/* Channel input with suggestions */}
         <div className="relative" ref={containerRef}>
-          <div className="glass p-2 rounded-2xl flex items-center">
+          <div className="glass p-2 rounded-2xl flex items-center focus-within:border-white/20 transition-colors">
             <Youtube className="ml-3 w-5 h-5 text-yt-light-gray shrink-0" />
             <input
               type="text"
@@ -67,7 +67,7 @@ export function SearchForm({
               value={channelDisplay}
               onChange={(e) => onChannelChange(e.target.value)}
               autoComplete="off"
-              className="w-full bg-transparent p-3 pl-3 outline-none focus:ring-0 text-white placeholder:text-yt-light-gray"
+              className="w-full bg-transparent p-3 pl-3 outline-none focus:ring-0 text-white placeholder:text-yt-light-gray/60 text-sm"
             />
           </div>
 
@@ -116,21 +116,21 @@ export function SearchForm({
         </div>
 
         {/* Keyword input + controls */}
-        <div className="glass p-2 rounded-2xl flex items-center">
+        <div className="glass p-2 rounded-2xl flex items-center focus-within:border-white/20 transition-colors">
           <Search className="ml-3 w-5 h-5 text-yt-light-gray shrink-0" />
           <input
             type="text"
             placeholder="Keyword to find..."
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
-            className="flex-1 bg-transparent p-3 pl-3 outline-none focus:ring-0 text-white placeholder:text-yt-light-gray"
+            className="flex-1 bg-transparent p-3 pl-3 outline-none focus:ring-0 text-white placeholder:text-yt-light-gray/60 text-sm"
           />
-          <label className="flex items-center gap-2 px-3 cursor-pointer select-none text-sm text-yt-light-gray whitespace-nowrap shrink-0">
+          <label className="flex items-center gap-1.5 px-3 cursor-pointer select-none text-[11px] text-yt-light-gray whitespace-nowrap shrink-0">
             <input
               type="checkbox"
               checked={excludeShorts}
               onChange={(e) => setExcludeShorts(e.target.checked)}
-              className="accent-yt-red w-4 h-4"
+              className="accent-yt-red w-3.5 h-3.5"
             />
             No Shorts
           </label>
@@ -138,7 +138,7 @@ export function SearchForm({
 
         <button
           disabled={isLoading}
-          className="bg-yt-red hover:bg-yt-red/90 disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-4 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all active:translate-y-px w-full"
+          className="bg-yt-red hover:bg-yt-red/90 disabled:opacity-40 disabled:cursor-not-allowed text-white px-8 py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all active:translate-y-px w-full shadow-md shadow-yt-red/20"
         >
           {isLoading ? (
             <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />

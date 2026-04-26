@@ -14,9 +14,9 @@ export function SearchResults({ results, onSelectVideo }: SearchResultsProps) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-white">Results</h2>
-        <span className="text-sm text-yt-light-gray">
-          {totalMatches} mention{totalMatches !== 1 ? "s" : ""} across {results.length} video{results.length !== 1 ? "s" : ""}
+        <h2 className="text-sm font-semibold text-white">Results</h2>
+        <span className="text-[10px] font-mono text-yt-light-gray bg-white/5 border border-white/10 px-2 py-0.5 rounded-full">
+          {totalMatches} mention{totalMatches !== 1 ? "s" : ""} · {results.length} video{results.length !== 1 ? "s" : ""}
         </span>
       </div>
       <AnimatePresence>
@@ -26,24 +26,27 @@ export function SearchResults({ results, onSelectVideo }: SearchResultsProps) {
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: idx * 0.1 }}
-            className="glass p-4 rounded-2xl group hover:border-yt-red/50 transition-colors"
+            className="glass p-4 rounded-2xl group hover:border-white/20 transition-colors"
           >
             <div className="flex gap-3">
               <img
                 src={video.thumbnail}
-                className="w-24 h-16 object-cover rounded-lg shrink-0"
+                className="w-24 h-14 object-cover rounded-lg shrink-0"
                 alt={video.title}
               />
               <div className="flex-1 min-w-0">
-                <h3 className="font-bold text-sm leading-tight group-hover:text-yt-red transition-colors line-clamp-2">
+                <h3 className="font-semibold text-sm leading-tight group-hover:text-yt-red transition-colors line-clamp-2">
                   {video.title}
                 </h3>
-                <div className="flex flex-wrap items-center gap-2 mt-1">
-                  <p className="text-yt-light-gray text-xs">
+                <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                  <p className="text-yt-light-gray text-[10px]">
                     {new Date(video.published_at).toLocaleDateString()}
                   </p>
-                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-wide text-yt-light-gray">
+                  <span className="rounded-full border border-white/10 bg-white/5 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-yt-light-gray">
                     {video.transcript_language_label}
+                  </span>
+                  <span className="ml-auto rounded-full bg-yt-red/10 border border-yt-red/20 px-2 py-0.5 text-[9px] font-mono text-yt-red">
+                    {video.matches.length}×
                   </span>
                 </div>
               </div>
@@ -56,7 +59,7 @@ export function SearchResults({ results, onSelectVideo }: SearchResultsProps) {
                   onClick={() => onSelectVideo(video.video_id, match.start)}
                   className="w-full text-left p-2.5 rounded-lg hover:bg-white/5 flex items-start gap-2.5 transition-colors group/match"
                 >
-                  <div className="mt-0.5 bg-yt-gray p-1.5 rounded flex items-center gap-1 group-hover/match:bg-yt-red transition-colors text-xs font-mono shrink-0">
+                  <div className="mt-0.5 bg-yt-gray border border-white/5 p-1.5 rounded-lg flex items-center gap-1 group-hover/match:bg-yt-red group-hover/match:border-yt-red transition-all text-xs font-mono shrink-0">
                     <Clock className="w-3 h-3" />
                     {formatTime(match.start)}
                   </div>

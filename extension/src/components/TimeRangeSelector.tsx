@@ -23,17 +23,17 @@ export function TimeRangeSelector({ timeRange, setTimeRange }: TimeRangeSelector
       transition={{ delay: 0.3 }}
       className="flex flex-wrap items-center gap-1.5 mt-4"
     >
-      <span className="text-yt-light-gray text-xs mr-1">From:</span>
+      <span className="text-yt-light-gray text-[10px] font-mono uppercase tracking-widest mr-1">Range</span>
       {TIME_RANGES.map((range) => (
         <button
           key={range.value}
           type="button"
           onClick={() => setTimeRange(range.value)}
           className={cn(
-            "px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+            "px-2.5 py-1 rounded-lg text-[10px] font-mono font-medium transition-all",
             timeRange === range.value
-              ? "bg-yt-red text-white"
-              : "bg-white/5 text-yt-light-gray hover:bg-white/10 hover:text-white"
+              ? "bg-yt-red text-white shadow-sm shadow-yt-red/30"
+              : "bg-white/5 border border-white/5 text-yt-light-gray hover:bg-white/10 hover:text-white hover:border-white/10"
           )}
         >
           {range.label}

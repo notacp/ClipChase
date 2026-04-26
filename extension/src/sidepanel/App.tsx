@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
+import { Youtube } from "lucide-react";
 import { SearchResult, TimeRange, ChannelSuggestion } from "../shared/types";
 import { getPublishedAfterDate } from "../shared/utils";
 import { send } from "../shared/messaging";
@@ -174,9 +175,14 @@ export function App() {
 
   return (
     <main className="min-h-screen bg-yt-black text-white selection:bg-yt-red/30 px-4 py-5 pb-20">
-      <div className="mb-5">
-        <h1 className="text-xl font-bold text-white">TimeStitch</h1>
-        <p className="text-yt-light-gray text-xs mt-0.5">Search YouTube transcripts</p>
+      <div className="mb-5 flex items-center gap-2.5">
+        <div className="w-8 h-8 rounded-xl bg-yt-red/10 border border-yt-red/20 flex items-center justify-center shrink-0">
+          <Youtube className="w-4 h-4 text-yt-red" />
+        </div>
+        <div>
+          <h1 className="text-sm font-bold text-white leading-none">TimeStitch</h1>
+          <p className="text-yt-light-gray text-[10px] mt-0.5 leading-none">Search YouTube transcripts</p>
+        </div>
       </div>
 
       <SearchForm
