@@ -8,6 +8,7 @@ import { SearchForm } from "../components/SearchForm";
 import { TimeRangeSelector } from "../components/TimeRangeSelector";
 import { SearchResults } from "../components/SearchResults";
 import { LoadingStream } from "../components/LoadingStream";
+import posthog from "../shared/posthog";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
@@ -91,6 +92,13 @@ export function App() {
     setHasSearched(false);
     setSuggestions([]);
 
+    posthog.capture("search_started", {
+      channel: channelUrl,
+      keyword,
+      time_range: timeRange,
+      exclude_shorts: excludeShorts,
+    });
+
     try {
       const publishedAfter = getPublishedAfterDate(timeRange);
 
@@ -151,6 +159,12 @@ export function App() {
       if (!superseded()) {
         setIsLoading(false);
         setHasSearched(true);
+        posthog.capture("search_completed", {
+          channel: channelUrl,
+          keyword,
+          result_count: results.length,
+          success: !error,
+        });
       }
     }
   };
@@ -255,6 +269,10 @@ export function App() {
               chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
                 const tab = tabs[0];
                 if (tab?.id) {
+                  posthog.capture("video_opened", {
+                    video_id: id,
+                    timestamp: start,
+                  });
                   chrome.tabs.update(tab.id, {
                     url: `https://www.youtube.com/watch?v=${id}&t=${Math.floor(start)}s`,
                   });

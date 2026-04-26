@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowRight, Clock, Globe, Layers, Lock, Puzzle, Youtube, Zap } from "lucide-react";
 import { BackgroundEffect } from "@/components/BackgroundEffect";
+import posthog from "posthog-js";
 import Link from "next/link";
 
 const spring = { type: "spring" as const, stiffness: 100, damping: 20 };
@@ -63,6 +64,7 @@ function LandingHeader() {
           </a>
           <a
             href={CHROME_STORE_URL}
+            onClick={() => { posthog.capture("cta_clicked", { location: "header" }); }}
             className="bg-yt-red hover:bg-yt-red/90 active:translate-y-px text-white text-sm font-semibold px-4 py-2 rounded-xl transition-all flex items-center gap-1.5"
           >
             Add to Chrome
@@ -118,6 +120,7 @@ function Hero() {
       >
         <a
           href={CHROME_STORE_URL}
+          onClick={() => { posthog.capture("cta_clicked", { location: "hero" }); }}
           className="bg-yt-red hover:bg-yt-red/90 active:translate-y-px text-white font-semibold px-7 py-3.5 rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-yt-red/20"
         >
           <Puzzle className="w-5 h-5" />
@@ -193,6 +196,7 @@ function DemoMockup() {
     setUserActed(true);
     setActiveIdx(i);
     const { video, seconds } = ALL_MOMENTS[i];
+    posthog.capture("demo_timestamp_clicked", { video_id: video.youtubeId, timestamp: ALL_MOMENTS[i].time, seconds });
     window.open(
       `https://www.youtube.com/watch?v=${video.youtubeId}&t=${seconds}s`,
       "_blank",
@@ -558,6 +562,7 @@ function ClosingCta() {
         </p>
         <a
           href={CHROME_STORE_URL}
+          onClick={() => { posthog.capture("cta_clicked", { location: "footer_banner" }); }}
           className="inline-flex items-center gap-2 bg-yt-red hover:bg-yt-red/90 active:translate-y-px text-white font-semibold px-7 py-3.5 rounded-xl transition-all shadow-lg shadow-yt-red/20"
         >
           <Puzzle className="w-5 h-5" />
@@ -582,7 +587,7 @@ function Footer() {
         <div className="flex items-center gap-5">
           <a href="#how" className="hover:text-white transition-colors">How it works</a>
           <Link href="/privacy" className="hover:text-white transition-colors">Privacy</Link>
-          <a href={CHROME_STORE_URL} className="hover:text-white transition-colors">
+          <a href={CHROME_STORE_URL} onClick={() => { posthog.capture("cta_clicked", { location: "footer_links" }); }} className="hover:text-white transition-colors">
             Install
           </a>
         </div>
