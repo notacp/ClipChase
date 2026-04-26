@@ -5,7 +5,7 @@ import "./globals.css";
 
 const outfit = Outfit({ subsets: ["latin"] });
 
-const GA_MEASUREMENT_ID = "G-G1D42Y8KBT";
+const GA_MEASUREMENT_ID = "G-68NKF20QJX";
 
 export const metadata: Metadata = {
   title: "TimeStitch | Search Inside YouTube Videos",
