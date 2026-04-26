@@ -6,100 +6,154 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 });
 
-async function createVideoTab(videoId: string): Promise<number> {
-  const tab = await chrome.tabs.create({
-    url: `https://www.youtube.com/watch?v=${videoId}`,
-    active: false,
-  });
-  const tabId = tab.id!;
-  await new Promise<void>((resolve) => {
-    chrome.tabs.onUpdated.addListener(function listener(tid, info) {
-      if (tid === tabId && info.status === "complete") {
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
-      }
-    });
-  });
-  return tabId;
+// Find the YouTube tab the user already has open.
+// The extension runs alongside the user's YouTube session — no new tab needed.
+async function getYouTubeTabId(): Promise<number | null> {
+  // currentWindow: true is undefined in service worker context — use lastFocusedWindow instead.
+  const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (active?.id && active.url?.includes("youtube.com")) return active.id;
+  const [any] = await chrome.tabs.query({ url: "*://*.youtube.com/*" });
+  return any?.id ?? null;
 }
 
 // ─── Runs in MAIN world on YouTube page ───────────────────────────────────────
-// We must execute this from the YouTube tab to inherit its Origin: https://www.youtube.com
-// If we send this POST from the service worker, it sends Origin: chrome-extension://
-// which YouTube aggressively blocks with a 403 Google bot-captcha.
-async function fetchAndroidTranscriptInPage(videoId: string): Promise<{
+// Must run from YouTube tab so fetch() carries Origin: https://www.youtube.com.
+// Service worker origin (chrome-extension://) gets 403 bot-captcha from YouTube.
+//
+// Strategy 1 — Android API: POST /youtubei/v1/player with ANDROID client.
+//   Returns track baseUrls WITHOUT exp=xpe bot-guard. This was the fix for 403s
+//   that plagued the original ytInitialPlayerResponse approach.
+//
+// Strategy 2 — ytInitialPlayerResponse fallback: read the object YouTube already
+//   injected into the page. Reliable when the Android API call itself fails.
+async function fetchTranscriptInPage(
+  videoId: string,
+  preferredLangs: string[],
+): Promise<{
   _debug: string;
   segments?: { text: string; start: number; duration: number }[];
   langCode?: string;
 }> {
-  try {
-    const v = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
-    const x = {
-      client: {
-        clientName: "ANDROID",
-        clientVersion: "20.10.38"
-      }
-    };
+  function pickBestTrack(tracks: any[], langs: string[]): any | null {
+    for (const lang of langs) {
+      const normalized = lang.toLowerCase().split("-")[0];
+      const manual = tracks.find(
+        (t) => t.languageCode?.toLowerCase().split("-")[0] === normalized && t.kind !== "asr",
+      );
+      if (manual) return manual;
+      const generated = tracks.find(
+        (t) => t.languageCode?.toLowerCase().split("-")[0] === normalized,
+      );
+      if (generated) return generated;
+    }
+    return tracks[0] ?? null;
+  }
 
-    // 1. Fetch innerTube with ANDROID client 
-    // This gives us a baseUrl WITHOUT the exp=xpe bot-guard!
-    const s = await fetch(v, {
+  function decodeEntities(s: string): string {
+    return s
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&apos;/g, "'");
+  }
+
+  function parseXml(xml: string): { text: string; start: number; duration: number }[] {
+    const segs: { text: string; start: number; duration: number }[] = [];
+
+    // Format 1: <text start="1.23" dur="0.56">text</text>  (standard timedtext)
+    const re1 = /<text\s[^>]*\bstart="([^"]+)"[^>]*\bdur="([^"]+)"[^>]*>([\s\S]*?)<\/text>/g;
+    let m: RegExpExecArray | null;
+    while ((m = re1.exec(xml)) !== null) {
+      const text = decodeEntities(m[3].replace(/<[^>]+>/g, "")).trim();
+      if (text) segs.push({ text, start: parseFloat(m[1]), duration: parseFloat(m[2]) });
+    }
+    if (segs.length) return segs;
+
+    // Format 2: <p t="1230" d="560">text</p>  (Android API, milliseconds)
+    // Attribute order is NOT guaranteed — extract t and d independently.
+    const re2 = /<p\b([^>]*)>([\s\S]*?)<\/p>/g;
+    while ((m = re2.exec(xml)) !== null) {
+      const attrs = m[1];
+      const tM = attrs.match(/\bt="(\d+)"/);
+      const dM = attrs.match(/\bd="(\d+)"/);
+      if (!tM || !dM) continue;
+      const text = decodeEntities(m[2].replace(/<[^>]+>/g, "")).trim();
+      if (text) segs.push({ text, start: parseInt(tM[1], 10) / 1000, duration: parseInt(dM[1], 10) / 1000 });
+    }
+    return segs;
+  }
+
+  async function fetchXml(baseUrl: string): Promise<{ xml: string | null; err: string }> {
+    const delays = [0, 1500, 3000]; // ms to wait before attempt 0, 1, 2
+    for (let attempt = 0; attempt < delays.length; attempt++) {
+      if (delays[attempt]) await new Promise<void>((r) => setTimeout(r, delays[attempt]));
+      try {
+        const res = await fetch(baseUrl);
+        if (res.status === 429) continue; // rate limited — retry after delay
+        if (!res.ok) return { xml: null, err: `status=${res.status}` };
+        const text = await res.text();
+        if (text.length <= 10) return { xml: null, err: `empty len=${text.length}` };
+        return { xml: text, err: "" };
+      } catch (e) {
+        return { xml: null, err: `threw=${String(e)}` };
+      }
+    }
+    return { xml: null, err: "status=429 after retries" };
+  }
+
+  // Strategy 1: Android API (bot-guard-free track URLs)
+  try {
+    const res = await fetch("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ context: x, videoId })
+      body: JSON.stringify({
+        context: { client: { clientName: "ANDROID", clientVersion: "20.10.38" } },
+        videoId,
+      }),
     });
-    
-    if (!s.ok) return { _debug: `POST failed ${s.status}` };
-
-    const e = await s.json();
-    const tracks = e?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-    
-    if (!tracks || !tracks.length) {
-      return { _debug: `No tracks JSON keys=${Object.keys(e).join(",")}` };
-    }
-
-    const preferred = tracks.find((t: any) => t.languageCode === "en") || tracks[0];
-    const baseUrl = preferred.baseUrl;
-    const langCode = preferred.languageCode;
-
-    if (!baseUrl) return { _debug: `No baseUrl` };
-
-    // 2. Fetch the actual XML subtitle data
-    const n = await fetch(baseUrl);
-    if (!n.ok) return { _debug: `GET failed ${n.status}` };
-
-    const text = await n.text();
-    if (!text || text.length < 2) return { _debug: `GET empty text. url=${baseUrl}` };
-
-    // 3. Parse <p t="ms" d="ms"> format returned by Android API
-    const segments: { text: string; start: number; duration: number }[] = [];
-    const regex = /<p\s+t="(\d+)"\s+d="(\d+)"[^>]*>([\s\S]*?)<\/p>/g;
-    let match;
-    
-    while ((match = regex.exec(text)) !== null) {
-      const textStr = match[3]
-        .replace(/<[^>]+>/g, "")
-        .replace(/&amp;/g, "&")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
-        .replace(/&apos;/g, "'")
-        .trim();
-        
-      if (textStr) {
-        segments.push({
-          text: textStr,
-          start: parseInt(match[1], 10) / 1000,
-          duration: parseInt(match[2], 10) / 1000
-        });
+    if (res.ok) {
+      const data = await res.json();
+      const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+      if (tracks?.length) {
+        const track = pickBestTrack(tracks, preferredLangs);
+        if (track?.baseUrl) {
+          const { xml, err } = await fetchXml(track.baseUrl);
+          if (xml) {
+            const segments = parseXml(xml);
+            if (segments.length) return { _debug: "android-ok", segments, langCode: track.languageCode };
+            return { _debug: `android-parse-empty xml_len=${xml.length} snippet=${xml.slice(0, 80)}` };
+          }
+          return { _debug: `android-xml-failed err=${err}` };
+        }
+        return { _debug: `android-no-baseUrl tracks=${tracks.length}` };
       }
+      return { _debug: `android-no-tracks keys=${Object.keys(data ?? {}).join(",")}` };
     }
-
-    return { _debug: "ok", segments, langCode };
-  } catch (err) {
-    return { _debug: `Threw: ${String(err)}` };
+  } catch {
+    // fall through to strategy 2
   }
+
+  // Strategy 2: ytInitialPlayerResponse already on the page.
+  // Only useful if injected into the specific video's watch page — not a channel page.
+  // Check once (no polling) since we're likely on a non-video page.
+  const yt = (window as any).ytInitialPlayerResponse;
+  const ytiprTracks = yt?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+  if (ytiprTracks?.length) {
+    const track = pickBestTrack(ytiprTracks, preferredLangs);
+    if (track?.baseUrl) {
+      const { xml, err } = await fetchXml(track.baseUrl);
+      if (xml) {
+        const segments = parseXml(xml);
+        if (segments.length) return { _debug: "ytipr-ok", segments, langCode: track.languageCode };
+        return { _debug: `ytipr-parse-empty xml_len=${xml.length}` };
+      }
+      return { _debug: `ytipr-xml-failed err=${err}` };
+    }
+  }
+
+  return { _debug: "no-tracks-either-strategy" };
 }
 
 chrome.runtime.onMessage.addListener(
@@ -115,39 +169,37 @@ chrome.runtime.onMessage.addListener(
 
           case "fetch-transcript": {
             const videoId = msg.videoId as string;
-            
-            const tabId = await createVideoTab(videoId);
-            let result: Transcript | null = null;
-            
-            try {
-              // Wait briefly for the page to be ready just in case
-              await new Promise<void>(r => setTimeout(r, 500));
-              
-              const res = await chrome.scripting.executeScript({
-                target: { tabId },
-                func: fetchAndroidTranscriptInPage,
-                args: [videoId],
-                world: "MAIN" as chrome.scripting.ExecutionWorld,
-              });
-              
-              const extracted = res[0]?.result;
-              console.log("[TS-DBG]", videoId, extracted?._debug);
+            const preferredLangs = (msg.preferredLangs as string[] | undefined) ?? ["en", "hi"];
 
-              if (extracted?.segments && extracted.segments.length > 0) {
-                const langCode = extracted.langCode ?? "en";
-                result = {
-                  language_code: langCode,
-                  language_label: langCode === "hi" ? "Hindi" : "English",
-                  is_generated: true,
-                  segments: extracted.segments
-                };
-              }
-            } finally {
-              chrome.tabs.remove(tabId);
+            const tabId = await getYouTubeTabId();
+            if (!tabId) {
+              console.warn("[TS] no YouTube tab found for", videoId);
+              data = null;
+              break;
             }
 
-            console.log("[TS]", videoId, result ? `${result.segments.length} segments` : "null");
-            data = result;
+            const res = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: fetchTranscriptInPage,
+              args: [videoId, preferredLangs],
+              world: "MAIN" as chrome.scripting.ExecutionWorld,
+            });
+
+            const extracted = res[0]?.result;
+            console.log("[TS-DBG]", videoId, extracted?._debug);
+
+            if (extracted?.segments?.length) {
+              const langCode = extracted.langCode ?? "en";
+              data = {
+                language_code: langCode,
+                language_label: langCode === "hi" ? "Hindi" : "English",
+                is_generated: true,
+                segments: extracted.segments,
+              } satisfies Transcript;
+            } else {
+              data = null;
+            }
+            console.log("[TS]", videoId, data ? `${(data as Transcript).segments.length} segs` : "null");
             break;
           }
 
