@@ -67,6 +67,11 @@ export function App() {
     setChannelDisplay(suggestion.title);
     setChannelUrl(suggestion.id);
     setSuggestions([]);
+    posthog.capture("channel_selected_from_suggestion", {
+      channel_id: suggestion.id,
+      channel_title: suggestion.title,
+      typed_query: channelDisplay,
+    });
   };
 
   const handleDismissSuggestions = () => setSuggestions([]);
@@ -92,12 +97,18 @@ export function App() {
     setHasSearched(false);
     setSuggestions([]);
 
+    const searchStartedAt = Date.now();
+    let searchFailed = false;
+
     posthog.capture("search_started", {
       channel: channelUrl,
       keyword,
       time_range: timeRange,
       exclude_shorts: excludeShorts,
     });
+
+    let videosScanned = 0;
+    let transcriptFailures = 0;
 
     try {
       const publishedAfter = getPublishedAfterDate(timeRange);
@@ -122,6 +133,7 @@ export function App() {
       const { videos } = videosRes.data;
 
       // Step 2 — For each video: fetch transcript via service worker, match via backend.
+      videosScanned = videos.length;
       for (const video of videos) {
         if (superseded()) return;
 
@@ -132,6 +144,7 @@ export function App() {
         });
         if (superseded()) return;
         if (!txRes.ok || !txRes.data) {
+          transcriptFailures++;
           console.warn(
             `[TimeStitch] transcript skipped for ${video.id}:`,
             txRes.ok ? "null data" : txRes.error
@@ -153,18 +166,44 @@ export function App() {
       setLastSearch({ channel: channelUrl, keyword });
     } catch (err: unknown) {
       if (superseded()) return; // swallow errors from a superseded search
+      searchFailed = true;
       const message = err instanceof Error ? err.message : "Something went wrong. Please try again.";
       setError(message);
+      posthog.capture("search_error", {
+        channel: channelUrl,
+        keyword,
+        error_message: message,
+        duration_ms: Date.now() - searchStartedAt,
+      });
     } finally {
-      if (!superseded()) {
+      if (superseded()) {
+        posthog.capture("search_cancelled", {
+          channel: channelUrl,
+          keyword,
+          duration_ms: Date.now() - searchStartedAt,
+        });
+      } else {
         setIsLoading(false);
         setHasSearched(true);
         posthog.capture("search_completed", {
           channel: channelUrl,
           keyword,
+          time_range: timeRange,
           result_count: results.length,
-          success: !error,
+          videos_scanned: videosScanned,
+          transcript_failures: transcriptFailures,
+          success: !searchFailed,
+          duration_ms: Date.now() - searchStartedAt,
         });
+        if (results.length === 0 && !searchFailed) {
+          posthog.capture("zero_results", {
+            channel: channelUrl,
+            keyword,
+            time_range: timeRange,
+            videos_scanned: videosScanned,
+            transcript_failures: transcriptFailures,
+          });
+        }
       }
     }
   };
@@ -215,7 +254,13 @@ export function App() {
         formError={formError}
       />
 
-      <TimeRangeSelector timeRange={timeRange} setTimeRange={setTimeRange} />
+      <TimeRangeSelector
+        timeRange={timeRange}
+        setTimeRange={(range) => {
+          posthog.capture("time_range_changed", { from: timeRange, to: range });
+          setTimeRange(range);
+        }}
+      />
 
       {isLoading && <LoadingStream keyword={keyword} channel={channelDisplay} />}
 
@@ -266,12 +311,16 @@ export function App() {
           <SearchResults
             results={results}
             onSelectVideo={(id, start) => {
+              const position = results.findIndex((r) => r.video_id === id);
               chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
                 const tab = tabs[0];
                 if (tab?.id) {
                   posthog.capture("video_opened", {
                     video_id: id,
                     timestamp: start,
+                    result_position: position,
+                    keyword,
+                    channel: channelUrl,
                   });
                   chrome.tabs.update(tab.id, {
                     url: `https://www.youtube.com/watch?v=${id}&t=${Math.floor(start)}s`,
