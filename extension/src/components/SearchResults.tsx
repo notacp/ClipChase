@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { Clock } from "lucide-react";
+import { Clock, Play } from "lucide-react";
 import { SearchResult } from "../shared/types";
 import { formatTime } from "../shared/utils";
 
@@ -10,6 +10,7 @@ interface SearchResultsProps {
 
 export function SearchResults({ results, onSelectVideo }: SearchResultsProps) {
   const totalMatches = results.reduce((sum, v) => sum + v.matches.length, 0);
+  const sorted = [...results].sort((a, b) => b.published_at.localeCompare(a.published_at));
 
   return (
     <div className="space-y-4">
@@ -20,7 +21,7 @@ export function SearchResults({ results, onSelectVideo }: SearchResultsProps) {
         </span>
       </div>
       <AnimatePresence>
-        {results.map((video, idx) => (
+        {sorted.map((video, idx) => (
           <motion.div
             key={video.video_id}
             initial={{ opacity: 0, x: -20 }}
@@ -59,8 +60,9 @@ export function SearchResults({ results, onSelectVideo }: SearchResultsProps) {
                   onClick={() => onSelectVideo(video.video_id, match.start)}
                   className="w-full text-left p-3 rounded-lg hover:bg-white/5 flex items-start gap-2.5 transition-colors group/match"
                 >
-                  <div className="mt-0.5 bg-yt-gray border border-white/5 p-1.5 rounded-lg flex items-center gap-1 group-hover/match:bg-yt-red group-hover/match:border-yt-red transition-all text-xs font-mono shrink-0">
-                    <Clock className="w-3 h-3" />
+                  <div className="mt-0.5 bg-yt-gray border border-white/20 p-1.5 rounded-lg flex items-center gap-1 group-hover/match:bg-yt-red group-hover/match:border-yt-red transition-all text-xs font-mono shrink-0">
+                    <Play className="w-3 h-3 group-hover/match:hidden" />
+                    <Clock className="w-3 h-3 hidden group-hover/match:block" />
                     {formatTime(match.start)}
                   </div>
                   <p className="text-xs text-yt-light-gray group-hover/match:text-white transition-colors break-words">

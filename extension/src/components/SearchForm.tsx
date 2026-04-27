@@ -115,7 +115,7 @@ export function SearchForm({
           </AnimatePresence>
         </div>
 
-        {/* Keyword input + controls */}
+        {/* Keyword input */}
         <div className="glass p-2 rounded-2xl flex items-center focus-within:border-white/20 transition-colors">
           <Search className="ml-3 w-5 h-5 text-yt-light-gray shrink-0" />
           <input
@@ -125,16 +125,18 @@ export function SearchForm({
             onChange={(e) => setKeyword(e.target.value)}
             className="flex-1 bg-transparent p-3 pl-3 outline-none focus:ring-0 text-white placeholder:text-yt-light-gray/60 text-sm"
           />
-          <label className="flex items-center gap-1.5 px-3 cursor-pointer select-none text-[11px] text-yt-light-gray whitespace-nowrap shrink-0">
-            <input
-              type="checkbox"
-              checked={excludeShorts}
-              onChange={(e) => setExcludeShorts(e.target.checked)}
-              className="accent-yt-red w-3.5 h-3.5"
-            />
-            No Shorts
-          </label>
         </div>
+
+        {/* Exclude Shorts toggle */}
+        <label className="flex items-center gap-2 px-1 cursor-pointer select-none text-xs text-yt-light-gray w-fit">
+          <input
+            type="checkbox"
+            checked={excludeShorts}
+            onChange={(e) => setExcludeShorts(e.target.checked)}
+            className="accent-yt-red w-4 h-4"
+          />
+          Exclude Shorts
+        </label>
 
         <button
           disabled={isLoading}
