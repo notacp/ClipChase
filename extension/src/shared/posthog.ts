@@ -8,8 +8,9 @@ export const initPostHog = () => {
     posthog.init(POSTHOG_KEY, {
       api_host: POSTHOG_HOST,
       persistence: 'localStorage',
-      autocapture: true,
-      capture_pageview: true,
+      autocapture: false,
+      capture_pageview: false,
+      disable_external_dependency_loading: true,
     })
   }
 }

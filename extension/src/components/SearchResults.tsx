@@ -57,7 +57,7 @@ export function SearchResults({ results, onSelectVideo }: SearchResultsProps) {
                 <button
                   key={mIdx}
                   onClick={() => onSelectVideo(video.video_id, match.start)}
-                  className="w-full text-left p-2.5 rounded-lg hover:bg-white/5 flex items-start gap-2.5 transition-colors group/match"
+                  className="w-full text-left p-3 rounded-lg hover:bg-white/5 flex items-start gap-2.5 transition-colors group/match"
                 >
                   <div className="mt-0.5 bg-yt-gray border border-white/5 p-1.5 rounded-lg flex items-center gap-1 group-hover/match:bg-yt-red group-hover/match:border-yt-red transition-all text-xs font-mono shrink-0">
                     <Clock className="w-3 h-3" />

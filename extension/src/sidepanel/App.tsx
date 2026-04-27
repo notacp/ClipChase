@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { Youtube } from "lucide-react";
 import { SearchResult, TimeRange, ChannelSuggestion } from "../shared/types";
 import { getPublishedAfterDate } from "../shared/utils";
@@ -8,7 +8,11 @@ import { SearchForm } from "../components/SearchForm";
 import { TimeRangeSelector } from "../components/TimeRangeSelector";
 import { SearchResults } from "../components/SearchResults";
 import { LoadingStream } from "../components/LoadingStream";
+import { WelcomeModal } from "../components/WelcomeModal";
 import posthog from "../shared/posthog";
+
+const BUILDER_NOTE =
+  "I kept rewatching videos just to find a single moment I remembered. No way to search, no timestamps — just scrubbing forever. So I built this. If it saves you even five minutes, it was worth it. Thank you for trying it out.";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
@@ -26,6 +30,7 @@ export function App() {
   const [hasSearched, setHasSearched] = useState(false);
   const [lastSearch, setLastSearch] = useState<{ channel: string; keyword: string } | null>(null);
   const [formError, setFormError] = useState("");
+  const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem("hasSeenWelcome"));
   // Generation counter — each runSearch call claims a unique generation.
   // After every await, we compare against the latest generation; if a newer
   // search has started, we bail out.  This prevents stale results from an
@@ -61,6 +66,12 @@ export function App() {
     }, 350);
     return () => clearTimeout(timer);
   }, [channelDisplay]);
+
+  const handleDismissWelcome = () => {
+    localStorage.setItem("hasSeenWelcome", "1");
+    posthog.capture("welcome_dismissed");
+    setShowWelcome(false);
+  };
 
   const handleSelectSuggestion = (suggestion: ChannelSuggestion) => {
     skipSuggestionFetchRef.current = true;
@@ -227,8 +238,11 @@ export function App() {
   };
 
   return (
-    <main className="min-h-screen bg-yt-black text-white selection:bg-yt-red/30 px-4 py-5 pb-20">
-      <div className="mb-5 flex items-center gap-2.5">
+    <main className="min-h-screen bg-yt-black text-white selection:bg-yt-red/30 px-4 pt-8 pb-20">
+      <AnimatePresence>
+        {showWelcome && <WelcomeModal key="welcome" note={BUILDER_NOTE} onDismiss={handleDismissWelcome} />}
+      </AnimatePresence>
+      <div className="mb-7 flex items-center gap-2.5">
         <div className="w-8 h-8 rounded-xl bg-yt-red/10 border border-yt-red/20 flex items-center justify-center shrink-0">
           <Youtube className="w-4 h-4 text-yt-red" />
         </div>
@@ -278,7 +292,7 @@ export function App() {
           <button
             type="button"
             onClick={runSearch}
-            className="mt-3 text-xs font-semibold text-yt-red hover:text-white border border-yt-red/40 hover:border-yt-red hover:bg-yt-red px-3 py-1.5 rounded-lg transition-all"
+            className="mt-3 text-xs font-semibold text-yt-red hover:text-white border border-yt-red/40 hover:border-yt-red hover:bg-yt-red px-3 py-2.5 rounded-lg transition-all"
           >
             Try again
           </button>
