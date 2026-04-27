@@ -444,6 +444,33 @@ function Features() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-12">
         <Feature
+          wide
+          icon={<Layers className="w-5 h-5" />}
+          title="Searches the whole channel — not just the video you're on"
+          body="Most tools stop at the video in front of you. TimeStitch scans every video on a channel and returns every moment the word was spoken, across all of them."
+          example={
+            <div className="font-mono text-xs pt-3 border-t border-white/5 flex flex-wrap gap-x-8 gap-y-1.5">
+              <div className="flex gap-2">
+                <span className="text-yt-light-gray/60 select-none">channel</span>
+                <span className="text-white">@hubermanlab</span>
+              </div>
+              <div className="flex gap-2">
+                <span className="text-yt-light-gray/60 select-none">keyword</span>
+                <span className="text-white">dopamine</span>
+              </div>
+              <div className="flex gap-2">
+                <span className="text-yt-light-gray/60 select-none">videos scanned</span>
+                <span className="text-white">412</span>
+              </div>
+              <div className="flex gap-2">
+                <span className="text-yt-light-gray/60 select-none">timestamps found</span>
+                <span className="text-white bg-yt-red/20 px-1 rounded">11</span>
+              </div>
+            </div>
+          }
+        />
+
+        <Feature
           icon={<Zap className="w-5 h-5" />}
           title="Phonetic matching"
           body="Transcripts say what they hear. Ctrl F for YouTube matches the way words sound, not just how they're spelled."
@@ -490,11 +517,13 @@ function Feature({
   title,
   body,
   example,
+  wide,
 }: {
   icon: React.ReactNode;
   title: string;
   body: string;
   example?: React.ReactNode;
+  wide?: boolean;
 }) {
   return (
     <motion.div
@@ -502,7 +531,7 @@ function Feature({
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-40px" }}
       transition={spring}
-      className="glass rounded-2xl p-6 flex flex-col gap-3 group hover:border-white/20 transition-all"
+      className={`glass rounded-2xl p-6 flex flex-col gap-3 group hover:border-white/20 transition-all${wide ? " md:col-span-2" : ""}`}
     >
       <div className="w-9 h-9 rounded-lg bg-yt-red/10 border border-yt-red/20 text-yt-red flex items-center justify-center group-hover:bg-yt-red/20 group-hover:border-yt-red/40 transition-all">
         {icon}

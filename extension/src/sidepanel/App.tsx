@@ -120,6 +120,7 @@ export function App() {
 
     let videosScanned = 0;
     let transcriptFailures = 0;
+    let matchCount = 0;
 
     try {
       const publishedAfter = getPublishedAfterDate(timeRange);
@@ -170,6 +171,7 @@ export function App() {
         if (superseded()) return;
 
         if (matchRes.ok && matchRes.data.match_result) {
+          matchCount++;
           setResults((prev) => [...prev, matchRes.data.match_result!]);
         }
       }
@@ -200,7 +202,7 @@ export function App() {
           channel: channelUrl,
           keyword,
           time_range: timeRange,
-          result_count: results.length,
+          result_count: matchCount,
           videos_scanned: videosScanned,
           transcript_failures: transcriptFailures,
           success: !searchFailed,
