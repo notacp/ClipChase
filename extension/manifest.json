@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Ctrl F for YouTube",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Search YouTube channel transcripts for keywords.",
   "minimum_chrome_version": "116",
   "permissions": ["sidePanel", "scripting", "tabs", "declarativeNetRequest", "declarativeNetRequestWithHostAccess"],
@@ -22,7 +22,7 @@
     ]
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://www.youtube-nocookie.com https://www.youtube.com; connect-src 'self' https://us.i.posthog.com https://us-assets.i.posthog.com https://web-production-c3d10.up.railway.app http://localhost:8000"
+    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://www.youtube-nocookie.com https://www.youtube.com; connect-src 'self' https://us.i.posthog.com https://us-assets.i.posthog.com https://web-production-c3d10.up.railway.app http://localhost:8000 https://www.youtube.com https://*.youtube.com"
   },
   "action": {
     "default_title": "Open Ctrl F for YouTube"

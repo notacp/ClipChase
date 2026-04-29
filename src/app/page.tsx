@@ -616,6 +616,15 @@ function Footer() {
         <div className="flex items-center gap-5">
           <a href="#how" className="hover:text-white transition-colors">How it works</a>
           <Link href="/privacy" className="hover:text-white transition-colors">Privacy</Link>
+          <a
+            href="https://tally.so/r/7RJQZA?source=landing_footer"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => posthog.capture("feedback_link_clicked", { trigger: "footer" })}
+            className="hover:text-white transition-colors"
+          >
+            Feedback
+          </a>
           <a href={CHROME_STORE_URL} onClick={() => { posthog.capture("cta_clicked", { location: "footer_links" }); }} className="hover:text-white transition-colors">
             Install
           </a>

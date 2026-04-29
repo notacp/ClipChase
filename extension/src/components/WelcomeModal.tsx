@@ -1,9 +1,17 @@
+import { useState } from "react";
 import { motion } from "framer-motion";
 
 interface WelcomeModalProps {
   note: string;
-  onDismiss: () => void;
+  onDismiss: (useCase?: string) => void;
 }
+
+const USE_CASES = [
+  "Research & fact-checking",
+  "Following creators",
+  "Learning from courses",
+  "Something else",
+];
 
 const cardVariants = {
   hidden: { opacity: 0, y: -20, scale: 0.97, rotate: -1.5 },
@@ -37,6 +45,8 @@ const itemVariants = {
 };
 
 export function WelcomeModal({ note, onDismiss }: WelcomeModalProps) {
+  const [selected, setSelected] = useState<string | null>(null);
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -135,12 +145,36 @@ export function WelcomeModal({ note, onDismiss }: WelcomeModalProps) {
               </p>
             </motion.div>
 
+            {/* Use-case selector */}
+            <motion.div variants={itemVariants} className="mb-4">
+              <p className="text-yt-light-gray/60 text-[10px] mb-2 tracking-wide uppercase font-mono">
+                What will you use this for? <span className="normal-case">(optional)</span>
+              </p>
+              <div className="grid grid-cols-2 gap-1.5">
+                {USE_CASES.map((uc) => (
+                  <button
+                    key={uc}
+                    type="button"
+                    onClick={() => setSelected(uc === selected ? null : uc)}
+                    className="rounded-lg px-2.5 py-2 text-[11px] text-left transition-all leading-tight"
+                    style={{
+                      background: selected === uc ? "rgba(224,48,48,0.15)" : "rgba(255,255,255,0.04)",
+                      border: `1px solid ${selected === uc ? "rgba(224,48,48,0.4)" : "rgba(255,255,255,0.06)"}`,
+                      color: selected === uc ? "#fff" : "rgba(255,255,255,0.5)",
+                    }}
+                  >
+                    {uc}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+
             {/* CTA */}
             <motion.button
               variants={itemVariants}
               whileHover={{ scale: 1.02, transition: { type: "spring", stiffness: 300, damping: 20 } }}
               whileTap={{ scale: 0.97, transition: { type: "spring", stiffness: 400, damping: 22 } }}
-              onClick={onDismiss}
+              onClick={() => onDismiss(selected ?? undefined)}
               className="w-full rounded-xl py-3 text-sm font-semibold text-white flex items-center justify-center gap-1.5"
               style={{ background: "linear-gradient(135deg, #E03030, #c02020)" }}
             >

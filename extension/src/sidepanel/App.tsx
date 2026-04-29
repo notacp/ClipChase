@@ -31,6 +31,7 @@ export function App() {
   const [lastSearch, setLastSearch] = useState<{ channel: string; keyword: string } | null>(null);
   const [formError, setFormError] = useState("");
   const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem("hasSeenWelcome"));
+  const [showReviewPrompt, setShowReviewPrompt] = useState(false);
   // Generation counter — each runSearch call claims a unique generation.
   // After every await, we compare against the latest generation; if a newer
   // search has started, we bail out.  This prevents stale results from an
@@ -67,9 +68,10 @@ export function App() {
     return () => clearTimeout(timer);
   }, [channelDisplay]);
 
-  const handleDismissWelcome = () => {
+  const handleDismissWelcome = (useCase?: string) => {
     localStorage.setItem("hasSeenWelcome", "1");
-    posthog.capture("welcome_dismissed");
+    posthog.capture("welcome_dismissed", { use_case: useCase ?? null });
+    if (useCase) posthog.setPersonProperties({ use_case: useCase });
     setShowWelcome(false);
   };
 
@@ -208,7 +210,12 @@ export function App() {
           success: !searchFailed,
           duration_ms: Date.now() - searchStartedAt,
         });
-        if (results.length === 0 && !searchFailed) {
+        const searchCount = parseInt(localStorage.getItem("searchCount") || "0") + 1;
+        localStorage.setItem("searchCount", String(searchCount));
+        if (searchCount === 3 && !localStorage.getItem("reviewPromptDismissed")) {
+          setShowReviewPrompt(true);
+        }
+        if (matchCount === 0 && !searchFailed) {
           posthog.capture("zero_results", {
             channel: channelUrl,
             keyword,
@@ -319,6 +326,55 @@ export function App() {
               "No results found. Try a different keyword or expand the time range."
             )}
           </p>
+          <a
+            href="https://tally.so/r/7RJQZA?source=ext_zero_results"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => posthog.capture("feedback_link_clicked", { trigger: "zero_results" })}
+            className="inline-block mt-4 text-[11px] text-yt-light-gray/50 hover:text-yt-light-gray transition-colors underline underline-offset-2"
+          >
+            What were you looking for? Help us improve →
+          </a>
+        </motion.div>
+      )}
+
+      {showReviewPrompt && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mt-5 p-4 rounded-xl border border-white/8 bg-white/4 flex items-start gap-3"
+        >
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-white mb-0.5">Enjoying TimeStitch?</p>
+            <p className="text-[11px] text-yt-light-gray leading-snug">A quick review helps others find it.</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <a
+              href="https://chromewebstore.google.com/detail/ojgacfpcibnmggkenjndnogpfglmhefn/reviews"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => {
+                posthog.capture("review_prompt_clicked");
+                localStorage.setItem("reviewPromptDismissed", "1");
+                setShowReviewPrompt(false);
+              }}
+              className="text-[11px] font-semibold text-yt-red hover:text-white transition-colors"
+            >
+              ⭐ Review
+            </a>
+            <button
+              type="button"
+              onClick={() => {
+                posthog.capture("review_prompt_dismissed");
+                localStorage.setItem("reviewPromptDismissed", "1");
+                setShowReviewPrompt(false);
+              }}
+              className="text-yt-light-gray/40 hover:text-yt-light-gray text-xs transition-colors"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
         </motion.div>
       )}
 
