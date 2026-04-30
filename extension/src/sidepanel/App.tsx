@@ -10,6 +10,7 @@ import { SearchResults } from "../components/SearchResults";
 import { LoadingStream } from "../components/LoadingStream";
 import { WelcomeModal } from "../components/WelcomeModal";
 import posthog from "../shared/posthog";
+import { detectKeywordScript } from "../lib/keyword-script";
 
 const BUILDER_NOTE =
   "I kept rewatching videos just to find a single moment I remembered. No way to search, no timestamps — just scrubbing forever. So I built this. If it saves you even five minutes, it was worth it. Thank you for trying it out.";
@@ -116,6 +117,7 @@ export function App() {
     posthog.capture("search_started", {
       channel: channelUrl,
       keyword,
+      keyword_script: detectKeywordScript(keyword),
       time_range: timeRange,
       exclude_shorts: excludeShorts,
     });
@@ -187,6 +189,7 @@ export function App() {
       posthog.capture("search_error", {
         channel: channelUrl,
         keyword,
+        keyword_script: detectKeywordScript(keyword),
         error_message: message,
         duration_ms: Date.now() - searchStartedAt,
       });
@@ -195,6 +198,7 @@ export function App() {
         posthog.capture("search_cancelled", {
           channel: channelUrl,
           keyword,
+          keyword_script: detectKeywordScript(keyword),
           duration_ms: Date.now() - searchStartedAt,
         });
       } else {
@@ -203,6 +207,7 @@ export function App() {
         posthog.capture("search_completed", {
           channel: channelUrl,
           keyword,
+          keyword_script: detectKeywordScript(keyword),
           time_range: timeRange,
           result_count: matchCount,
           videos_scanned: videosScanned,
@@ -219,6 +224,7 @@ export function App() {
           posthog.capture("zero_results", {
             channel: channelUrl,
             keyword,
+            keyword_script: detectKeywordScript(keyword),
             time_range: timeRange,
             videos_scanned: videosScanned,
             transcript_failures: transcriptFailures,

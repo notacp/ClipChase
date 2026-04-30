@@ -9,7 +9,40 @@ import Link from "next/link";
 
 const spring = { type: "spring" as const, stiffness: 100, damping: 20 };
 
-const CHROME_STORE_URL = process.env.NEXT_PUBLIC_CHROME_STORE_URL ?? "https://chromewebstore.google.com/detail/ojgacfpcibnmggkenjndnogpfglmhefn?utm_source=item-share-cb";
+const CHROME_STORE_BASE =
+  process.env.NEXT_PUBLIC_CHROME_STORE_URL ??
+  "https://chromewebstore.google.com/detail/ojgacfpcibnmggkenjndnogpfglmhefn";
+
+function buildInstallUrl(location: string): string {
+  const params = new URLSearchParams({
+    utm_source: "landing",
+    utm_medium: location,
+    utm_campaign: "organic",
+  });
+  return `${CHROME_STORE_BASE}?${params.toString()}`;
+}
+
+function handleCtaClick(location: string) {
+  // Persist CTA source for post-install attribution; read by /installed
+  // after the extension opens its post-install tab.
+  try {
+    localStorage.setItem(
+      "ts_pre_install_source",
+      JSON.stringify({
+        location,
+        clicked_at: Date.now(),
+        referrer: document.referrer || null,
+        landing_distinct_id: posthog.get_distinct_id(),
+      })
+    );
+  } catch {
+    // localStorage failures are non-fatal
+  }
+  posthog.capture("cta_clicked", {
+    location,
+    referrer: document.referrer || null,
+  });
+}
 
 export default function Landing() {
   return (
@@ -63,8 +96,8 @@ function LandingHeader() {
             How it works
           </a>
           <a
-            href={CHROME_STORE_URL}
-            onClick={() => { posthog.capture("cta_clicked", { location: "header" }); }}
+            href={buildInstallUrl("header")}
+            onClick={() => handleCtaClick("header")}
             className="bg-yt-red hover:bg-yt-red/90 active:translate-y-px text-white text-sm font-semibold px-4 py-2 rounded-xl transition-all flex items-center gap-1.5"
           >
             Add to Chrome
@@ -119,8 +152,8 @@ function Hero() {
         className="flex flex-col sm:flex-row items-center gap-3"
       >
         <a
-          href={CHROME_STORE_URL}
-          onClick={() => { posthog.capture("cta_clicked", { location: "hero" }); }}
+          href={buildInstallUrl("hero")}
+          onClick={() => handleCtaClick("hero")}
           className="bg-yt-red hover:bg-yt-red/90 active:translate-y-px text-white font-semibold px-7 py-3.5 rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-yt-red/20"
         >
           <Puzzle className="w-5 h-5" />
@@ -590,8 +623,8 @@ function ClosingCta() {
           Install the extension and search YouTube the way you search anything else.
         </p>
         <a
-          href={CHROME_STORE_URL}
-          onClick={() => { posthog.capture("cta_clicked", { location: "footer_banner" }); }}
+          href={buildInstallUrl("footer_banner")}
+          onClick={() => handleCtaClick("footer_banner")}
           className="inline-flex items-center gap-2 bg-yt-red hover:bg-yt-red/90 active:translate-y-px text-white font-semibold px-7 py-3.5 rounded-xl transition-all shadow-lg shadow-yt-red/20"
         >
           <Puzzle className="w-5 h-5" />
@@ -625,7 +658,11 @@ function Footer() {
           >
             Feedback
           </a>
-          <a href={CHROME_STORE_URL} onClick={() => { posthog.capture("cta_clicked", { location: "footer_links" }); }} className="hover:text-white transition-colors">
+          <a
+            href={buildInstallUrl("footer_links")}
+            onClick={() => handleCtaClick("footer_links")}
+            className="hover:text-white transition-colors"
+          >
             Install
           </a>
         </div>

@@ -54,9 +54,30 @@ async function registerHeaderSpoofRules(): Promise<void> {
   }
 }
 
-chrome.runtime.onInstalled.addListener(() => {
+const LANDING_BASE = "https://timestitch.com";
+
+chrome.runtime.onInstalled.addListener(async (details) => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   registerHeaderSpoofRules();
+
+  // Post-install attribution: only on fresh install, not update/reload.
+  // Stable-ID logic is duplicated from extension/src/shared/posthog.ts because
+  // the SW can't import Vite/React-side modules cleanly.
+  if (details.reason === "install") {
+    try {
+      const stored = await chrome.storage.local.get("timestitch_stable_id");
+      let stableId = stored.timestitch_stable_id as string | undefined;
+      if (!stableId) {
+        stableId = `ts_${crypto.randomUUID()}`;
+        await chrome.storage.local.set({ timestitch_stable_id: stableId });
+      }
+      chrome.tabs.create({
+        url: `${LANDING_BASE}/installed?stable_id=${encodeURIComponent(stableId)}`,
+      });
+    } catch (e) {
+      console.warn("[TS] post-install tab failed:", e);
+    }
+  }
 });
 chrome.runtime.onStartup.addListener(registerHeaderSpoofRules);
 // Re-register on every SW wake — session rules don't survive SW termination.
