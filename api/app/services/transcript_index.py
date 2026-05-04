@@ -103,10 +103,10 @@ def _utc_now_iso() -> str:
 
 def _default_db_path() -> Path:
     project_root = Path(__file__).resolve().parents[3]
-    configured = os.getenv("TIMESTITCH_DB_PATH")
+    configured = os.getenv("CLIPCHASE_DB_PATH")
     if configured:
         return Path(configured).expanduser()
-    return project_root / ".data" / "timestitch_index.sqlite3"
+    return project_root / ".data" / "clipchase_index.sqlite3"
 
 
 def _build_search_text(text: str) -> str:

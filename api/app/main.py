@@ -10,7 +10,7 @@ from pathlib import Path
 env_path = Path(__file__).parent.parent.parent / ".env"
 load_dotenv(dotenv_path=env_path, override=True)
 
-app = FastAPI(title="TimeStitch API")
+app = FastAPI(title="ClipChase API")
 
 _origins_env = os.getenv("ALLOWED_ORIGINS", "*")
 _allowed_origins = [o.strip() for o in _origins_env.split(",") if o.strip()]
@@ -27,7 +27,7 @@ app.include_router(search.router, prefix="/api")
 
 @app.get("/")
 async def root():
-    return {"message": "TimeStitch API is running"}
+    return {"message": "ClipChase API is running"}
 
 if __name__ == "__main__":
     import uvicorn

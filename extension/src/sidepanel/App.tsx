@@ -162,7 +162,7 @@ export function App() {
         if (!txRes.ok || !txRes.data) {
           transcriptFailures++;
           console.warn(
-            `[TimeStitch] transcript skipped for ${video.id}:`,
+            `[ClipChase] transcript skipped for ${video.id}:`,
             txRes.ok ? "null data" : txRes.error
           );
           continue;
@@ -351,7 +351,7 @@ export function App() {
           className="mt-5 p-4 rounded-xl border border-white/8 bg-white/4 flex items-start gap-3"
         >
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-white mb-0.5">Enjoying TimeStitch?</p>
+            <p className="text-xs font-semibold text-white mb-0.5">Enjoying ClipChase?</p>
             <p className="text-[11px] text-yt-light-gray leading-snug">A quick review helps others find it.</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">

@@ -4,7 +4,7 @@
   "version": "1.0.9",
   "description": "Search YouTube channel transcripts for keywords.",
   "minimum_chrome_version": "116",
-  "permissions": ["sidePanel", "scripting", "tabs", "declarativeNetRequest", "declarativeNetRequestWithHostAccess"],
+  "permissions": ["sidePanel", "scripting", "tabs", "storage", "declarativeNetRequest", "declarativeNetRequestWithHostAccess"],
   "host_permissions": [
     "*://*.youtube.com/*",
     "*://*.youtube-nocookie.com/*",

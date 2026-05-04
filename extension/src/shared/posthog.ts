@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 const POSTHOG_KEY = import.meta.env.VITE_POSTHOG_KEY;
 const POSTHOG_HOST = import.meta.env.VITE_POSTHOG_HOST;
 
-const STABLE_ID_KEY = "timestitch_stable_id";
+const STABLE_ID_KEY = "clipchase_stable_id";
 
 /**
  * Stable per-Chrome-profile ID stored in chrome.storage.local so it
@@ -14,7 +14,7 @@ export async function getOrCreateStableId(): Promise<string> {
   if (stored[STABLE_ID_KEY]) {
     return stored[STABLE_ID_KEY] as string;
   }
-  const newId = `ts_${crypto.randomUUID()}`;
+  const newId = `cc_${crypto.randomUUID()}`;
   await chrome.storage.local.set({ [STABLE_ID_KEY]: newId });
   return newId;
 }

@@ -2,20 +2,43 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #0f0f0f;
-  --foreground: #ffffff;
+html, body {
+  font-family: var(--font-sans), system-ui, sans-serif;
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.2);
+  border-radius: 2px;
 }
 
-@layer utilities {
-  .glass {
-    background: rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+@media (max-width: 860px) {
+  .hero-grid {
+    grid-template-columns: 1fr !important;
+    gap: 48px !important;
+    padding: 72px 24px 64px !important;
+  }
+  .hero-grid > div:last-child {
+    justify-self: center !important;
+  }
+  .feature-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  .steps-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .steps-grid > div {
+    border-right: none !important;
+  }
+}
+
+@media (max-width: 560px) {
+  .feature-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .feature-grid > div {
+    border-right: none !important;
   }
 }

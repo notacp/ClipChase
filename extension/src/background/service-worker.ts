@@ -48,13 +48,13 @@ async function registerHeaderSpoofRules(): Promise<void> {
         rule(1002, "||youtube.com/api/timedtext"),
       ],
     });
-    console.log("[TS] header-spoof rules registered");
+    console.log("[CC] header-spoof rules registered");
   } catch (e) {
-    console.warn("[TS] header-spoof rules failed:", e);
+    console.warn("[CC] header-spoof rules failed:", e);
   }
 }
 
-const LANDING_BASE = "https://timestitch.com";
+const LANDING_BASE = "https://clipchase.xyz";
 
 chrome.runtime.onInstalled.addListener(async (details) => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
@@ -65,17 +65,17 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   // the SW can't import Vite/React-side modules cleanly.
   if (details.reason === "install") {
     try {
-      const stored = await chrome.storage.local.get("timestitch_stable_id");
-      let stableId = stored.timestitch_stable_id as string | undefined;
+      const stored = await chrome.storage.local.get("clipchase_stable_id");
+      let stableId = stored.clipchase_stable_id as string | undefined;
       if (!stableId) {
-        stableId = `ts_${crypto.randomUUID()}`;
-        await chrome.storage.local.set({ timestitch_stable_id: stableId });
+        stableId = `cc_${crypto.randomUUID()}`;
+        await chrome.storage.local.set({ clipchase_stable_id: stableId });
       }
       chrome.tabs.create({
         url: `${LANDING_BASE}/installed?stable_id=${encodeURIComponent(stableId)}`,
       });
     } catch (e) {
-      console.warn("[TS] post-install tab failed:", e);
+      console.warn("[CC] post-install tab failed:", e);
     }
   }
 });

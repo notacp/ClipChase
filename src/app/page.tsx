@@ -1,13 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { ArrowRight, Clock, Globe, Layers, Lock, Puzzle, Youtube, Zap } from "lucide-react";
-import { BackgroundEffect } from "@/components/BackgroundEffect";
+import { useState } from "react";
+import { Sun, Moon, ArrowRight } from "lucide-react";
 import posthog from "posthog-js";
 import Link from "next/link";
 
-const spring = { type: "spring" as const, stiffness: 100, damping: 20 };
+const ACCENT = "#FF4500";
+const MONO = "var(--font-mono), 'JetBrains Mono', monospace";
 
 const CHROME_STORE_BASE =
   process.env.NEXT_PUBLIC_CHROME_STORE_URL ??
@@ -23,8 +22,6 @@ function buildInstallUrl(location: string): string {
 }
 
 function handleCtaClick(location: string) {
-  // Persist CTA source for post-install attribution; read by /installed
-  // after the extension opens its post-install tab.
   try {
     localStorage.setItem(
       "ts_pre_install_source",
@@ -44,644 +41,939 @@ function handleCtaClick(location: string) {
   });
 }
 
+type Theme = {
+  bg: string;
+  surface: string;
+  surface2: string;
+  border: string;
+  text: string;
+  sub: string;
+  muted: string;
+  popupBg: string;
+  popupBorder: string;
+  popupSurface: string;
+  popupText: string;
+  popupSub: string;
+  inputBg: string;
+  inputBorder: string;
+  thumbBg: string;
+};
+
+function makeTheme(dark: boolean): Theme {
+  return dark
+    ? {
+        bg: "#0e0e0e",
+        surface: "#161616",
+        surface2: "#1e1e1e",
+        border: "#272727",
+        text: "#ebebeb",
+        sub: "#888",
+        muted: "#444",
+        popupBg: "#141414",
+        popupBorder: "#2a2a2a",
+        popupSurface: "#1c1c1c",
+        popupText: "#e8e8e8",
+        popupSub: "#888",
+        inputBg: "#1c1c1c",
+        inputBorder: "#2a2a2a",
+        thumbBg: "#1c1c1c",
+      }
+    : {
+        bg: "#fafaf9",
+        surface: "#f4f3f1",
+        surface2: "#eeede9",
+        border: "#e2e0db",
+        text: "#141412",
+        sub: "#6b6860",
+        muted: "#aaa9a3",
+        popupBg: "#ffffff",
+        popupBorder: "#e2e0db",
+        popupSurface: "#f7f6f4",
+        popupText: "#141412",
+        popupSub: "#6b6860",
+        inputBg: "#f4f3f1",
+        inputBorder: "#e2e0db",
+        thumbBg: "#e8e6e2",
+      };
+}
+
 export default function Landing() {
+  const [dark, setDark] = useState(false);
+  const T = makeTheme(dark);
+
   return (
-    <main className="min-h-screen bg-yt-black text-white selection:bg-yt-red/30 pb-20">
-      <BackgroundEffect />
-
-      <LandingHeader />
-
-      <div className="relative z-10 max-w-7xl mx-auto px-6">
-        <Hero />
-        <DemoMockup />
-        <HowItWorks />
-        <Features />
-        <ClosingCta />
-      </div>
-
-      <Footer />
-    </main>
+    <div
+      style={{
+        minHeight: "100vh",
+        background: T.bg,
+        color: T.text,
+        transition: "background 0.25s, color 0.25s",
+      }}
+    >
+      <Nav T={T} dark={dark} onToggle={() => setDark((d) => !d)} />
+      <Hero T={T} dark={dark} />
+      <Features T={T} />
+      <HowItWorks T={T} />
+      <Cta T={T} />
+      <Footer T={T} />
+    </div>
   );
 }
 
-// ── Header ────────────────────────────────────────────────────────────────────
+// ── Theme toggle ──────────────────────────────────────────────────────────────
 
-function LandingHeader() {
-  const [scrolled, setScrolled] = useState(false);
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 20);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
+function ThemeToggle({
+  dark,
+  onToggle,
+  T,
+}: {
+  dark: boolean;
+  onToggle: () => void;
+  T: Theme;
+}) {
   return (
-    <header
-      className={`sticky top-0 z-20 transition-all duration-200 ${
-        scrolled
-          ? "bg-yt-black/80 backdrop-blur-md border-b border-white/10"
-          : "border-b border-white/5"
-      }`}
+    <button
+      onClick={onToggle}
+      title={dark ? "Switch to light mode" : "Switch to dark mode"}
+      style={{
+        width: 32,
+        height: 32,
+        borderRadius: 6,
+        border: `1px solid ${T.border}`,
+        background: T.surface,
+        cursor: "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: T.sub,
+        flexShrink: 0,
+        transition: "all 0.2s",
+      }}
     >
-      <nav className="flex items-center justify-between px-6 py-4 max-w-7xl mx-auto">
-        <div className="flex items-center gap-2 group cursor-pointer">
-          <Youtube className="w-7 h-7 text-yt-red group-hover:scale-110 transition-transform" />
-          <span className="text-lg font-bold tracking-tight">Ctrl F for YouTube</span>
-        </div>
-        <div className="flex items-center gap-5">
-          <a
-            href="#how"
-            className="text-sm text-yt-light-gray hover:text-white transition-colors hidden sm:inline"
-          >
-            How it works
-          </a>
-          <a
-            href={buildInstallUrl("header")}
-            onClick={() => handleCtaClick("header")}
-            className="bg-yt-red hover:bg-yt-red/90 active:translate-y-px text-white text-sm font-semibold px-4 py-2 rounded-xl transition-all flex items-center gap-1.5"
-          >
-            Add to Chrome
-            <ArrowRight className="w-4 h-4" />
-          </a>
-        </div>
-      </nav>
-    </header>
+      {dark ? <Sun size={14} /> : <Moon size={14} />}
+    </button>
+  );
+}
+
+// ── Nav ──────────────────────────────────────────────────────────────────────
+
+function Nav({
+  T,
+  dark,
+  onToggle,
+}: {
+  T: Theme;
+  dark: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <nav
+      style={{
+        height: 56,
+        padding: "0 48px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        borderBottom: `1px solid ${T.border}`,
+        position: "sticky",
+        top: 0,
+        background: T.bg,
+        zIndex: 10,
+        transition: "background 0.25s, border-color 0.25s",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <Logo size={24} />
+        <span
+          style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em" }}
+        >
+          Clipchase
+        </span>
+      </div>
+      <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+        <a
+          href="#features"
+          style={{
+            fontSize: 13,
+            color: T.sub,
+            fontWeight: 500,
+            textDecoration: "none",
+          }}
+        >
+          Features
+        </a>
+        <a
+          href="#how-it-works"
+          style={{
+            fontSize: 13,
+            color: T.sub,
+            fontWeight: 500,
+            textDecoration: "none",
+          }}
+        >
+          How it works
+        </a>
+        <ThemeToggle dark={dark} onToggle={onToggle} T={T} />
+        <a
+          href={buildInstallUrl("header")}
+          onClick={() => handleCtaClick("header")}
+          style={{
+            padding: "6px 16px",
+            borderRadius: 5,
+            background: ACCENT,
+            color: "#fff",
+            fontSize: 13,
+            fontWeight: 600,
+            textDecoration: "none",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          Add to Chrome
+          <ArrowRight size={13} />
+        </a>
+      </div>
+    </nav>
+  );
+}
+
+function Logo({ size = 24 }: { size?: number }) {
+  const inner = Math.round(size * 0.54);
+  return (
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius: Math.round(size * 0.21),
+        background: ACCENT,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+      }}
+    >
+      <svg width={inner} height={inner} viewBox="0 0 12 12" fill="none">
+        <circle cx="5" cy="5" r="3.2" stroke="white" strokeWidth="1.4" />
+        <path
+          d="M7.2 7.2L10.2 10.2"
+          stroke="white"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+        />
+      </svg>
+    </div>
   );
 }
 
 // ── Hero ──────────────────────────────────────────────────────────────────────
 
-function Hero() {
+function Hero({ T, dark }: { T: Theme; dark: boolean }) {
   return (
-    <section className="flex flex-col items-center pt-20 md:pt-28 pb-16 text-center">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={spring}
-        className="inline-flex items-center gap-2 glass rounded-full px-4 py-1.5 text-xs font-mono text-yt-light-gray mb-6 hover:border-white/20 transition-colors"
-      >
-        <span className="relative flex w-2 h-2">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yt-red/50" />
-          <span className="relative inline-flex w-2 h-2 rounded-full bg-yt-red" />
-        </span>
-        Free · Chrome Extension
-      </motion.div>
-
-      <motion.h1
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ ...spring, delay: 0.05 }}
-        className="font-bold text-center tracking-tight text-5xl md:text-7xl mb-6 max-w-4xl"
-      >
-        Ctrl+F for <span className="text-yt-red">YouTube</span>
-      </motion.h1>
-
-      <motion.p
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ ...spring, delay: 0.12 }}
-        className="text-yt-light-gray text-lg md:text-xl leading-relaxed max-w-2xl px-4 mb-10"
-      >
-        Search every video on a YouTube channel for a keyword. Jump straight to the second it&rsquo;s spoken.
-      </motion.p>
-
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ ...spring, delay: 0.18 }}
-        className="flex flex-col sm:flex-row items-center gap-3"
-      >
-        <a
-          href={buildInstallUrl("hero")}
-          onClick={() => handleCtaClick("hero")}
-          className="bg-yt-red hover:bg-yt-red/90 active:translate-y-px text-white font-semibold px-7 py-3.5 rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-yt-red/20"
+    <section
+      style={{
+        maxWidth: 1120,
+        margin: "0 auto",
+        padding: "112px 48px 96px",
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr) 340px",
+        gap: 80,
+        alignItems: "center",
+      }}
+      className="hero-grid"
+    >
+      <div>
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 7,
+            padding: "4px 12px",
+            borderRadius: 4,
+            border: `1px solid ${T.border}`,
+            background: T.surface,
+            marginBottom: 32,
+          }}
         >
-          <Puzzle className="w-5 h-5" />
-          Add to Chrome — Free
-        </a>
-        <a
-          href="#how"
-          className="text-yt-light-gray hover:text-white text-sm font-medium px-4 py-2 transition-colors"
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
+              background: "#22c55e",
+              display: "inline-block",
+            }}
+          />
+          <span style={{ fontSize: 12, color: T.sub, fontWeight: 500 }}>
+            Now in beta · Free on basic
+          </span>
+        </div>
+
+        <h1
+          style={{
+            margin: "0 0 24px",
+            fontSize: "clamp(42px, 5vw, 68px)",
+            fontWeight: 800,
+            letterSpacing: "-0.045em",
+            lineHeight: 1.0,
+          }}
         >
-          See how it works ↓
-        </a>
-      </motion.div>
+          Find every time
+          <br />
+          a phrase was said
+          <br />
+          <span style={{ color: ACCENT }}>on YouTube</span>
+        </h1>
+
+        <p
+          style={{
+            margin: "0 0 40px",
+            fontSize: 18,
+            color: T.sub,
+            lineHeight: 1.75,
+            maxWidth: 460,
+            fontWeight: 400,
+          }}
+        >
+          Search any YouTube channel by phrase. Get every video that mentions
+          it with exact timestamps you can click to jump straight there.
+        </p>
+
+        <div
+          style={{
+            display: "flex",
+            gap: 10,
+            marginBottom: 48,
+            flexWrap: "wrap",
+          }}
+        >
+          <a
+            href={buildInstallUrl("hero")}
+            onClick={() => handleCtaClick("hero")}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "13px 26px",
+              borderRadius: 6,
+              background: ACCENT,
+              color: "#fff",
+              fontSize: 15,
+              fontWeight: 700,
+              whiteSpace: "nowrap",
+              letterSpacing: "-0.01em",
+              textDecoration: "none",
+            }}
+          >
+            Add to Chrome — Free
+          </a>
+          <a
+            href="#how-it-works"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 7,
+              padding: "13px 20px",
+              borderRadius: 6,
+              border: `1px solid ${T.border}`,
+              color: T.sub,
+              fontSize: 15,
+              fontWeight: 500,
+              textDecoration: "none",
+            }}
+          >
+            See how it works
+            <ArrowRight size={12} />
+          </a>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            gap: 24,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center" }}>
+            {["#c084fc", "#818cf8", "#67e8f9", "#86efac", "#fde68a"].map(
+              (c, i) => (
+                <div
+                  key={i}
+                  style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: "50%",
+                    background: c,
+                    marginLeft: i > 0 ? -10 : 0,
+                    border: `2px solid ${T.bg}`,
+                    position: "relative",
+                    zIndex: 5 - i,
+                    transition: "border-color 0.25s",
+                  }}
+                />
+              )
+            )}
+            <span style={{ fontSize: 13, color: T.sub, marginLeft: 10 }}>
+              2,400+ users
+            </span>
+          </div>
+          <div style={{ width: 1, height: 20, background: T.border }} />
+          <div
+            style={{ display: "flex", alignItems: "center", gap: 5 }}
+          >
+            {[1, 2, 3, 4, 5].map((i) => (
+              <span key={i} style={{ color: "#fbbf24", fontSize: 14 }}>
+                ★
+              </span>
+            ))}
+            <span style={{ fontSize: 13, color: T.sub, marginLeft: 4 }}>
+              4.9 on Chrome Web Store
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <ExtensionPreview T={T} dark={dark} />
     </section>
   );
 }
 
-// ── Demo mockup ───────────────────────────────────────────────────────────────
-//
-// Real use case: @hubermanlab + "dopamine" — search across 400+ videos,
-// jump to the exact second it's spoken. Two videos, three matches.
-// Auto-cycles on load; stops when user clicks.
+// ── Extension preview ────────────────────────────────────────────────────────
 
-/** Parse "h:mm:ss" or "m:ss" duration string into total seconds. */
-function parseDuration(d: string): number {
-  const parts = d.split(":").map(Number);
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  return parts[0] * 60 + parts[1];
-}
+function ExtensionPreview({ T, dark }: { T: Theme; dark: boolean }) {
+  const shadow = dark
+    ? "0 20px 60px rgba(0,0,0,0.7)"
+    : "0 20px 60px rgba(0,0,0,0.12)";
 
-const DEMO_VIDEOS = [
-  {
-    title: "Controlling Your Dopamine For Motivation, Focus & Satisfaction",
-    date: "Sep 2021",
-    duration: "1:37:02",
-    youtubeId: "QmOF0crdyRU",
-    thumbnail: "https://i.ytimg.com/vi/QmOF0crdyRU/maxresdefault.jpg",
-    matches: [
-      { time: "9:58",  seconds: 598,  before: "...so let's talk about ", highlight: "dopamine", after: " — most people have heard of it..." },
-      { time: "18:14", seconds: 1094, before: "...", highlight: "dopamine", after: " can be released locally at synapses or broadly..." },
-    ],
-  },
-  {
-    title: "The Science of Making & Breaking Habits",
-    date: "Jan 2022",
-    duration: "1:00:16",
-    youtubeId: "Wcs2PFz5q6g",
-    thumbnail: "https://i.ytimg.com/vi/Wcs2PFz5q6g/maxresdefault.jpg",
-    matches: [
-      { time: "48:00", seconds: 2880, before: "...the science of ", highlight: "dopamine", after: " rewards and how to apply it to habits..." },
-    ],
-  },
-] as const;
-
-// Flat list of all moments for cycling
-const ALL_MOMENTS = DEMO_VIDEOS.flatMap((v, vi) =>
-  v.matches.map((m) => ({ ...m, video: v, videoIdx: vi }))
-);
-
-function DemoMockup() {
-  const [activeIdx, setActiveIdx] = useState(0);
-  const [userActed, setUserActed] = useState(false);
-
-  useEffect(() => {
-    if (userActed) return;
-    const t = setInterval(
-      () => setActiveIdx((p) => (p + 1) % ALL_MOMENTS.length),
-      2800
-    );
-    return () => clearInterval(t);
-  }, [userActed]);
-
-  const select = (i: number) => {
-    setUserActed(true);
-    setActiveIdx(i);
-    const { video, seconds } = ALL_MOMENTS[i];
-    posthog.capture("demo_timestamp_clicked", { video_id: video.youtubeId, timestamp: ALL_MOMENTS[i].time, seconds });
-    window.open(
-      `https://www.youtube.com/watch?v=${video.youtubeId}&t=${seconds}s`,
-      "_blank",
-      "noopener,noreferrer"
-    );
-  };
-
-  const current = ALL_MOMENTS[activeIdx];
-  const currentPct =
-    (current.seconds / parseDuration(current.video.duration)) * 100;
-
-  // Flat index offset for each video's first match
-  const videoOffset = (vi: number) =>
-    DEMO_VIDEOS.slice(0, vi).reduce((s, v) => s + v.matches.length, 0);
+  const results = [
+    { t: "How Cursor is Changing the Way We Code", n: 14 },
+    { t: "YC W24 Demo Day — AI Tools Roundup", n: 9 },
+    { t: "The Future of Software Development", n: 6 },
+    { t: "Startup Tools We Actually Use in 2024", n: 3 },
+  ];
+  const filters = ["1d", "7d", "1mo", "6mo", "All"];
+  const activeFilter = 2;
 
   return (
-    <motion.section
-      initial={{ opacity: 0, y: 30 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-80px" }}
-      transition={spring}
-      className="pb-24"
+    <div
+      style={{
+        border: `1px solid ${T.popupBorder}`,
+        borderRadius: 10,
+        overflow: "hidden",
+        background: T.popupBg,
+        boxShadow: shadow,
+        width: 340,
+        flexShrink: 0,
+        justifySelf: "end",
+      }}
     >
-      <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-6 max-w-5xl mx-auto">
-        {/* ── Side panel ── */}
-        <div className="glass rounded-2xl p-4 flex flex-col gap-3">
-          {/* Header */}
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-mono tracking-widest text-yt-light-gray uppercase">
-              Side Panel
-            </span>
-            <div className="flex gap-1.5">
-              {[0, 1, 2].map((i) => (
-                <span key={i} className="w-1.5 h-1.5 rounded-full bg-white/10" />
-              ))}
-            </div>
+      <div
+        style={{
+          padding: "9px 12px",
+          borderBottom: `1px solid ${T.popupBorder}`,
+          display: "flex",
+          alignItems: "center",
+          gap: 7,
+        }}
+      >
+        <Logo size={20} />
+        <span
+          style={{
+            fontSize: 12,
+            fontWeight: 700,
+            color: T.popupText,
+            letterSpacing: "-0.02em",
+          }}
+        >
+          Clipchase
+        </span>
+      </div>
+
+      <div
+        style={{
+          padding: "8px 12px",
+          borderBottom: `1px solid ${T.popupBorder}`,
+          display: "flex",
+          flexDirection: "column",
+          gap: 5,
+        }}
+      >
+        <div
+          style={{
+            padding: "6px 9px",
+            borderRadius: 4,
+            border: `1px solid ${T.inputBorder}`,
+            background: T.inputBg,
+            fontSize: 11,
+            color: T.popupSub,
+          }}
+        >
+          Y Combinator
+        </div>
+        <div style={{ display: "flex", gap: 5 }}>
+          <div
+            style={{
+              flex: 1,
+              padding: "6px 9px",
+              borderRadius: 4,
+              border: `1px solid ${ACCENT}`,
+              background: `${ACCENT}18`,
+              fontSize: 11,
+              color: T.popupText,
+            }}
+          >
+            &ldquo;Cursor&rdquo;
           </div>
-
-          {/* Inputs */}
-          <div className="flex flex-col gap-1.5">
-            <div className="glass rounded-xl px-3 py-2 text-sm text-white/90">
-              @hubermanlab
-            </div>
-            <div className="glass rounded-xl px-3 py-2 text-sm text-white/90 flex items-center justify-between">
-              <span>dopamine</span>
-              <span className="text-xs text-yt-light-gray font-mono">kw</span>
-            </div>
-          </div>
-
-          {/* Results — grouped by video */}
-          <div className="flex flex-col gap-2">
-            {DEMO_VIDEOS.map((video, vi) => (
-              <div key={vi} className="glass rounded-xl overflow-hidden">
-                {/* Video header */}
-                <div className="px-3 pt-2.5 pb-2 border-b border-white/5">
-                  <p className="text-[11px] font-semibold text-white leading-tight line-clamp-1">
-                    {video.title}
-                  </p>
-                  <p className="text-[10px] text-yt-light-gray font-mono mt-0.5">
-                    {video.date} · {video.duration}
-                  </p>
-                </div>
-
-                {/* Match rows */}
-                <div className="p-1.5 flex flex-col gap-1">
-                  {video.matches.map((match, mi) => {
-                    const flatIdx = videoOffset(vi) + mi;
-                    const isActive = flatIdx === activeIdx;
-                    return (
-                      <button
-                        key={mi}
-                        type="button"
-                        onClick={() => select(flatIdx)}
-                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all text-left cursor-pointer ${
-                          isActive ? "bg-yt-red/10" : "hover:bg-white/5"
-                        }`}
-                      >
-                        <div
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center gap-1 shrink-0 transition-colors ${
-                            isActive
-                              ? "bg-yt-red text-white"
-                              : "bg-yt-gray text-white/60"
-                          }`}
-                        >
-                          <Clock className="w-2.5 h-2.5" />
-                          {match.time}
-                        </div>
-                        <p
-                          className={`text-[10px] leading-snug truncate transition-colors ${
-                            isActive ? "text-white/80" : "text-yt-light-gray"
-                          }`}
-                        >
-                          {match.before}
-                          <span className="text-white bg-yt-red/20 px-0.5 rounded">
-                            {match.highlight}
-                          </span>
-                          {match.after}
-                        </p>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
+          <div
+            style={{
+              padding: "6px 12px",
+              borderRadius: 4,
+              background: ACCENT,
+              fontSize: 11,
+              color: "#fff",
+              fontWeight: 600,
+            }}
+          >
+            Search
           </div>
         </div>
-
-        {/* ── Player ── */}
-        <div className="glass rounded-2xl overflow-hidden aspect-video relative">
-          <AnimatePresence mode="wait">
-            <motion.img
-              key={`thumb-${activeIdx}`}
-              src={current.video.thumbnail}
-              alt=""
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.35 }}
-              className="absolute inset-0 w-full h-full object-cover"
-            />
-          </AnimatePresence>
-          <div className="absolute inset-0 bg-black/45" />
-          <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-black/80 to-transparent" />
-
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={`cc-${activeIdx}`}
-              initial={{ opacity: 0, y: 5 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -3 }}
-              transition={{ duration: 0.18 }}
-              className="absolute z-20 left-0 right-0 flex justify-center"
-              style={{ bottom: "3rem" }}
+        <div style={{ display: "flex", gap: 4 }}>
+          {filters.map((f, i) => (
+            <div
+              key={f}
+              style={{
+                padding: "2px 7px",
+                borderRadius: 4,
+                border: `1px solid ${
+                  i === activeFilter ? ACCENT : T.inputBorder
+                }`,
+                background:
+                  i === activeFilter ? `${ACCENT}18` : "transparent",
+                fontSize: 10,
+                color: i === activeFilter ? ACCENT : T.popupSub,
+              }}
             >
-              <div className="bg-black/85 backdrop-blur-sm rounded px-3 py-1.5 text-[11px] font-mono text-white/80 max-w-[80%] text-center leading-relaxed">
-                {current.before}
-                <span className="text-white font-semibold bg-yt-red/50 px-1 rounded">
-                  {current.highlight}
-                </span>
-                {current.after}
-              </div>
-            </motion.div>
-          </AnimatePresence>
-
-          <div className="absolute bottom-0 left-0 right-0 z-20 px-3 py-2.5 flex items-center gap-2.5">
-            <motion.div
-              key={`playbtn-${activeIdx}`}
-              initial={{ scale: 1.25 }}
-              animate={{ scale: 1 }}
-              transition={{ type: "spring", stiffness: 300, damping: 24 }}
-              className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center shrink-0"
-            >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="white">
-                <path d="M8 5v14l11-7z" />
-              </svg>
-            </motion.div>
-            <div className="flex-1 h-[3px] rounded-full bg-white/15 overflow-hidden">
-              <motion.div
-                className="h-full bg-yt-red rounded-full"
-                animate={{ width: `${currentPct}%` }}
-                transition={spring}
-              />
+              {f}
             </div>
-            <motion.span
-              key={`ts-${activeIdx}`}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.2 }}
-              className="text-[9px] font-mono text-white/40 tabular-nums shrink-0"
-            >
-              {current.time} / {current.video.duration}
-            </motion.span>
-          </div>
+          ))}
         </div>
       </div>
-    </motion.section>
+
+      <div
+        style={{
+          padding: "5px 12px 4px",
+          borderBottom: `1px solid ${T.popupBorder}`,
+        }}
+      >
+        <span style={{ fontSize: 10, color: T.popupSub }}>
+          <span style={{ color: ACCENT, fontWeight: 600 }}>32 mentions</span>
+          {" — 4 videos — 1 month"}
+        </span>
+      </div>
+
+      {results.map((r, i) => (
+        <div
+          key={i}
+          style={{
+            display: "flex",
+            gap: 9,
+            padding: "9px 12px",
+            borderBottom:
+              i < results.length - 1
+                ? `1px solid ${T.popupBorder}`
+                : "none",
+            alignItems: "center",
+          }}
+        >
+          <div
+            style={{
+              width: 48,
+              height: 32,
+              borderRadius: 3,
+              background: T.thumbBg,
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 14 14"
+              fill={dark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.2)"}
+            >
+              <path d="M3 2.5v9l8-4.5-8-4.5z" />
+            </svg>
+          </div>
+          <span
+            style={{
+              flex: 1,
+              fontSize: 10,
+              color: T.popupSub,
+              lineHeight: 1.4,
+            }}
+          >
+            {r.t}
+          </span>
+          <span
+            style={{
+              fontSize: 14,
+              fontWeight: 700,
+              color: ACCENT,
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {r.n}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Features ──────────────────────────────────────────────────────────────────
+
+const FEATURES = [
+  {
+    n: "01",
+    title: "Full transcript search",
+    desc: "Every video on the channel is indexed. Not just titles — full transcripts.",
+  },
+  {
+    n: "02",
+    title: "Clickable timestamps",
+    desc: "Each result links directly to that second in the video. No manual seeking.",
+  },
+  {
+    n: "03",
+    title: "Time-range filtering",
+    desc: "Filter results by 1 day, 7 days, 1 month, 6 months, or all time.",
+  },
+  {
+    n: "04",
+    title: "Mention frequency ranking",
+    desc: "Results sort by how many times the phrase appears in each video.",
+  },
+  {
+    n: "05",
+    title: "Any public channel",
+    desc: "Paste a channel URL or name. No API key or account required.",
+  },
+  {
+    n: "06",
+    title: "Private by default",
+    desc: "Everything runs in your browser. Your searches never leave your device.",
+  },
+];
+
+function Features({ T }: { T: Theme }) {
+  return (
+    <section
+      id="features"
+      style={{ maxWidth: 1120, margin: "0 auto", padding: "0 48px 96px" }}
+    >
+      <div
+        style={{
+          borderTop: `1px solid ${T.border}`,
+          paddingTop: 48,
+          marginBottom: 40,
+        }}
+      >
+        <h2
+          style={{
+            fontSize: "clamp(22px, 2.5vw, 34px)",
+            fontWeight: 700,
+            letterSpacing: "-0.03em",
+            marginBottom: 8,
+          }}
+        >
+          Built for precision
+        </h2>
+        <p style={{ fontSize: 15, color: T.sub }}>
+          Search YouTube the way researchers and power users actually need.
+        </p>
+      </div>
+      <div
+        className="feature-grid"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, 1fr)",
+        }}
+      >
+        {FEATURES.map((f, i) => (
+          <div
+            key={i}
+            style={{
+              padding: 24,
+              borderTop: `1px solid ${T.border}`,
+              borderRight:
+                i % 3 < 2 ? `1px solid ${T.border}` : "none",
+            }}
+          >
+            <div
+              style={{
+                fontFamily: MONO,
+                fontSize: 10,
+                color: ACCENT,
+                fontWeight: 600,
+                marginBottom: 10,
+                letterSpacing: "0.05em",
+              }}
+            >
+              {f.n}
+            </div>
+            <h3
+              style={{
+                margin: "0 0 6px",
+                fontSize: 14,
+                fontWeight: 600,
+              }}
+            >
+              {f.title}
+            </h3>
+            <p
+              style={{
+                margin: 0,
+                fontSize: 13,
+                color: T.sub,
+                lineHeight: 1.65,
+              }}
+            >
+              {f.desc}
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
 // ── How it works ──────────────────────────────────────────────────────────────
 
-function HowItWorks() {
-  const steps = [
-    {
-      n: "01",
-      title: "Install the extension",
-      body: "One click from the Chrome Web Store. No account, no setup.",
-    },
-    {
-      n: "02",
-      title: "Open the side panel",
-      body: "Click the toolbar icon. The panel opens alongside whatever you're doing.",
-    },
-    {
-      n: "03",
-      title: "Search a channel",
-      body: "Paste a channel URL or @handle, type a keyword, hit search. Results stream in as each video is scanned.",
-    },
-    {
-      n: "04",
-      title: "Jump to the moment",
-      body: "Click any timestamp. The video opens in YouTube at the exact second the word is spoken — no scrubbing.",
-    },
-  ];
+const STEPS = [
+  {
+    n: "01",
+    title: "Install",
+    desc: "One click from the Chrome Web Store. No sign-up required.",
+  },
+  {
+    n: "02",
+    title: "Enter channel + phrase",
+    desc: "Name or URL of any public YouTube channel, and the phrase you want to find.",
+  },
+  {
+    n: "03",
+    title: "Jump to the moment",
+    desc: "Click any timestamp to open the video right at that second.",
+  },
+];
 
+function HowItWorks({ T }: { T: Theme }) {
   return (
-    <section id="how" className="pb-28">
-      <SectionHeading
-        eyebrow="How it works"
-        title="Four steps, no configuration"
-      />
-
-      <ol className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-8 gap-y-10 mt-12">
-        {steps.map((step, i) => (
-          <motion.li
-            key={step.n}
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "-40px" }}
-            transition={{ ...spring, delay: i * 0.08 }}
-            className="flex flex-col"
-          >
-            <div className="w-9 h-9 rounded-xl bg-yt-red/10 border border-yt-red/20 flex items-center justify-center mb-4">
-              <span className="text-xs font-mono font-bold text-yt-red">{step.n}</span>
-            </div>
-            <h3 className="text-lg font-bold tracking-tight mb-2">{step.title}</h3>
-            <p className="text-yt-light-gray text-sm leading-relaxed">{step.body}</p>
-          </motion.li>
-        ))}
-      </ol>
-    </section>
-  );
-}
-
-// ── Features ──────────────────────────────────────────────────────────────────
-//
-// 2×2 asymmetric grid.  DESIGN.md forbids 3-column equal grids; 2×2 keeps the
-// density high without that generic SaaS look, and lets the first feature
-// (the differentiator) take more vertical real estate if we later add depth.
-
-function Features() {
-  return (
-    <section className="pb-28">
-      <SectionHeading eyebrow="Features" title="Built for the way you actually search" />
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-12">
-        <Feature
-          wide
-          icon={<Layers className="w-5 h-5" />}
-          title="Searches the whole channel — not just the video you're on"
-          body="Most tools stop at the video in front of you. TimeStitch scans every video on a channel and returns every moment the word was spoken, across all of them."
-          example={
-            <div className="font-mono text-xs pt-3 border-t border-white/5 flex flex-wrap gap-x-8 gap-y-1.5">
-              <div className="flex gap-2">
-                <span className="text-yt-light-gray/60 select-none">channel</span>
-                <span className="text-white">@hubermanlab</span>
-              </div>
-              <div className="flex gap-2">
-                <span className="text-yt-light-gray/60 select-none">keyword</span>
-                <span className="text-white">dopamine</span>
-              </div>
-              <div className="flex gap-2">
-                <span className="text-yt-light-gray/60 select-none">videos scanned</span>
-                <span className="text-white">412</span>
-              </div>
-              <div className="flex gap-2">
-                <span className="text-yt-light-gray/60 select-none">timestamps found</span>
-                <span className="text-white bg-yt-red/20 px-1 rounded">11</span>
-              </div>
-            </div>
-          }
-        />
-
-        <Feature
-          icon={<Zap className="w-5 h-5" />}
-          title="Phonetic matching"
-          body="Transcripts say what they hear. Ctrl F for YouTube matches the way words sound, not just how they're spelled."
-          example={
-            <Example
-              query="PostHog"
-              transcript="...and the post hog dashboard..."
-              highlight="post hog"
-            />
-          }
-        />
-
-        <Feature
-          icon={<Globe className="w-5 h-5" />}
-          title="Works across English and Hindi"
-          body="Search with Latin letters, match Devanagari captions — and the reverse. Auto-generated transcripts are noisy; Ctrl F for YouTube is built for it."
-          example={
-            <Example
-              query="Finology"
-              transcript="...तो फिनोलॉजी का मतलब..."
-              highlight="फिनोलॉजी"
-            />
-          }
-        />
-
-        <Feature
-          icon={<Clock className="w-5 h-5" />}
-          title="Jump to the exact second"
-          body="Every match is a timestamped link. One click opens the video in YouTube at the exact frame the word is spoken — no scrubbing required."
-        />
-
-        <Feature
-          icon={<Lock className="w-5 h-5" />}
-          title="Runs in your browser"
-          body="Transcripts are fetched by your browser, through your session. Not routed through a server. Captions you can see logged in, Ctrl F for YouTube can see too."
-        />
-      </div>
-    </section>
-  );
-}
-
-function Feature({
-  icon,
-  title,
-  body,
-  example,
-  wide,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  body: string;
-  example?: React.ReactNode;
-  wide?: boolean;
-}) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-40px" }}
-      transition={spring}
-      className={`glass rounded-2xl p-6 flex flex-col gap-3 group hover:border-white/20 transition-all${wide ? " md:col-span-2" : ""}`}
+    <section
+      id="how-it-works"
+      style={{ maxWidth: 1120, margin: "0 auto", padding: "0 48px 96px" }}
     >
-      <div className="w-9 h-9 rounded-lg bg-yt-red/10 border border-yt-red/20 text-yt-red flex items-center justify-center group-hover:bg-yt-red/20 group-hover:border-yt-red/40 transition-all">
-        {icon}
-      </div>
-      <h3 className="text-lg font-bold tracking-tight">{title}</h3>
-      <p className="text-yt-light-gray text-sm leading-relaxed">{body}</p>
-      {example && <div className="mt-2">{example}</div>}
-    </motion.div>
-  );
-}
-
-function Example({
-  query,
-  transcript,
-  highlight,
-}: {
-  query: string;
-  transcript: string;
-  highlight: string;
-}) {
-  const parts = transcript.split(highlight);
-  return (
-    <div className="font-mono text-xs space-y-1.5 pt-3 border-t border-white/5">
-      <div className="flex gap-2">
-        <span className="text-yt-light-gray/60 select-none">query</span>
-        <span className="text-white">{query}</span>
-      </div>
-      <div className="flex gap-2">
-        <span className="text-yt-light-gray/60 select-none">match</span>
-        <span className="text-yt-light-gray">
-          {parts[0]}
-          <span className="text-white bg-yt-red/20 px-1 rounded">{highlight}</span>
-          {parts[1]}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-// ── Closing CTA ───────────────────────────────────────────────────────────────
-
-function ClosingCta() {
-  return (
-    <motion.section
-      initial={{ opacity: 0, y: 30 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-80px" }}
-      transition={spring}
-      className="pb-16"
-    >
-      <div className="glass rounded-3xl px-8 py-16 md:py-20 text-center">
-        <h2 className="text-3xl md:text-5xl font-bold tracking-tight mb-4 max-w-2xl mx-auto">
-          Stop scrubbing through videos.
+      <div
+        style={{
+          borderTop: `1px solid ${T.border}`,
+          paddingTop: 48,
+          marginBottom: 40,
+        }}
+      >
+        <h2
+          style={{
+            fontSize: "clamp(22px, 2.5vw, 34px)",
+            fontWeight: 700,
+            letterSpacing: "-0.03em",
+            marginBottom: 8,
+          }}
+        >
+          Three steps
         </h2>
-        <p className="text-yt-light-gray text-base md:text-lg max-w-xl mx-auto mb-8">
-          Install the extension and search YouTube the way you search anything else.
+        <p style={{ fontSize: 15, color: T.sub }}>
+          From install to results in under a minute.
         </p>
+      </div>
+      <div
+        className="steps-grid"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, 1fr)",
+        }}
+      >
+        {STEPS.map((s, i) => (
+          <div
+            key={i}
+            style={{
+              padding: 28,
+              borderTop: `1px solid ${T.border}`,
+              borderRight:
+                i < STEPS.length - 1 ? `1px solid ${T.border}` : "none",
+            }}
+          >
+            <div
+              style={{
+                fontFamily: MONO,
+                fontSize: 28,
+                fontWeight: 700,
+                color: ACCENT,
+                marginBottom: 16,
+                letterSpacing: "-0.03em",
+                lineHeight: 1,
+              }}
+            >
+              {s.n}
+            </div>
+            <h3
+              style={{
+                margin: "0 0 10px",
+                fontSize: 17,
+                fontWeight: 700,
+                letterSpacing: "-0.02em",
+              }}
+            >
+              {s.title}
+            </h3>
+            <p
+              style={{
+                margin: 0,
+                fontSize: 14,
+                color: T.sub,
+                lineHeight: 1.7,
+              }}
+            >
+              {s.desc}
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ── Closing CTA ──────────────────────────────────────────────────────────────
+
+function Cta({ T }: { T: Theme }) {
+  return (
+    <section
+      style={{ maxWidth: 1120, margin: "0 auto", padding: "0 48px 80px" }}
+    >
+      <div
+        style={{
+          padding: "48px 56px",
+          borderRadius: 10,
+          border: `1px solid ${T.border}`,
+          background: T.surface,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 32,
+          flexWrap: "wrap",
+        }}
+      >
+        <div>
+          <h2
+            style={{
+              margin: "0 0 8px",
+              fontSize: "clamp(18px, 2vw, 28px)",
+              fontWeight: 700,
+              letterSpacing: "-0.03em",
+            }}
+          >
+            Ready to start searching?
+          </h2>
+          <p style={{ margin: 0, fontSize: 14, color: T.sub }}>
+            Free forever on basic. Installs in 30 seconds.
+          </p>
+        </div>
         <a
           href={buildInstallUrl("footer_banner")}
           onClick={() => handleCtaClick("footer_banner")}
-          className="inline-flex items-center gap-2 bg-yt-red hover:bg-yt-red/90 active:translate-y-px text-white font-semibold px-7 py-3.5 rounded-xl transition-all shadow-lg shadow-yt-red/20"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "12px 24px",
+            borderRadius: 6,
+            background: ACCENT,
+            color: "#fff",
+            fontSize: 14,
+            fontWeight: 600,
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+            textDecoration: "none",
+          }}
         >
-          <Puzzle className="w-5 h-5" />
           Add to Chrome — Free
         </a>
       </div>
-    </motion.section>
+    </section>
   );
 }
 
 // ── Footer ────────────────────────────────────────────────────────────────────
 
-function Footer() {
+function Footer({ T }: { T: Theme }) {
   return (
-    <footer className="relative z-10 border-t border-white/5 mt-8">
-      <div className="max-w-7xl mx-auto px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-yt-light-gray">
-        <div className="flex items-center gap-2">
-          <Youtube className="w-4 h-4 text-yt-red" />
-          <span className="font-medium text-white">Ctrl F for YouTube</span>
-          <span className="font-mono text-xs text-yt-light-gray/60 ml-1">transcript search</span>
-        </div>
-        <div className="flex items-center gap-5">
-          <a href="#how" className="hover:text-white transition-colors">How it works</a>
-          <Link href="/privacy" className="hover:text-white transition-colors">Privacy</Link>
-          <a
-            href="https://tally.so/r/7RJQZA?source=landing_footer"
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() => posthog.capture("feedback_link_clicked", { trigger: "footer" })}
-            className="hover:text-white transition-colors"
-          >
-            Feedback
-          </a>
-          <a
-            href={buildInstallUrl("footer_links")}
-            onClick={() => handleCtaClick("footer_links")}
-            className="hover:text-white transition-colors"
-          >
-            Install
-          </a>
-        </div>
+    <footer
+      style={{
+        maxWidth: 1120,
+        margin: "0 auto",
+        padding: "20px 48px",
+        borderTop: `1px solid ${T.border}`,
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 16,
+        flexWrap: "wrap",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+        <Logo size={18} />
+        <span
+          style={{ fontSize: 13, fontWeight: 700, letterSpacing: "-0.02em" }}
+        >
+          Clipchase
+        </span>
+      </div>
+      <span style={{ fontSize: 12, color: T.muted }}>
+        © 2026 ·{" "}
+        <Link
+          href="/privacy"
+          style={{ color: "inherit", textDecoration: "none" }}
+        >
+          Privacy
+        </Link>
+      </span>
+      <div style={{ display: "flex", gap: 20 }}>
+        <a
+          href="#how-it-works"
+          style={{ fontSize: 12, color: T.muted, textDecoration: "none" }}
+        >
+          How it works
+        </a>
+        <a
+          href="https://tally.so/r/7RJQZA?source=landing_footer"
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() =>
+            posthog.capture("feedback_link_clicked", { trigger: "footer" })
+          }
+          style={{ fontSize: 12, color: T.muted, textDecoration: "none" }}
+        >
+          Feedback
+        </a>
+        <a
+          href={buildInstallUrl("footer_links")}
+          onClick={() => handleCtaClick("footer_links")}
+          style={{ fontSize: 12, color: T.muted, textDecoration: "none" }}
+        >
+          Install
+        </a>
       </div>
     </footer>
-  );
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function SectionHeading({ eyebrow, title }: { eyebrow: string; title: string }) {
-  return (
-    <div className="flex flex-col items-start gap-3">
-      <span className="text-xs font-mono text-yt-red tracking-widest uppercase">
-        {eyebrow}
-      </span>
-      <h2 className="text-3xl md:text-4xl font-bold tracking-tight max-w-2xl">
-        {title}
-      </h2>
-    </div>
   );
 }
