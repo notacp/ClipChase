@@ -387,51 +387,6 @@ function Hero({ T, dark }: { T: Theme; dark: boolean }) {
           </a>
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            gap: 24,
-            flexWrap: "wrap",
-            alignItems: "center",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center" }}>
-            {["#c084fc", "#818cf8", "#67e8f9", "#86efac", "#fde68a"].map(
-              (c, i) => (
-                <div
-                  key={i}
-                  style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: "50%",
-                    background: c,
-                    marginLeft: i > 0 ? -10 : 0,
-                    border: `2px solid ${T.bg}`,
-                    position: "relative",
-                    zIndex: 5 - i,
-                    transition: "border-color 0.25s",
-                  }}
-                />
-              )
-            )}
-            <span style={{ fontSize: 13, color: T.sub, marginLeft: 10 }}>
-              2,400+ users
-            </span>
-          </div>
-          <div style={{ width: 1, height: 20, background: T.border }} />
-          <div
-            style={{ display: "flex", alignItems: "center", gap: 5 }}
-          >
-            {[1, 2, 3, 4, 5].map((i) => (
-              <span key={i} style={{ color: "#fbbf24", fontSize: 14 }}>
-                ★
-              </span>
-            ))}
-            <span style={{ fontSize: 13, color: T.sub, marginLeft: 4 }}>
-              4.9 on Chrome Web Store
-            </span>
-          </div>
-        </div>
       </div>
 
       <ExtensionPreview T={T} dark={dark} />
