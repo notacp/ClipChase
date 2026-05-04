@@ -3,21 +3,25 @@
 @tailwind utilities;
 
 :root {
-  --background: #0f0f0f;
-  --foreground: #ffffff;
+  --background: #141414;
+  --foreground: #e8e8e8;
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
   min-height: 100vh;
-  font-family: 'Outfit', sans-serif;
+  font-family: 'Plus Jakarta Sans', sans-serif;
 }
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
 
 @layer utilities {
   .glass {
-    background: rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: #1c1c1c;
+    border: 1px solid #2a2a2a;
+    backdrop-filter: none;
   }
 }

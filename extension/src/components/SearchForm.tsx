@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Youtube } from "lucide-react";
-import { FormEvent, useRef, useEffect } from "react";
+import { Search, Folder } from "lucide-react";
+import { FormEvent, useRef, useEffect, useState } from "react";
 import { ChannelSuggestion } from "../shared/types";
 
 interface SearchFormProps {
@@ -35,6 +35,8 @@ export function SearchForm({
   formError,
 }: SearchFormProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [chFocused, setChFocused] = useState(false);
+  const [kwFocused, setKwFocused] = useState(false);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -48,110 +50,125 @@ export function SearchForm({
 
   const showDropdown = suggestions.length > 0 || isSuggestionsLoading;
 
+  const inputCls = (focused: boolean) =>
+    `w-full pl-9 pr-3 py-2 rounded text-[12px] text-yt-text placeholder:text-yt-tert outline-none transition-all border ${
+      focused
+        ? "border-yt-red bg-yt-red/[0.09]"
+        : "border-yt-dark-gray bg-yt-gray hover:border-yt-hover/60"
+    }`;
+
+  const canSubmit = channelDisplay.trim().length > 0 && keyword.trim().length > 0;
+
   return (
     <motion.form
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ delay: 0.2 }}
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2 }}
       onSubmit={handleSearch}
       className="w-full flex flex-col gap-2"
     >
-      <div className="flex flex-col gap-2">
-        {/* Channel input with suggestions */}
-        <div className="relative" ref={containerRef}>
-          <div className="glass p-2 rounded-2xl flex items-center focus-within:border-white/20 transition-colors">
-            <Youtube className="ml-3 w-5 h-5 text-yt-light-gray shrink-0" />
-            <input
-              type="text"
-              placeholder="YouTube Channel URL or @handle"
-              value={channelDisplay}
-              onChange={(e) => onChannelChange(e.target.value)}
-              autoComplete="off"
-              className="w-full bg-transparent p-3 pl-3 outline-none focus:ring-0 text-white placeholder:text-yt-light-gray/60 text-sm"
-            />
-          </div>
+      {/* Channel input */}
+      <div className="relative" ref={containerRef}>
+        <Folder
+          className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-yt-tert pointer-events-none"
+          strokeWidth={2}
+        />
+        <input
+          type="text"
+          placeholder="Channel name or URL"
+          value={channelDisplay}
+          onChange={(e) => onChannelChange(e.target.value)}
+          onFocus={() => setChFocused(true)}
+          onBlur={() => setChFocused(false)}
+          autoComplete="off"
+          className={inputCls(chFocused)}
+        />
 
-          <AnimatePresence>
-            {showDropdown && (
-              <motion.ul
-                initial={{ opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.15 }}
-                className="absolute z-50 top-full mt-1 w-full glass rounded-xl overflow-hidden border border-white/10 shadow-xl"
-              >
-                {isSuggestionsLoading && suggestions.length === 0 ? (
-                  <li className="px-4 py-3 flex items-center gap-3">
-                    <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin shrink-0" />
-                    <span className="text-sm text-yt-light-gray">Finding channels…</span>
+        <AnimatePresence>
+          {showDropdown && (
+            <motion.ul
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.15 }}
+              className="absolute z-50 top-full mt-1 w-full bg-yt-gray rounded border border-yt-dark-gray overflow-hidden shadow-xl"
+            >
+              {isSuggestionsLoading && suggestions.length === 0 ? (
+                <li className="px-3 py-2.5 flex items-center gap-2.5">
+                  <div className="w-3 h-3 border-2 border-yt-dark-gray border-t-yt-red rounded-full animate-spin shrink-0" />
+                  <span className="text-[12px] text-yt-light-gray">Finding channels…</span>
+                </li>
+              ) : (
+                suggestions.map((s) => (
+                  <li key={s.id}>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        onSelectSuggestion(s);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-yt-dark-gray transition-colors text-left"
+                    >
+                      {s.thumbnail ? (
+                        <img
+                          src={s.thumbnail}
+                          alt={s.title}
+                          className="w-6 h-6 rounded-full object-cover shrink-0"
+                        />
+                      ) : (
+                        <div className="w-6 h-6 rounded-full bg-yt-dark-gray shrink-0" />
+                      )}
+                      <span className="text-[12px] text-yt-text truncate">{s.title}</span>
+                    </button>
                   </li>
-                ) : (
-                  suggestions.map((s) => (
-                    <li key={s.id}>
-                      <button
-                        type="button"
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          onSelectSuggestion(s);
-                        }}
-                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/10 transition-colors text-left"
-                      >
-                        {s.thumbnail ? (
-                          <img
-                            src={s.thumbnail}
-                            alt={s.title}
-                            className="w-8 h-8 rounded-full object-cover shrink-0"
-                          />
-                        ) : (
-                          <div className="w-8 h-8 rounded-full bg-white/10 shrink-0" />
-                        )}
-                        <span className="text-sm text-white truncate">{s.title}</span>
-                      </button>
-                    </li>
-                  ))
-                )}
-              </motion.ul>
-            )}
-          </AnimatePresence>
-        </div>
+                ))
+              )}
+            </motion.ul>
+          )}
+        </AnimatePresence>
+      </div>
 
-        {/* Keyword input */}
-        <div className="glass p-2 rounded-2xl flex items-center focus-within:border-white/20 transition-colors">
-          <Search className="ml-3 w-5 h-5 text-yt-light-gray shrink-0" />
+      {/* Keyword + Search button */}
+      <div className="flex gap-1.5">
+        <div className="relative flex-1">
+          <Search
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-yt-tert pointer-events-none"
+            strokeWidth={2}
+          />
           <input
             type="text"
-            placeholder="Keyword to find..."
+            placeholder="Phrase to search"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
-            className="flex-1 bg-transparent p-3 pl-3 outline-none focus:ring-0 text-white placeholder:text-yt-light-gray/60 text-sm"
+            onFocus={() => setKwFocused(true)}
+            onBlur={() => setKwFocused(false)}
+            className={inputCls(kwFocused)}
           />
         </div>
-
-        {/* Exclude Shorts toggle */}
-        <label className="flex items-center gap-2 px-1 cursor-pointer select-none text-xs text-yt-light-gray w-fit">
-          <input
-            type="checkbox"
-            checked={excludeShorts}
-            onChange={(e) => setExcludeShorts(e.target.checked)}
-            className="accent-yt-red w-4 h-4"
-          />
-          Exclude Shorts
-        </label>
-
         <button
+          type="submit"
           disabled={isLoading}
-          className="bg-yt-red hover:bg-yt-red/90 disabled:opacity-40 disabled:cursor-not-allowed text-white px-8 py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all active:translate-y-px w-full shadow-md shadow-yt-red/20"
+          className="bg-yt-red text-white px-3.5 py-2 rounded text-[12px] font-semibold transition-opacity disabled:cursor-not-allowed flex items-center justify-center min-w-[64px]"
+          style={{ opacity: isLoading ? 1 : canSubmit ? 1 : 0.38 }}
         >
           {isLoading ? (
-            <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+            <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
           ) : (
-            <>
-              <Search className="w-5 h-5" />
-              <span>Search</span>
-            </>
+            "Search"
           )}
         </button>
       </div>
+
+      {/* Exclude Shorts toggle */}
+      <label className="flex items-center gap-1.5 px-0.5 cursor-pointer select-none text-[11px] text-yt-light-gray w-fit">
+        <input
+          type="checkbox"
+          checked={excludeShorts}
+          onChange={(e) => setExcludeShorts(e.target.checked)}
+          className="accent-yt-red w-3.5 h-3.5"
+        />
+        Exclude Shorts
+      </label>
 
       <AnimatePresence>
         {formError && (
@@ -160,7 +177,7 @@ export function SearchForm({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.15 }}
-            className="text-sm text-yt-red flex items-center gap-1.5 px-1"
+            className="text-[11px] text-yt-red flex items-center gap-1.5 px-0.5"
           >
             <span>⚠</span>
             {formError}

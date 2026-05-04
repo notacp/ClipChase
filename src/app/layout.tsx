@@ -15,7 +15,7 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Clipchase — Find every phrase on YouTube",
+  title: "ClipChase — Find every phrase on YouTube",
   description:
     "Search any YouTube channel by phrase. Get every video that mentions it with exact timestamps you can click to jump straight there.",
 };

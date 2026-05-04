@@ -187,7 +187,7 @@ function Nav({
         <span
           style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em" }}
         >
-          Clipchase
+          ClipChase
         </span>
       </div>
       <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
@@ -441,7 +441,7 @@ function ExtensionPreview({ T, dark }: { T: Theme; dark: boolean }) {
             letterSpacing: "-0.02em",
           }}
         >
-          Clipchase
+          ClipChase
         </span>
       </div>
 
@@ -891,7 +891,7 @@ function Footer({ T }: { T: Theme }) {
         <span
           style={{ fontSize: 13, fontWeight: 700, letterSpacing: "-0.02em" }}
         >
-          Clipchase
+          ClipChase
         </span>
       </div>
       <span style={{ fontSize: 12, color: T.muted }}>

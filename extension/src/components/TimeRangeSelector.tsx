@@ -20,25 +20,27 @@ export function TimeRangeSelector({ timeRange, setTimeRange }: TimeRangeSelector
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      transition={{ delay: 0.3 }}
-      className="flex flex-wrap items-center gap-1.5 mt-4"
+      transition={{ duration: 0.2 }}
+      className="flex flex-wrap items-center gap-1 mt-2"
     >
-      <span className="text-yt-light-gray text-[10px] font-mono uppercase tracking-widest mr-1">Range</span>
-      {TIME_RANGES.map((range) => (
-        <button
-          key={range.value}
-          type="button"
-          onClick={() => setTimeRange(range.value)}
-          className={cn(
-            "px-3 py-2 rounded-lg text-[10px] font-mono font-medium transition-all",
-            timeRange === range.value
-              ? "bg-yt-red text-white shadow-sm shadow-yt-red/30"
-              : "bg-white/5 border border-white/5 text-yt-light-gray hover:bg-white/10 hover:text-white hover:border-white/10"
-          )}
-        >
-          {range.label}
-        </button>
-      ))}
+      {TIME_RANGES.map((range) => {
+        const active = timeRange === range.value;
+        return (
+          <button
+            key={range.value}
+            type="button"
+            onClick={() => setTimeRange(range.value)}
+            className={cn(
+              "px-2.5 py-[3px] rounded text-[11px] font-medium transition-all border",
+              active
+                ? "border-yt-red bg-yt-red/[0.09] text-yt-red"
+                : "border-yt-dark-gray bg-transparent text-yt-light-gray hover:border-yt-hover/60"
+            )}
+          >
+            {range.label}
+          </button>
+        );
+      })}
     </motion.div>
   );
 }
