@@ -3,6 +3,8 @@ import type {
   VideoListResponse,
   MatchParams,
   MatchResponse,
+  IndexTranscriptParams,
+  IndexTranscriptResponse,
 } from "../shared/types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
@@ -25,6 +27,11 @@ export const listVideos = (params: VideoListParams): Promise<VideoListResponse> 
 
 export const matchTranscript = (params: MatchParams): Promise<MatchResponse> =>
   postJson<MatchResponse>("/api/match", params);
+
+export const indexTranscript = (
+  params: IndexTranscriptParams,
+): Promise<IndexTranscriptResponse> =>
+  postJson<IndexTranscriptResponse>("/api/index/transcript", params);
 
 export async function fetchTranscript(videoId: string, lang = "en"): Promise<import("../shared/types").Transcript | null> {
   const r = await fetch(`${API_BASE}/api/transcript/${videoId}?lang=${lang}`);

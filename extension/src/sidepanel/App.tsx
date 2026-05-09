@@ -42,6 +42,10 @@ export function App() {
   // search has started, we bail out.  This prevents stale results from an
   // older search leaking into state after a newer search began.
   const searchGenRef = useRef(0);
+  // Aborts any in-flight SSE connection when a new search supersedes it.
+  // Without this, the prior fetch keeps streaming bytes (server CPU + bandwidth)
+  // even though superseded() gates state writes.
+  const searchAbortRef = useRef<AbortController | null>(null);
   // Prevents the suggestion effect from re-fetching when channelDisplay is set
   // programmatically (i.e. by selecting a suggestion, not by the user typing).
   const skipSuggestionFetchRef = useRef(false);
@@ -106,6 +110,11 @@ export function App() {
   };
 
   const runSearch = async () => {
+    // Cancel any in-flight SSE before claiming a new generation.
+    searchAbortRef.current?.abort();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+
     const myGen = ++searchGenRef.current;
     const superseded = () => myGen !== searchGenRef.current;
 
@@ -149,9 +158,11 @@ export function App() {
       const sseUrl = `${API_BASE}/api/search?${params.toString()}`;
 
       let unindexedVideos: VideoInfo[] = [];
+      let resolvedChannelId: string | null = null;
       let sseError: string | null = null;
 
       await consumeSSE(sseUrl, {
+        signal: controller.signal,
         onMessage: (data) => {
           if (superseded() || !data) return;
           try {
@@ -174,8 +185,9 @@ export function App() {
             }
           } else if (event === "meta") {
             try {
-              const parsed = JSON.parse(data) as { total: number };
+              const parsed = JSON.parse(data) as { total: number; channel_id?: string };
               videosScanned = parsed.total ?? 0;
+              resolvedChannelId = parsed.channel_id ?? null;
             } catch {
               // ignore
             }
@@ -218,6 +230,20 @@ export function App() {
               continue;
             }
 
+            // Fire-and-forget: persist transcript to backend index so future
+            // searches on this channel use the cached path. Errors swallowed.
+            if (resolvedChannelId) {
+              void send({
+                type: "index-transcript",
+                params: {
+                  channel_id: resolvedChannelId,
+                  source_url: channelUrl,
+                  video,
+                  transcript: txRes.data,
+                },
+              });
+            }
+
             const matchRes = await send({
               type: "match-transcript",
               params: { keyword, video, transcript: txRes.data },
@@ -241,6 +267,8 @@ export function App() {
       setLastSearch({ channel: channelUrl, keyword });
     } catch (err: unknown) {
       if (superseded()) return; // swallow errors from a superseded search
+      // Abort fired by a newer search — caller already updated state, ignore.
+      if (err instanceof DOMException && err.name === "AbortError") return;
       searchFailed = true;
       const message = err instanceof Error ? err.message : "Something went wrong. Please try again.";
       setError(message);

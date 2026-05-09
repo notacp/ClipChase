@@ -115,6 +115,17 @@ class MatchResponse(BaseModel):
     match_result: Optional[SearchResult] = None
 
 
+class IndexTranscriptRequest(BaseModel):
+    channel_id: str
+    source_url: str
+    video: VideoInput
+    transcript: TranscriptInput
+
+
+class IndexTranscriptResponse(BaseModel):
+    stored: int
+
+
 def _fetch_channel_videos(
     service: YouTubeService,
     channel_id: str,
@@ -310,6 +321,7 @@ def _search_stream(
         live_videos = [video for video in videos if video["id"] not in indexed_video_ids]
 
         meta_payload = {
+            "channel_id": channel_id,
             "total": len(videos),
             "indexed": len(indexed_video_ids),
             "indexed_candidates": len(indexed_candidates),
@@ -533,6 +545,37 @@ async def index_channel(
         videos_skipped=videos_skipped,
         index_stats=index_service.get_channel_stats(channel_id),
     )
+
+
+@router.post("/index/transcript", response_model=IndexTranscriptResponse)
+async def index_transcript(
+    req: IndexTranscriptRequest,
+    service: YouTubeService = Depends(get_yt_service),
+    index_service: TranscriptIndexService = Depends(get_index_service),
+):
+    # Trust source_url, never the client-provided channel_id. Otherwise any
+    # caller could pollute the index for any channel.
+    resolved_id = service.resolve_channel_id(req.source_url)
+    if not resolved_id:
+        raise HTTPException(status_code=400, detail="Could not resolve channel from source_url")
+    if req.channel_id != resolved_id:
+        raise HTTPException(status_code=400, detail="channel_id does not match source_url")
+
+    transcript_data = {
+        "language_code": req.transcript.language_code,
+        "language_label": req.transcript.language_label,
+        "is_generated": req.transcript.is_generated,
+        "segments": [segment.model_dump() for segment in req.transcript.segments],
+    }
+    video_data = req.video.model_dump()
+
+    stored = index_service.cache_video_transcripts(
+        channel_id=resolved_id,
+        source_url=req.source_url,
+        video=video_data,
+        transcripts=[transcript_data],
+    )
+    return IndexTranscriptResponse(stored=stored)
 
 
 @router.post("/match", response_model=MatchResponse)

@@ -4,7 +4,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set
 
-from .youtube import DEVANAGARI_TOKEN_RE, _normalize_text, _romanize_devanagari, normalize_language_code
+from .youtube import (
+    DEVANAGARI_TOKEN_RE,
+    MIXED_TOKEN_RE,
+    _normalize_text,
+    _phonetic_key,
+    _romanize_devanagari,
+    normalize_language_code,
+)
 
 
 def _is_remote() -> bool:
@@ -110,19 +117,32 @@ def _default_db_path() -> Path:
 
 
 def _build_search_text(text: str) -> str:
+    """Pad transcript text with extra forms so the FTS index can match across
+    scripts. For each token we add (a) a romanized form for Devanagari tokens
+    and (b) a pronunciation key for both scripts. The key collapses long
+    vowels and the trailing schwa, so "startup" and "स्टार्टअप" land on the
+    same key and either query lights up the other.
+    """
     normalized = _normalize_text(text)
     if not normalized:
         return ""
 
     additions: List[str] = []
     seen = set()
-    for token in DEVANAGARI_TOKEN_RE.findall(normalized):
-        romanized = _romanize_devanagari(token)
-        key = romanized.casefold()
-        if not romanized or key in seen:
-            continue
-        seen.add(key)
-        additions.append(romanized)
+
+    def add(value: str) -> None:
+        if not value:
+            return
+        k = value.casefold()
+        if k in seen:
+            return
+        seen.add(k)
+        additions.append(value)
+
+    for token in MIXED_TOKEN_RE.findall(normalized):
+        if DEVANAGARI_TOKEN_RE.fullmatch(token):
+            add(_romanize_devanagari(token))
+        add(_phonetic_key(token))
 
     if not additions:
         return normalized
@@ -431,8 +451,32 @@ class TranscriptIndexService:
         if not video_ids or not cleaned_terms:
             return set()
 
+        # Expand each query term to its pronunciation key so the FTS pre-filter
+        # mirrors what _build_search_text put into the index. Without this the
+        # index has the bridge form but the query never asks for it.
+        expanded: List[str] = []
+        seen: Set[str] = set()
+        for term in cleaned_terms:
+            for candidate in (term, _phonetic_key(term)):
+                if not candidate:
+                    continue
+                k = candidate.casefold()
+                if k in seen:
+                    continue
+                seen.add(k)
+                expanded.append(candidate)
+            for token in MIXED_TOKEN_RE.findall(term):
+                key = _phonetic_key(token)
+                if not key:
+                    continue
+                k = key.casefold()
+                if k in seen:
+                    continue
+                seen.add(k)
+                expanded.append(key)
+
         placeholders = ",".join("?" for _ in video_ids)
-        match_query = " OR ".join(_quote_fts_term(term) for term in cleaned_terms)
+        match_query = " OR ".join(_quote_fts_term(term) for term in expanded)
 
         conn = self._connect()
         try:

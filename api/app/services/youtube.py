@@ -8,6 +8,10 @@ from youtube_transcript_api import NoTranscriptFound, TranscriptsDisabled, YouTu
 
 YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
+
+# Caches resolved channel IDs to keep YT API quota down when the same handle
+# is hit repeatedly (e.g. /api/index/transcript per-video on a fresh channel).
+_RESOLVE_NAME_CACHE: Dict[str, str] = {}
 SUPPORTED_TRANSCRIPT_LANGUAGES = ("en", "hi")
 DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]")
 DEVANAGARI_TOKEN_RE = re.compile(r"[\u0900-\u097F]+")
@@ -171,6 +175,31 @@ def _dedupe_terms(terms: List[str]) -> List[str]:
     return deduped
 
 
+_LONG_VOWEL_RE = re.compile(r"([aeiou])\1+")
+# Excludes y because Hindi -ya endings (kiya, maya, gaya) keep their final a.
+_TRAILING_SCHWA_RE = re.compile(r"([bcdfghjklmnpqrstvwxz])a$")
+
+
+def _collapse_long_vowels(text: str) -> str:
+    return _LONG_VOWEL_RE.sub(r"\1", text)
+
+
+def _drop_trailing_schwa(text: str) -> str:
+    return _TRAILING_SCHWA_RE.sub(r"\1", text)
+
+
+def _phonetic_key(token: str) -> str:
+    """Pronunciation key: same value for "startup" and "स्टार्टअप".
+    Romanize Devanagari, then collapse long vowels and drop the trailing schwa.
+    """
+    if _is_devanagari_text(token):
+        token = _romanize_devanagari(token)
+    s = token.casefold()
+    s = _collapse_long_vowels(s)
+    s = _drop_trailing_schwa(s)
+    return s
+
+
 def _limited_edit_distance(left: str, right: str, max_distance: int) -> Optional[int]:
     if abs(len(left) - len(right)) > max_distance:
         return None
@@ -222,17 +251,28 @@ def _romanized_forms_similar(latin_keyword: str, romanized_token: str, threshold
     kw = latin_keyword.casefold()
     tok = romanized_token.casefold()
 
-    if kw[0] != tok[0]:
-        return False
+    # Try literal first (existing behavior — covers "namaste"-style direct
+    # romanizations). If that fails, retry on phonetic-key forms so loanwords
+    # like "startup" ↔ "staartaapa" line up after collapsing doubled vowels
+    # and dropping the trailing schwa.
+    if _forms_within_threshold(kw, tok, threshold):
+        return True
+    kw_key = _drop_trailing_schwa(_collapse_long_vowels(kw))
+    tok_key = _drop_trailing_schwa(_collapse_long_vowels(tok))
+    if kw_key != kw or tok_key != tok:
+        return _forms_within_threshold(kw_key, tok_key, threshold)
+    return False
 
+
+def _forms_within_threshold(kw: str, tok: str, threshold: float) -> bool:
+    if not kw or not tok or kw[0] != tok[0]:
+        return False
     if len(tok) < max(4, int(len(kw) * 0.9)):
         return False
-
     cmp_len = len(kw)
     tok_prefix = tok[:cmp_len]
     effective_threshold = threshold if cmp_len > 6 else min(threshold, 0.25)
     max_dist = max(1, int(cmp_len * effective_threshold))
-
     return _limited_edit_distance(kw, tok_prefix, max_dist) is not None
 
 
@@ -326,6 +366,9 @@ class YouTubeService:
         return self._resolve_name_to_channel_id(channel_url_or_id)
 
     def _resolve_name_to_channel_id(self, name_or_handle: str) -> Optional[str]:
+        cached = _RESOLVE_NAME_CACHE.get(name_or_handle)
+        if cached is not None:
+            return cached
         try:
             search_response = self.youtube.search().list(
                 part="snippet",
@@ -336,6 +379,7 @@ class YouTubeService:
 
             if search_response.get("items"):
                 channel_id = search_response["items"][0]["snippet"]["channelId"]
+                _RESOLVE_NAME_CACHE[name_or_handle] = channel_id
                 return channel_id
             return None
         except Exception:
@@ -528,18 +572,59 @@ class YouTubeService:
         transcript_language: str,
     ) -> List[Dict[str, Any]]:
         usable_keywords = [_normalize_text(keyword) for keyword in keywords if _normalize_text(keyword)]
-        seen_starts = set()
-        matches = []
+        if not usable_keywords:
+            return []
 
-        for i, segment in enumerate(transcript):
-            if any(_keyword_matches(segment["text"], keyword, transcript_language) for keyword in usable_keywords):
-                if segment["start"] in seen_starts:
-                    continue
-                seen_starts.add(segment["start"])
-                matches.append({
-                    "start": segment["start"],
-                    "text": segment["text"],
-                    "context_before": transcript[i - 1]["text"] if i > 0 else "",
-                    "context_after": transcript[i + 1]["text"] if i < len(transcript) - 1 else "",
-                })
+        single_keywords = [kw for kw in usable_keywords if " " not in kw]
+        phrase_keywords = [kw for kw in usable_keywords if " " in kw]
+        WINDOW = 3
+        n = len(transcript)
+
+        # Single-word keywords stay per-segment (cheap, exact).
+        single_hit_anchors: set = set()
+        if single_keywords:
+            for i, segment in enumerate(transcript):
+                if any(
+                    _keyword_matches(segment["text"], kw, transcript_language)
+                    for kw in single_keywords
+                ):
+                    single_hit_anchors.add(i)
+
+        # Multi-word phrases use a sliding WINDOW because YouTube splits
+        # captions into 2-5 word segments. We slide forward and only emit at
+        # the LAST anchor whose window still matches — that anchor is the
+        # segment that contains the head of the phrase, so the timestamp
+        # lands on the actual phrase start, not the preceding context.
+        phrase_hit_anchors: set = set()
+        if phrase_keywords:
+            prev_hits: set = set()
+            for i in range(n + 1):
+                if i < n:
+                    window_text = " ".join(
+                        transcript[k].get("text", "") for k in range(i, min(i + WINDOW, n))
+                    )
+                    cur_hits = {
+                        kw for kw in phrase_keywords
+                        if _keyword_matches(window_text, kw, transcript_language)
+                    }
+                else:
+                    cur_hits = set()
+                if prev_hits - cur_hits:
+                    phrase_hit_anchors.add(i - 1)
+                prev_hits = cur_hits
+
+        anchors = sorted(single_hit_anchors | phrase_hit_anchors)
+        seen_starts = set()
+        matches: List[Dict[str, Any]] = []
+        for i in anchors:
+            segment = transcript[i]
+            if segment["start"] in seen_starts:
+                continue
+            seen_starts.add(segment["start"])
+            matches.append({
+                "start": segment["start"],
+                "text": segment["text"],
+                "context_before": transcript[i - 1]["text"] if i > 0 else "",
+                "context_after": transcript[i + 1]["text"] if i < n - 1 else "",
+            })
         return matches

@@ -1,5 +1,5 @@
 // extension/src/background/service-worker.ts
-import { listVideos, matchTranscript } from "./api-client";
+import { listVideos, matchTranscript, indexTranscript } from "./api-client";
 import type { MessageResponse, Transcript } from "../shared/types";
 
 type Segment = { text: string; start: number; duration: number };
@@ -383,6 +383,9 @@ chrome.runtime.onMessage.addListener(
             break;
           case "match-transcript":
             data = await matchTranscript(msg.params as Parameters<typeof matchTranscript>[0]);
+            break;
+          case "index-transcript":
+            data = await indexTranscript(msg.params as Parameters<typeof indexTranscript>[0]);
             break;
           default:
             sendResponse({ ok: false, error: `Unknown message type: ${msg.type}` } satisfies MessageResponse<never>);
