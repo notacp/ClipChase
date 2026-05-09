@@ -1,17 +1,41 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { Clock } from "lucide-react";
 import { useState } from "react";
-import { SearchResult } from "../shared/types";
+import { SearchResult, SortBy } from "../shared/types";
 import { formatTime } from "../shared/utils";
 
 interface SearchResultsProps {
   results: SearchResult[];
+  sortBy: SortBy;
+  onSortChange: (sort: SortBy) => void;
   onSelectVideo: (id: string, start: number) => void;
 }
 
-export function SearchResults({ results, onSelectVideo }: SearchResultsProps) {
+function sortResults(results: SearchResult[], sortBy: SortBy): SearchResult[] {
+  const copy = [...results];
+  if (sortBy === "recent") {
+    copy.sort((a, b) => {
+      const ta = Date.parse(a.published_at) || 0;
+      const tb = Date.parse(b.published_at) || 0;
+      // Newer first; tiebreak on hit count.
+      if (tb !== ta) return tb - ta;
+      return b.matches.length - a.matches.length;
+    });
+  } else {
+    copy.sort((a, b) => {
+      if (b.matches.length !== a.matches.length) {
+        return b.matches.length - a.matches.length;
+      }
+      // Tiebreak on recency.
+      return (Date.parse(b.published_at) || 0) - (Date.parse(a.published_at) || 0);
+    });
+  }
+  return copy;
+}
+
+export function SearchResults({ results, sortBy, onSortChange, onSelectVideo }: SearchResultsProps) {
   const totalMatches = results.reduce((sum, v) => sum + v.matches.length, 0);
-  const sorted = [...results].sort((a, b) => b.matches.length - a.matches.length);
+  const sorted = sortResults(results, sortBy);
   const [expandedId, setExpandedId] = useState<string | null>(sorted[0]?.video_id ?? null);
 
   return (
@@ -25,7 +49,14 @@ export function SearchResults({ results, onSelectVideo }: SearchResultsProps) {
           {" · "}
           {results.length} video{results.length !== 1 ? "s" : ""}
         </span>
-        <span className="text-[10px] text-yt-tert">by hits ↓</span>
+        <div className="flex items-center gap-1">
+          <SortToggleButton active={sortBy === "hits"} onClick={() => onSortChange("hits")}>
+            Hits
+          </SortToggleButton>
+          <SortToggleButton active={sortBy === "recent"} onClick={() => onSortChange("recent")}>
+            Recent
+          </SortToggleButton>
+        </div>
       </div>
 
       <AnimatePresence>
@@ -97,6 +128,31 @@ export function SearchResults({ results, onSelectVideo }: SearchResultsProps) {
     </div>
   );
 }
+
+function SortToggleButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-2 py-[2px] rounded text-[10px] font-medium border transition-colors ${
+        active
+          ? "border-yt-red bg-yt-red/[0.12] text-yt-red"
+          : "border-yt-dark-gray bg-transparent text-yt-tert hover:text-yt-light-gray hover:border-yt-hover/60"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 
 function SnippetRow({
   timestamp,

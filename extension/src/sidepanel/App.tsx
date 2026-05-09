@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search } from "lucide-react";
-import { SearchResult, TimeRange, ChannelSuggestion, VideoInfo } from "../shared/types";
+import { SearchResult, TimeRange, ChannelSuggestion, VideoInfo, SortBy } from "../shared/types";
 import { getPublishedAfterDate } from "../shared/utils";
 import { send } from "../shared/messaging";
 import { SearchForm } from "../components/SearchForm";
@@ -28,6 +28,7 @@ export function App() {
   const [isSuggestionsLoading, setIsSuggestionsLoading] = useState(false);
   const [keyword, setKeyword] = useState("");
   const [timeRange, setTimeRange] = useState<TimeRange>("30d");
+  const [sortBy, setSortBy] = useState<SortBy>("hits");
   const [excludeShorts, setExcludeShorts] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -471,6 +472,11 @@ export function App() {
         <div className="mt-5">
           <SearchResults
             results={results}
+            sortBy={sortBy}
+            onSortChange={(next) => {
+              posthog.capture("sort_changed", { from: sortBy, to: next });
+              setSortBy(next);
+            }}
             onSelectVideo={(id, start) => {
               const position = results.findIndex((r) => r.video_id === id);
               chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -495,14 +501,25 @@ export function App() {
 
       <div className="mt-10 pt-3 border-t border-yt-dark-gray flex justify-between items-center">
         <span className="font-mono text-[9px] text-yt-tert">v1.0</span>
-        <a
-          href="https://clipchase.xyz"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-[9px] text-yt-tert hover:text-yt-light-gray transition-colors"
-        >
-          clipchase.xyz
-        </a>
+        <div className="flex items-center gap-3">
+          <a
+            href="https://tally.so/r/7RJQZA?source=ext_footer"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => posthog.capture("feedback_link_clicked", { trigger: "ext_footer" })}
+            className="text-[9px] text-yt-tert hover:text-yt-light-gray transition-colors"
+          >
+            Feedback
+          </a>
+          <a
+            href="https://clipchase.xyz"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[9px] text-yt-tert hover:text-yt-light-gray transition-colors"
+          >
+            clipchase.xyz
+          </a>
+        </div>
       </div>
     </main>
   );
