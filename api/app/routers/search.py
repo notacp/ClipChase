@@ -282,6 +282,7 @@ def _search_stream(
     max_videos: int,
     published_after: Optional[str],
     exclude_shorts: bool,
+    skip_live: bool = False,
 ) -> Iterator[str]:
     try:
         videos = _fetch_channel_videos(
@@ -308,6 +309,16 @@ def _search_stream(
         ]
         live_videos = [video for video in videos if video["id"] not in indexed_video_ids]
 
+        meta_payload = {
+            "total": len(videos),
+            "indexed": len(indexed_video_ids),
+            "indexed_candidates": len(indexed_candidates),
+            "indexed_remainder": len(indexed_remainder),
+            "live": len(live_videos),
+            "skip_live": skip_live,
+        }
+        yield f"event: meta\ndata: {json.dumps(meta_payload)}\n\n"
+
         for batch in (indexed_candidates, indexed_remainder):
             for video in batch:
                 try:
@@ -323,29 +334,35 @@ def _search_stream(
                 except Exception:
                     pass
 
-        for video in live_videos:
-            try:
-                match_result, cacheable_transcripts = _get_live_match_and_cacheable_transcripts(
-                    service=service,
-                    video=video,
-                    keyword=keyword,
-                    preferred_language_orders=preferred_language_orders,
-                )
-                if cacheable_transcripts:
-                    try:
-                        index_service.cache_video_transcripts(
-                            channel_id=channel_id,
-                            source_url=channel_url,
-                            video=video,
-                            transcripts=cacheable_transcripts,
-                        )
-                    except Exception:
-                        pass
+        if skip_live:
+            # Hand un-indexed videos back to the client so it can fetch transcripts
+            # locally (e.g. an extension's service worker) and call /api/match.
+            payload = {"videos": live_videos}
+            yield f"event: unindexed_videos\ndata: {json.dumps(payload)}\n\n"
+        else:
+            for video in live_videos:
+                try:
+                    match_result, cacheable_transcripts = _get_live_match_and_cacheable_transcripts(
+                        service=service,
+                        video=video,
+                        keyword=keyword,
+                        preferred_language_orders=preferred_language_orders,
+                    )
+                    if cacheable_transcripts:
+                        try:
+                            index_service.cache_video_transcripts(
+                                channel_id=channel_id,
+                                source_url=channel_url,
+                                video=video,
+                                transcripts=cacheable_transcripts,
+                            )
+                        except Exception:
+                            pass
 
-                if match_result:
-                    yield f"data: {match_result.model_dump_json()}\n\n"
-            except Exception:
-                pass
+                    if match_result:
+                        yield f"data: {match_result.model_dump_json()}\n\n"
+                except Exception:
+                    pass
 
         yield "event: done\ndata: {}\n\n"
 
@@ -373,6 +390,7 @@ async def search(
     max_videos: int = 20,
     published_after: Optional[str] = None,
     exclude_shorts: bool = False,
+    skip_live: bool = False,
     service: YouTubeService = Depends(get_yt_service),
     index_service: TranscriptIndexService = Depends(get_index_service),
 ):
@@ -390,6 +408,7 @@ async def search(
             max_videos=max_videos,
             published_after=published_after,
             exclude_shorts=exclude_shorts,
+            skip_live=skip_live,
         ),
         media_type="text/event-stream",
         headers={

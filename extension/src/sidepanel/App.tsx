@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search } from "lucide-react";
-import { SearchResult, TimeRange, ChannelSuggestion } from "../shared/types";
+import { SearchResult, TimeRange, ChannelSuggestion, VideoInfo } from "../shared/types";
 import { getPublishedAfterDate } from "../shared/utils";
 import { send } from "../shared/messaging";
 import { SearchForm } from "../components/SearchForm";
@@ -11,6 +11,10 @@ import { LoadingStream } from "../components/LoadingStream";
 import { WelcomeModal } from "../components/WelcomeModal";
 import posthog from "../shared/posthog";
 import { detectKeywordScript } from "../lib/keyword-script";
+import { consumeSSE } from "../lib/sse";
+
+const UNINDEXED_FETCH_CONCURRENCY = 6;
+const MAX_VIDEOS = 20;
 
 const BUILDER_NOTE =
   "I kept rewatching videos just to find a single moment I remembered. No way to search, no timestamps — just scrubbing forever. So I built this. If it saves you even five minutes, it was worth it. Thank you for trying it out.";
@@ -123,62 +127,116 @@ export function App() {
     });
 
     let videosScanned = 0;
+    let indexedHits = 0;
     let transcriptFailures = 0;
     let matchCount = 0;
 
     try {
       const publishedAfter = getPublishedAfterDate(timeRange);
 
-      // Step 1 — Get video list from backend.
-      const videosRes = await send({
-        type: "list-videos",
-        params: {
-          channel_url: channelUrl,
-          max_videos: 20,
-          published_after: publishedAfter,
-          exclude_shorts: excludeShorts,
+      // Step 1 — Stream indexed-only matches from /api/search via SSE.
+      // Indexed FTS pre-filter skips videos that can't possibly match. Cached
+      // transcripts mean no live YouTube fetch on the server. Un-indexed videos
+      // are returned in the 'unindexed_videos' event; we fetch those locally.
+      const params = new URLSearchParams({
+        channel_url: channelUrl,
+        keyword,
+        max_videos: String(MAX_VIDEOS),
+        exclude_shorts: String(excludeShorts),
+        skip_live: "true",
+      });
+      if (publishedAfter) params.set("published_after", publishedAfter);
+      const sseUrl = `${API_BASE}/api/search?${params.toString()}`;
+
+      let unindexedVideos: VideoInfo[] = [];
+      let sseError: string | null = null;
+
+      await consumeSSE(sseUrl, {
+        onMessage: (data) => {
+          if (superseded() || !data) return;
+          try {
+            const result = JSON.parse(data) as SearchResult;
+            indexedHits++;
+            matchCount++;
+            setResults((prev) => [...prev, result]);
+          } catch {
+            // ignore malformed
+          }
+        },
+        onEvent: (event, data) => {
+          if (superseded()) return;
+          if (event === "unindexed_videos") {
+            try {
+              const parsed = JSON.parse(data) as { videos: VideoInfo[] };
+              unindexedVideos = parsed.videos ?? [];
+            } catch {
+              unindexedVideos = [];
+            }
+          } else if (event === "meta") {
+            try {
+              const parsed = JSON.parse(data) as { total: number };
+              videosScanned = parsed.total ?? 0;
+            } catch {
+              // ignore
+            }
+          } else if (event === "error") {
+            try {
+              const parsed = JSON.parse(data) as { detail?: string };
+              sseError = parsed.detail ?? "Search failed";
+            } catch {
+              sseError = "Search failed";
+            }
+          }
         },
       });
+
       if (superseded()) return;
+      if (sseError) throw new Error(sseError);
 
-      if (!videosRes.ok) {
-        setError(videosRes.error);
-        return;
+      // Step 2 — Parallel SW transcript fetch + match for un-indexed videos.
+      if (unindexedVideos.length > 0) {
+        const queue = [...unindexedVideos];
+
+        const worker = async () => {
+          while (queue.length > 0) {
+            if (superseded()) return;
+            const video = queue.shift();
+            if (!video) break;
+
+            const txRes = await send({
+              type: "fetch-transcript",
+              videoId: video.id,
+              preferredLangs: ["en", "hi"],
+            });
+            if (superseded()) return;
+            if (!txRes.ok || !txRes.data) {
+              transcriptFailures++;
+              console.warn(
+                `[ClipChase] transcript skipped for ${video.id}:`,
+                txRes.ok ? "null data" : txRes.error,
+              );
+              continue;
+            }
+
+            const matchRes = await send({
+              type: "match-transcript",
+              params: { keyword, video, transcript: txRes.data },
+            });
+            if (superseded()) return;
+
+            if (matchRes.ok && matchRes.data.match_result) {
+              matchCount++;
+              setResults((prev) => [...prev, matchRes.data.match_result!]);
+            }
+          }
+        };
+
+        const workerCount = Math.min(UNINDEXED_FETCH_CONCURRENCY, unindexedVideos.length);
+        await Promise.all(Array.from({ length: workerCount }, worker));
       }
 
-      const { videos } = videosRes.data;
-
-      // Step 2 — For each video: fetch transcript via service worker, match via backend.
-      videosScanned = videos.length;
-      for (const video of videos) {
-        if (superseded()) return;
-
-        const txRes = await send({
-          type: "fetch-transcript",
-          videoId: video.id,
-          preferredLangs: ["en", "hi"],
-        });
-        if (superseded()) return;
-        if (!txRes.ok || !txRes.data) {
-          transcriptFailures++;
-          console.warn(
-            `[ClipChase] transcript skipped for ${video.id}:`,
-            txRes.ok ? "null data" : txRes.error
-          );
-          continue;
-        }
-
-        const matchRes = await send({
-          type: "match-transcript",
-          params: { keyword, video, transcript: txRes.data },
-        });
-        if (superseded()) return;
-
-        if (matchRes.ok && matchRes.data.match_result) {
-          matchCount++;
-          setResults((prev) => [...prev, matchRes.data.match_result!]);
-        }
-      }
+      if (superseded()) return;
+      if (!videosScanned) videosScanned = unindexedVideos.length + indexedHits;
 
       setLastSearch({ channel: channelUrl, keyword });
     } catch (err: unknown) {
@@ -210,6 +268,7 @@ export function App() {
           keyword_script: detectKeywordScript(keyword),
           time_range: timeRange,
           result_count: matchCount,
+          indexed_hits: indexedHits,
           videos_scanned: videosScanned,
           transcript_failures: transcriptFailures,
           success: !searchFailed,
