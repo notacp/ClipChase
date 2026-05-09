@@ -26,11 +26,11 @@ export const initPostHog = () => {
       persistence: 'localStorage',
       autocapture: false,
       capture_pageview: false,
+      // Extension CSP forbids remote script-src, so PostHog can't lazy-load
+      // recorder.js / dead-clicks-autocapture.js anyway. Disable both
+      // explicitly to keep the dev console clean and avoid wasted requests.
       disable_external_dependency_loading: true,
-      session_recording: {
-        maskAllInputs: false,
-      },
-      disable_session_recording: false,
+      disable_session_recording: true,
     })
   }
 }
