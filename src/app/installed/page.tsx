@@ -34,20 +34,32 @@ function InstalledInner() {
     // user's pre- and post-install events live under one person.
     posthog.alias(stableId);
 
+    const timeToInstallMs = preInstall.clicked_at
+      ? Date.now() - preInstall.clicked_at
+      : null;
+    // Guard against clock skew / cleared localStorage / cross-browser installs
+    // producing nonsense durations.
+    const safeTimeToInstall =
+      timeToInstallMs !== null && timeToInstallMs >= 0 ? timeToInstallMs : null;
+
     posthog.capture("install_attributed", {
       stable_id: stableId,
       cta_location: preInstall.location ?? null,
       cta_clicked_at: preInstall.clicked_at ?? null,
       original_referrer: preInstall.referrer ?? null,
-      time_to_install_ms: preInstall.clicked_at
-        ? Date.now() - preInstall.clicked_at
-        : null,
+      time_to_install_ms: safeTimeToInstall,
     });
 
-    posthog.setPersonProperties({
-      install_source: preInstall.location ?? "direct",
-      original_referrer: preInstall.referrer ?? null,
-    });
+    // $set_once: lock first-touch attribution. Revisits to /installed must not
+    // overwrite the original install_source.
+    posthog.setPersonProperties(
+      {},
+      {
+        install_source: preInstall.location ?? "direct",
+        original_referrer: preInstall.referrer ?? null,
+        first_seen_at: new Date().toISOString(),
+      },
+    );
 
     try {
       localStorage.removeItem("ts_pre_install_source");

@@ -31,6 +31,15 @@ export const initPostHog = () => {
       // explicitly to keep the dev console clean and avoid wasted requests.
       disable_external_dependency_loading: true,
       disable_session_recording: true,
+      capture_exceptions: true,
+    })
+
+    // Super-properties — stamped on every event so funnels can split by surface
+    // and bug reports can be cohorted by build.
+    const version = chrome?.runtime?.getManifest?.().version ?? 'unknown'
+    posthog.register({
+      app: 'extension',
+      extension_version: version,
     })
   }
 }

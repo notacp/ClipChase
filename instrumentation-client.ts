@@ -7,3 +7,5 @@ posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
   capture_exceptions: true,
   debug: process.env.NODE_ENV === "development",
 });
+
+posthog.register({ app: "web" });

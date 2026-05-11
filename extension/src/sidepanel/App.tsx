@@ -16,6 +16,25 @@ import { consumeSSE } from "../lib/sse";
 const UNINDEXED_FETCH_CONCURRENCY = 6;
 const MAX_VIDEOS = 20;
 
+type ChannelResolutionSource =
+  | "suggestion"
+  | "typed_url"
+  | "typed_handle"
+  | "typed_name"
+  | "empty";
+
+function classifyChannelInput(
+  value: string,
+  pickedFromSuggestion: boolean,
+): ChannelResolutionSource {
+  const trimmed = value.trim();
+  if (!trimmed) return "empty";
+  if (pickedFromSuggestion) return "suggestion";
+  if (/^https?:\/\//i.test(trimmed)) return "typed_url";
+  if (trimmed.startsWith("@")) return "typed_handle";
+  return "typed_name";
+}
+
 const BUILDER_NOTE =
   "I kept rewatching videos just to find a single moment I remembered. No way to search, no timestamps — just scrubbing forever. So I built this. If it saves you even five minutes, it was worth it. Thank you for trying it out.";
 
@@ -50,6 +69,13 @@ export function App() {
   // Prevents the suggestion effect from re-fetching when channelDisplay is set
   // programmatically (i.e. by selecting a suggestion, not by the user typing).
   const skipSuggestionFetchRef = useRef(false);
+  // Tracks whether the current channel value originated from a suggestion pick.
+  // Flipped back to false the moment the user edits the field.
+  const channelFromSuggestionRef = useRef(false);
+  // Per-query dedupe so a persistently-failing suggestions endpoint doesn't
+  // flood PostHog with one event per keystroke while typing.
+  const suggestionFailureLoggedRef = useRef<string | null>(null);
+  const suggestionEmptyLoggedRef = useRef<string | null>(null);
 
   // Channel suggestions — call backend directly (no Next.js proxy in extension).
   useEffect(() => {
@@ -64,19 +90,55 @@ export function App() {
     }
     const timer = setTimeout(async () => {
       setIsSuggestionsLoading(true);
+      const query = channelDisplay;
       try {
         const res = await fetch(
-          `${API_BASE}/api/suggest-channels?q=${encodeURIComponent(channelDisplay)}`
+          `${API_BASE}/api/suggest-channels?q=${encodeURIComponent(query)}`
         );
-        if (res.ok) setSuggestions(await res.json());
-      } catch {
-        // suggestions are best-effort
+        if (!res.ok) {
+          if (suggestionFailureLoggedRef.current !== query) {
+            suggestionFailureLoggedRef.current = query;
+            posthog.capture("suggestion_fetch_failed", {
+              query_length: query.length,
+              status: res.status,
+              reason: "non_ok_status",
+            });
+          }
+          return;
+        }
+        const items = (await res.json()) as ChannelSuggestion[];
+        setSuggestions(items);
+        if (items.length === 0 && suggestionEmptyLoggedRef.current !== query) {
+          suggestionEmptyLoggedRef.current = query;
+          posthog.capture("suggestion_zero_results", {
+            query_length: query.length,
+          });
+        }
+      } catch (err: unknown) {
+        if (suggestionFailureLoggedRef.current !== query) {
+          suggestionFailureLoggedRef.current = query;
+          posthog.capture("suggestion_fetch_failed", {
+            query_length: query.length,
+            reason: "network_error",
+            error_message: err instanceof Error ? err.message : String(err),
+          });
+        }
       } finally {
         setIsSuggestionsLoading(false);
       }
     }, 350);
     return () => clearTimeout(timer);
   }, [channelDisplay]);
+
+  // Screen-view events — fire on transition into the "shown" state so each
+  // impression is counted exactly once. Pair with the existing click/dismiss
+  // events to compute conversion rates per surface.
+  useEffect(() => {
+    if (showWelcome) posthog.capture("welcome_shown");
+  }, [showWelcome]);
+  useEffect(() => {
+    if (showReviewPrompt) posthog.capture("review_prompt_shown");
+  }, [showReviewPrompt]);
 
   const handleDismissWelcome = (useCase?: string) => {
     localStorage.setItem("hasSeenWelcome", "1");
@@ -87,6 +149,7 @@ export function App() {
 
   const handleSelectSuggestion = (suggestion: ChannelSuggestion) => {
     skipSuggestionFetchRef.current = true;
+    channelFromSuggestionRef.current = true;
     setChannelDisplay(suggestion.title);
     setChannelUrl(suggestion.id);
     setSuggestions([]);
@@ -100,6 +163,8 @@ export function App() {
   const handleDismissSuggestions = () => setSuggestions([]);
 
   const handleChannelInputChange = (value: string) => {
+    // User editing the field invalidates any prior suggestion pick.
+    channelFromSuggestionRef.current = false;
     setChannelDisplay(value);
     setChannelUrl(value);
     if (formError) setFormError("");
@@ -128,12 +193,18 @@ export function App() {
     const searchStartedAt = Date.now();
     let searchFailed = false;
 
+    const channelResolutionSource = classifyChannelInput(
+      channelDisplay,
+      channelFromSuggestionRef.current,
+    );
+
     posthog.capture("search_started", {
       channel: channelUrl,
       keyword,
       keyword_script: detectKeywordScript(keyword),
       time_range: timeRange,
       exclude_shorts: excludeShorts,
+      channel_resolution_source: channelResolutionSource,
     });
 
     let videosScanned = 0;
@@ -280,6 +351,10 @@ export function App() {
         error_message: message,
         duration_ms: Date.now() - searchStartedAt,
       });
+      posthog.capture("error_shown", {
+        surface: "search",
+        error_message: message,
+      });
     } finally {
       if (superseded()) {
         posthog.capture("search_cancelled", {
@@ -291,6 +366,17 @@ export function App() {
       } else {
         setIsLoading(false);
         setHasSearched(true);
+        // Transcript coverage tells us whether zero-result searches are caused
+        // by transcript-pipeline gaps (low coverage) vs genuinely-rare keywords
+        // (high coverage, still zero hits). Indexed videos are assumed to
+        // already have transcripts, so failures only come from unindexed
+        // local-fetch attempts.
+        const videosWithTranscript = Math.max(0, videosScanned - transcriptFailures);
+        const transcriptCoveragePct =
+          videosScanned > 0
+            ? Math.round((videosWithTranscript / videosScanned) * 1000) / 10
+            : null;
+        const hadAnyTranscript = videosWithTranscript > 0;
         posthog.capture("search_completed", {
           channel: channelUrl,
           keyword,
@@ -299,7 +385,10 @@ export function App() {
           result_count: matchCount,
           indexed_hits: indexedHits,
           videos_scanned: videosScanned,
+          videos_with_transcript: videosWithTranscript,
           transcript_failures: transcriptFailures,
+          transcript_coverage_pct: transcriptCoveragePct,
+          had_any_transcript: hadAnyTranscript,
           success: !searchFailed,
           duration_ms: Date.now() - searchStartedAt,
         });
@@ -315,7 +404,20 @@ export function App() {
             keyword_script: detectKeywordScript(keyword),
             time_range: timeRange,
             videos_scanned: videosScanned,
+            videos_with_transcript: videosWithTranscript,
             transcript_failures: transcriptFailures,
+            transcript_coverage_pct: transcriptCoveragePct,
+            had_any_transcript: hadAnyTranscript,
+          });
+          posthog.capture("zero_results_shown", {
+            keyword_script: detectKeywordScript(keyword),
+            had_any_transcript: hadAnyTranscript,
+          });
+        } else if (matchCount > 0) {
+          posthog.capture("results_shown", {
+            result_count: matchCount,
+            indexed_hits: indexedHits,
+            had_any_transcript: hadAnyTranscript,
           });
         }
       }
@@ -326,14 +428,17 @@ export function App() {
     e.preventDefault();
     if (!channelUrl && !keyword) {
       setFormError("Enter a channel and a keyword to search");
+      posthog.capture("search_validation_error", { missing_field: "both" });
       return;
     }
     if (!channelUrl) {
       setFormError("Enter a YouTube channel URL or @handle");
+      posthog.capture("search_validation_error", { missing_field: "channel" });
       return;
     }
     if (!keyword) {
       setFormError("Enter a keyword to search for");
+      posthog.capture("search_validation_error", { missing_field: "keyword" });
       return;
     }
     setFormError("");
