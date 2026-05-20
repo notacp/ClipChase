@@ -361,7 +361,7 @@ def _search_stream(
                         yield f"data: {match_result.model_dump_json()}\n\n"
                     else:
                         # No-match videos emit no data; without a heartbeat the
-                        # client's idle timer (45s) trips on long no-match runs.
+                        # client's SSE idle timer trips on long no-match runs.
                         yield ": ping\n\n"
                 except Exception:
                     yield ": ping\n\n"
