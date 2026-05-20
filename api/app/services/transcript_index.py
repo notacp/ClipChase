@@ -376,14 +376,20 @@ class TranscriptIndexService:
         if not channel_id or not video_ids:
             return set()
 
+        # Only return videos that ALSO have at least one transcript row. A
+        # metadata-only row in indexed_videos (from a failed transcript fetch
+        # during a prior index run) would otherwise be classified as "indexed"
+        # and never fall through to the live path, producing zero matches even
+        # though the videos are perfectly searchable via a fresh fetch.
         placeholders = ",".join("?" for _ in video_ids)
         conn = self._connect()
         try:
             rows = conn.execute(
                 f"""
-                SELECT video_id
-                FROM indexed_videos
-                WHERE channel_id = ? AND video_id IN ({placeholders})
+                SELECT DISTINCT v.video_id
+                FROM indexed_videos v
+                JOIN indexed_transcripts t ON t.video_id = v.video_id
+                WHERE v.channel_id = ? AND v.video_id IN ({placeholders})
                 """,
                 [channel_id, *video_ids],
             ).fetchall()

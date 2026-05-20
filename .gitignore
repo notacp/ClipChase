@@ -4,13 +4,11 @@ node_modules/
 .pnp.*
 
 # Python
-backend/venv/
 venv/
 .venv/
 __pycache__/
 *.py[cod]
 *$py.class
-backend/__pycache__/
 
 # Next.js
 .next/
@@ -24,7 +22,6 @@ dist/
 .env
 .env.local
 .env.*.local
-backend/.env
 
 # Debug
 npm-debug.log*
@@ -40,6 +37,15 @@ next-env.d.ts
 .env*.local
 extension/.env.production
 extension/.env.development
+extension/public
+extension/screenshots
+extension/builds
+extension/*.zip
+
+# Local SQLite transcript index
+.data/
+docs/superpowers/*
+
 
 # OpenNext
 .open-next
