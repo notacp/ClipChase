@@ -307,6 +307,10 @@ def _search_stream(
     exclude_shorts: bool,
     skip_live: bool = False,
 ) -> Iterator[str]:
+    # Flush headers + arm client idle timer before YouTube/FTS calls run. Cold
+    # channels can take >45s to enumerate videos, which would trip the client's
+    # SSE idle timeout before any payload reached it.
+    yield ": ping\n\n"
     try:
         videos = _fetch_channel_videos(
             service=service,
@@ -355,8 +359,12 @@ def _search_stream(
                     )
                     if match_result:
                         yield f"data: {match_result.model_dump_json()}\n\n"
+                    else:
+                        # No-match videos emit no data; without a heartbeat the
+                        # client's idle timer (45s) trips on long no-match runs.
+                        yield ": ping\n\n"
                 except Exception:
-                    pass
+                    yield ": ping\n\n"
 
         if skip_live:
             # Hand un-indexed videos back to the client so it can fetch transcripts
@@ -385,8 +393,10 @@ def _search_stream(
 
                     if match_result:
                         yield f"data: {match_result.model_dump_json()}\n\n"
+                    else:
+                        yield ": ping\n\n"
                 except Exception:
-                    pass
+                    yield ": ping\n\n"
 
         yield "event: done\ndata: {}\n\n"
 

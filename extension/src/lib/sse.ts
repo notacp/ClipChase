@@ -15,7 +15,10 @@ export interface SSEHandlers {
   idleMs?: number;
 }
 
-const DEFAULT_IDLE_MS = 45_000;
+// Server emits a `: ping` heartbeat per video processed. 90s covers the worst
+// case where headers are still buffering through Railway's proxy plus an
+// upstream YouTube/FTS lookup batch on a cold channel.
+const DEFAULT_IDLE_MS = 90_000;
 
 export async function consumeSSE(url: string, handlers: SSEHandlers): Promise<void> {
   const idleMs = handlers.idleMs ?? DEFAULT_IDLE_MS;

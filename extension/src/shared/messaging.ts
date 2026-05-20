@@ -21,6 +21,57 @@ const SEND_TIMEOUT_MS = 30_000;
 // blocking up to the deadman.
 type SendOpts = { signal?: AbortSignal };
 
+// MV3 evicts the service worker after 30s idle. A long-lived port keeps the
+// connection open and each port message resets the idle timer, so the worker
+// survives stretches where the side panel isn't actively calling sendMessage
+// (e.g. during the SSE indexed phase running server-side). Caller invokes
+// startKeepalive() at the start of a search and the returned stop() at the end.
+export function startKeepalive(): () => void {
+  let port: chrome.runtime.Port | null = null;
+  let interval: ReturnType<typeof setInterval> | undefined;
+  let stopped = false;
+
+  const connect = () => {
+    if (stopped) return;
+    try {
+      port = chrome.runtime.connect({ name: "keepalive" });
+    } catch {
+      port = null;
+      return;
+    }
+    port.onDisconnect.addListener(() => {
+      port = null;
+      // SW died despite keepalive — reconnect, which also revives the worker.
+      if (!stopped) connect();
+    });
+  };
+
+  connect();
+  interval = setInterval(() => {
+    if (!port) {
+      connect();
+      return;
+    }
+    try {
+      port.postMessage({ type: "ping" });
+    } catch {
+      port = null;
+      connect();
+    }
+  }, 20_000);
+
+  return () => {
+    stopped = true;
+    if (interval !== undefined) clearInterval(interval);
+    try {
+      port?.disconnect();
+    } catch {
+      // already gone
+    }
+    port = null;
+  };
+}
+
 /** Typed wrapper around chrome.runtime.sendMessage. */
 export function send(msg: { type: "list-videos"; params: import("./types").VideoListParams }, opts?: SendOpts): Promise<MessageResponse<VideoListResponse>>;
 export function send(msg: { type: "fetch-transcript"; videoId: string; preferredLangs: string[] }, opts?: SendOpts): Promise<MessageResponse<FetchTranscriptResult>>;

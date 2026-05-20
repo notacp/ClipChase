@@ -608,6 +608,24 @@ async function handleFetchTranscript(
   return result;
 }
 
+// Keepalive port — sidepanel opens one for the duration of a search and pings
+// every ~20s. Each port message resets the SW idle eviction timer (30s), so
+// the worker survives long gaps between fetch-transcript calls (e.g. while
+// the SSE indexed phase runs server-side and no SW messages flow).
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "keepalive") return;
+  port.onMessage.addListener((msg) => {
+    if (msg?.type === "ping") {
+      try {
+        port.postMessage({ type: "pong" });
+      } catch {
+        // port already disconnected — nothing to do
+      }
+    }
+  });
+  // No onDisconnect work needed; closing the port lets the SW idle out normally.
+});
+
 chrome.runtime.onMessage.addListener(
   (msg: { type: string; [key: string]: unknown }, _sender, sendResponse) => {
     (async () => {

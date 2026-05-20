@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Search } from "lucide-react";
 import { SearchResult, TimeRange, ChannelSuggestion, VideoInfo, SortBy, FailureReason } from "../shared/types";
 import { getPublishedAfterDate, dominantReason } from "../shared/utils";
-import { send } from "../shared/messaging";
+import { send, startKeepalive } from "../shared/messaging";
 import { SearchForm } from "../components/SearchForm";
 import { TimeRangeSelector } from "../components/TimeRangeSelector";
 import { SearchResults } from "../components/SearchResults";
@@ -190,6 +190,11 @@ export function App() {
     setResults([]);
     setHasSearched(false);
     setSuggestions([]);
+
+    // Pin the SW alive for the full search. The SSE indexed phase runs without
+    // any SW messages flowing, so the worker would otherwise hit the 30s idle
+    // eviction. Stopped in `finally` regardless of success/abort/error.
+    const stopKeepalive = startKeepalive();
 
     const searchStartedAt = Date.now();
     let searchFailed = false;
@@ -379,6 +384,7 @@ export function App() {
         error_message: message,
       });
     } finally {
+      stopKeepalive();
       if (superseded()) {
         posthog.capture("search_cancelled", {
           channel: channelUrl,
