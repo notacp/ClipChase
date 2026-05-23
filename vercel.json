@@ -1,5 +1,15 @@
 {
+    "$schema": "https://openapi.vercel.sh/vercel.json",
+    "fluid": true,
     "buildCommand": "npm install --include=dev && npm run build",
     "outputDirectory": ".next",
-    "rewrites": []
+    "rewrites": [
+        { "source": "/api/(.*)", "destination": "/api/index" }
+    ],
+    "functions": {
+        "api/index.py": {
+            "maxDuration": 120,
+            "memory": 1024
+        }
+    }
 }
