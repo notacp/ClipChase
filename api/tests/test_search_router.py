@@ -320,3 +320,81 @@ def test_search_router_sanitizes_500_errors(mock_yt_service_class):
     assert error.get("status") == 500
     assert "An internal server error occurred" in error.get("detail", "")
     assert "SENSITIVE" not in error.get("detail", "")
+
+
+# ── /api/index/transcript ────────────────────────────────────────────────────
+# Covers the trim of the redundant service.resolve_channel_id call that
+# caused the 5/20 cascade of 500s under burst. Handler now validates
+# channel_id format only and trusts the caller-supplied ID downstream.
+
+_VALID_VIDEO = {
+    "id": "vid1",
+    "title": "t",
+    "publishedAt": "2026-01-01T00:00:00Z",
+    "thumbnail": "https://i.ytimg.com/vi/vid1/default.jpg",
+}
+_VALID_TRANSCRIPT = {
+    "language_code": "en",
+    "language_label": "English",
+    "is_generated": False,
+    "segments": [{"start": 0.0, "duration": 1.0, "text": "hi"}],
+}
+
+
+def _index_payload(channel_id: str) -> dict:
+    return {
+        "channel_id": channel_id,
+        "source_url": "https://www.youtube.com/@example",
+        "video": _VALID_VIDEO,
+        "transcript": _VALID_TRANSCRIPT,
+    }
+
+
+def _override_index_service(mock_index):
+    # FastAPI resolves Depends(get_index_service) per request, so patching
+    # the symbol doesn't intercept it. dependency_overrides is the correct
+    # hook: maps the factory to a stub that returns our mock.
+    from api.app.routers.search import get_index_service
+    app.dependency_overrides[get_index_service] = lambda: mock_index
+    return get_index_service
+
+
+def test_index_transcript_accepts_valid_channel_id():
+    mock_index = MagicMock()
+    mock_index.cache_video_transcripts.return_value = 1
+    dep = _override_index_service(mock_index)
+    try:
+        valid_id = "UC" + "x" * 22  # 24 chars total
+        response = client.post("/api/index/transcript", json=_index_payload(valid_id))
+
+        assert response.status_code == 200, response.text
+        assert response.json() == {"stored": 1}
+        # Must pass the caller-supplied channel_id straight through — proves the
+        # redundant resolve_channel_id round trip is gone.
+        mock_index.cache_video_transcripts.assert_called_once()
+        kwargs = mock_index.cache_video_transcripts.call_args.kwargs
+        assert kwargs["channel_id"] == valid_id
+    finally:
+        app.dependency_overrides.pop(dep, None)
+
+
+def test_index_transcript_rejects_malformed_channel_id():
+    mock_index = MagicMock()
+    dep = _override_index_service(mock_index)
+    try:
+        for bad_id in ("", "xyz", "UC", "UCshort", "AB" + "x" * 22, "UC" + "x" * 23):
+            response = client.post("/api/index/transcript", json=_index_payload(bad_id))
+            assert response.status_code == 400, f"expected 400 for {bad_id!r}, got {response.status_code}"
+            assert response.json() == {"detail": "Invalid channel_id"}
+
+        # Validator must reject before any DB work happens.
+        mock_index.cache_video_transcripts.assert_not_called()
+    finally:
+        app.dependency_overrides.pop(dep, None)
+
+
+def test_deleted_get_transcript_endpoint_returns_404():
+    # The unused GET /api/transcript/{video_id} server-side scraper was deleted
+    # to shrink the Vercel bundle and remove a dead IP-ban surface.
+    response = client.get("/api/transcript/abc123")
+    assert response.status_code == 404
