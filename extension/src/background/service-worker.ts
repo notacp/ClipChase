@@ -132,6 +132,16 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch((e) =
 chrome.runtime.onInstalled.addListener(async (details) => {
   registerHeaderSpoofRules();
 
+  // Lifecycle capture for every install/update. Distinct from the marketing
+  // site's `install_attributed` (which only fires for users who came through
+  // the landing-page redirect) — this fires for direct CWS installs too, so
+  // we get 100% install coverage and can compute attribution_rate by ratio.
+  // Awaited so the SW stays alive until the capture POST resolves.
+  await captureSW("extension_installed", {
+    reason: details.reason,
+    previous_version: details.previousVersion ?? null,
+  });
+
   // Post-install attribution: only on fresh install, not update/reload.
   // Stable-ID logic is duplicated from extension/src/shared/posthog.ts because
   // the SW can't import Vite/React-side modules cleanly.

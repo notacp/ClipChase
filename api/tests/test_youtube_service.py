@@ -1,7 +1,8 @@
 import pytest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from api.app.services import youtube as youtube_module
 from api.app.services.youtube import (
     YouTubeService,
     _romanized_forms_similar,
@@ -383,3 +384,184 @@ def test_build_search_text_returns_normalized_when_no_additions():
     # All-Latin tokens with no doubled vowels and no trailing schwa: keys equal
     # original tokens, so additions just duplicate them — that's acceptable.
     assert text.startswith("the quick brown fox")
+
+
+# ---------------------------------------------------------------------------
+# resolve_channel_id — handle / URL / username / canonical-ID resolution
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def resolver_service():
+    """YouTubeService with a fully mocked self.youtube client.
+
+    Builds a fake googleapiclient resource so each strategy can be inspected
+    independently (forHandle vs forUsername vs search.list).
+    """
+    youtube_module._RESOLVE_NAME_CACHE.clear()
+    with patch.object(youtube_module, "build"):
+        service = YouTubeService(api_key="fake-key")
+
+    channels_resource = MagicMock()
+    search_resource = MagicMock()
+    service.youtube = MagicMock()
+    service.youtube.channels.return_value = channels_resource
+    service.youtube.search.return_value = search_resource
+
+    return service, channels_resource, search_resource
+
+
+def _channels_list_mock(channels_resource, items, *, raises: Exception | None = None):
+    """Configure the next .list() call on channels() to return `items` (or raise)."""
+    call = MagicMock()
+    if raises is not None:
+        call.execute.side_effect = raises
+    else:
+        call.execute.return_value = {"items": items}
+    channels_resource.list.return_value = call
+    return call
+
+
+def _search_list_mock(search_resource, items, *, raises: Exception | None = None):
+    call = MagicMock()
+    if raises is not None:
+        call.execute.side_effect = raises
+    else:
+        call.execute.return_value = {"items": items}
+    search_resource.list.return_value = call
+    return call
+
+
+def test_resolve_channel_id_short_circuits_canonical_uc_id(resolver_service):
+    service, channels_resource, search_resource = resolver_service
+
+    result = service.resolve_channel_id("UC1234567890123456789012")
+
+    assert result == "UC1234567890123456789012"
+    # Canonical IDs must never trigger any API call.
+    channels_resource.list.assert_not_called()
+    search_resource.list.assert_not_called()
+
+
+def test_resolve_channel_id_uses_for_handle_for_at_prefixed_input(resolver_service):
+    service, channels_resource, _ = resolver_service
+    _channels_list_mock(channels_resource, [{"id": "UCabcdefghijklmnopqrstuv"}])
+
+    result = service.resolve_channel_id("@itz_fizy")
+
+    assert result == "UCabcdefghijklmnopqrstuv"
+    channels_resource.list.assert_called_once_with(part="id", forHandle="@itz_fizy")
+
+
+def test_resolve_channel_id_strips_url_then_uses_for_handle(resolver_service):
+    service, channels_resource, _ = resolver_service
+    _channels_list_mock(channels_resource, [{"id": "UCxxxxxxxxxxxxxxxxxxxxxx"}])
+
+    result = service.resolve_channel_id("https://www.youtube.com/@LolcowLive")
+
+    assert result == "UCxxxxxxxxxxxxxxxxxxxxxx"
+    channels_resource.list.assert_called_once_with(part="id", forHandle="@LolcowLive")
+
+
+def test_resolve_channel_id_bare_name_prepends_at_for_handle_lookup(resolver_service):
+    service, channels_resource, _ = resolver_service
+    _channels_list_mock(channels_resource, [{"id": "UCyyyyyyyyyyyyyyyyyyyyyy"}])
+
+    result = service.resolve_channel_id("veritasium")
+
+    assert result == "UCyyyyyyyyyyyyyyyyyyyyyy"
+    # Bare names get an "@" prepended for the forHandle attempt.
+    channels_resource.list.assert_called_once_with(part="id", forHandle="@veritasium")
+
+
+def test_resolve_channel_id_falls_back_to_for_username_when_handle_misses(resolver_service):
+    service, channels_resource, _ = resolver_service
+
+    # First call (forHandle) returns nothing; second call (forUsername) hits.
+    handle_call = MagicMock()
+    handle_call.execute.return_value = {"items": []}
+    username_call = MagicMock()
+    username_call.execute.return_value = {"items": [{"id": "UCzzzzzzzzzzzzzzzzzzzzzz"}]}
+    channels_resource.list.side_effect = [handle_call, username_call]
+
+    result = service.resolve_channel_id("LegacyVanityName")
+
+    assert result == "UCzzzzzzzzzzzzzzzzzzzzzz"
+    kwargs_seen = [c.kwargs for c in channels_resource.list.call_args_list]
+    assert kwargs_seen == [
+        {"part": "id", "forHandle": "@LegacyVanityName"},
+        {"part": "id", "forUsername": "LegacyVanityName"},
+    ]
+
+
+def test_resolve_channel_id_falls_through_to_search_when_handle_and_username_miss(resolver_service):
+    service, channels_resource, search_resource = resolver_service
+
+    miss = MagicMock()
+    miss.execute.return_value = {"items": []}
+    channels_resource.list.return_value = miss
+    _search_list_mock(
+        search_resource,
+        [{"snippet": {"channelId": "UCsearchhitsearchhitsea"}}],
+    )
+
+    result = service.resolve_channel_id("lolcowlive")
+
+    assert result == "UCsearchhitsearchhitsea"
+    # Both channels.list strategies attempted before search fallback.
+    assert channels_resource.list.call_count == 2
+    search_resource.list.assert_called_once_with(
+        part="snippet", q="lolcowlive", type="channel", maxResults=1,
+    )
+
+
+def test_resolve_channel_id_returns_none_when_all_strategies_fail(resolver_service):
+    service, channels_resource, search_resource = resolver_service
+    miss = MagicMock()
+    miss.execute.return_value = {"items": []}
+    channels_resource.list.return_value = miss
+    _search_list_mock(search_resource, [])
+
+    result = service.resolve_channel_id("totally-nonexistent-channel-xyz")
+
+    assert result is None
+
+
+def test_resolve_channel_id_swallows_api_exceptions_and_continues(resolver_service):
+    service, channels_resource, search_resource = resolver_service
+
+    # forHandle raises (e.g. transient YT API error); forUsername succeeds.
+    handle_call = MagicMock()
+    handle_call.execute.side_effect = RuntimeError("quota exceeded")
+    username_call = MagicMock()
+    username_call.execute.return_value = {"items": [{"id": "UCrecoveryrecoveryrec123"}]}
+    channels_resource.list.side_effect = [handle_call, username_call]
+
+    result = service.resolve_channel_id("@recoverable")
+
+    assert result == "UCrecoveryrecoveryrec123"
+    search_resource.list.assert_not_called()
+
+
+def test_resolve_channel_id_caches_resolved_handle(resolver_service):
+    service, channels_resource, _ = resolver_service
+    _channels_list_mock(channels_resource, [{"id": "UCcachedcachedcachedcach"}])
+
+    first = service.resolve_channel_id("@cached_handle")
+    second = service.resolve_channel_id("@cached_handle")
+
+    assert first == "UCcachedcachedcachedcach"
+    assert first == second
+    # Cache hit on second call — no additional API request.
+    assert channels_resource.list.call_count == 1
+
+
+def test_resolve_channel_id_strips_channel_id_url_without_api_call(resolver_service):
+    service, channels_resource, search_resource = resolver_service
+
+    result = service.resolve_channel_id(
+        "https://www.youtube.com/channel/UC1234567890123456789012"
+    )
+
+    assert result == "UC1234567890123456789012"
+    channels_resource.list.assert_not_called()
+    search_resource.list.assert_not_called()
