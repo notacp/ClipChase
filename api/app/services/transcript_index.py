@@ -77,7 +77,13 @@ class _TursoHTTPConnection:
         import httpx  # deferred — not needed in local-dev path
         with httpx.Client(timeout=30.0) as client:
             response = client.post(self._url, headers=self._headers, json={"requests": requests})
-        response.raise_for_status()
+        if response.status_code >= 400:
+            # Surface Turso's actual error body. raise_for_status() drops it,
+            # leaving "400 Bad Request" with no clue why the pipeline was
+            # rejected — debugging blind.
+            raise Exception(
+                f"Turso {response.status_code} on {len(requests)} reqs: {response.text[:1000]}"
+            )
         results = response.json().get("results", [])
         for r in results:
             if r.get("type") == "error":
