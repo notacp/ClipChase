@@ -383,6 +383,36 @@ class YouTubeService:
         cached = _RESOLVE_NAME_CACHE.get(name_or_handle)
         if cached is not None:
             return cached
+
+        # Strategy 1: official handle lookup (channels.list?forHandle=...).
+        # Costs 1 quota unit and resolves stylized handles deterministically,
+        # unlike search() which ranks by relevance and misses niche channels
+        # ("lolcowlive", "veritasium") that don't dominate search results.
+        handle = name_or_handle if name_or_handle.startswith("@") else f"@{name_or_handle}"
+        try:
+            resp = self.youtube.channels().list(part="id", forHandle=handle).execute()
+            items = resp.get("items") or []
+            if items:
+                channel_id = items[0]["id"]
+                _RESOLVE_NAME_CACHE[name_or_handle] = channel_id
+                return channel_id
+        except Exception:
+            pass
+
+        # Strategy 2: legacy username lookup (pre-2013 channels). Cheap (1 unit),
+        # works for accounts that still have a vanity username set.
+        try:
+            resp = self.youtube.channels().list(part="id", forUsername=name_or_handle).execute()
+            items = resp.get("items") or []
+            if items:
+                channel_id = items[0]["id"]
+                _RESOLVE_NAME_CACHE[name_or_handle] = channel_id
+                return channel_id
+        except Exception:
+            pass
+
+        # Strategy 3: relevance search. Last resort — 100 quota units, ranks by
+        # search relevance so unreliable for niche names. Kept as safety net.
         try:
             search_response = self.youtube.search().list(
                 part="snippet",

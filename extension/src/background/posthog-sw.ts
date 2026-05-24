@@ -40,6 +40,11 @@ export async function captureSW(
         properties: {
           app: "extension",
           surface: "background",
+          // PostHog's exception-ingest validator (Cymbal) requires `platform`.
+          // posthog-js injects this automatically in the sidepanel; the SW
+          // builds payloads by hand, so we must set it here or every $exception
+          // ingests with $cymbal_errors and skips Error Tracking grouping.
+          platform: "web",
           extension_version: extVersion(),
           ...properties,
         },

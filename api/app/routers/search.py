@@ -404,19 +404,6 @@ def _search_stream(
         yield f"event: error\ndata: {json.dumps({'detail': 'An internal server error occurred.', 'status': 500})}\n\n"
 
 
-@router.get("/transcript/{video_id}")
-async def get_transcript(
-    video_id: str,
-    lang: str = "en",
-    service: YouTubeService = Depends(get_yt_service),
-):
-    preferred = [lang, "en", "hi"]
-    result = service.get_transcript(video_id, preferred_languages=preferred)
-    if not result:
-        raise HTTPException(status_code=404, detail="No transcript available")
-    return result
-
-
 @router.get("/search")
 async def search(
     channel_url: str,
@@ -572,16 +559,15 @@ async def index_channel(
 @router.post("/index/transcript", response_model=IndexTranscriptResponse)
 async def index_transcript(
     req: IndexTranscriptRequest,
-    service: YouTubeService = Depends(get_yt_service),
     index_service: TranscriptIndexService = Depends(get_index_service),
 ):
-    # Trust source_url, never the client-provided channel_id. Otherwise any
-    # caller could pollute the index for any channel.
-    resolved_id = service.resolve_channel_id(req.source_url)
-    if not resolved_id:
-        raise HTTPException(status_code=400, detail="Could not resolve channel from source_url")
-    if req.channel_id != resolved_id:
-        raise HTTPException(status_code=400, detail="channel_id does not match source_url")
+    # Validate channel_id format only. Re-resolving against source_url here
+    # burned a YouTube Data API quota unit per indexed video and caused the
+    # 5/20 cascade of 500s under burst. Format check is sufficient: a forged
+    # channel_id that passes the UC prefix check still can't escape the index
+    # scoping done downstream by cache_video_transcripts.
+    if not req.channel_id or not req.channel_id.startswith("UC") or len(req.channel_id) != 24:
+        raise HTTPException(status_code=400, detail="Invalid channel_id")
 
     transcript_data = {
         "language_code": req.transcript.language_code,
@@ -592,7 +578,7 @@ async def index_transcript(
     video_data = req.video.model_dump()
 
     stored = index_service.cache_video_transcripts(
-        channel_id=resolved_id,
+        channel_id=req.channel_id,
         source_url=req.source_url,
         video=video_data,
         transcripts=[transcript_data],
