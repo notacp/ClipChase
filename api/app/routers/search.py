@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 from datetime import datetime
@@ -7,6 +8,8 @@ from typing import Any, Iterator, List, Optional, Sequence, Tuple
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 from ..services.transcript_index import TranscriptIndexService
 from ..services.youtube import (
@@ -401,6 +404,11 @@ def _search_stream(
         yield "event: done\ndata: {}\n\n"
 
     except Exception:
+        logger.exception(
+            "search stream failed channel_id=%s keyword=%s",
+            channel_id,
+            keyword,
+        )
         yield f"event: error\ndata: {json.dumps({'detail': 'An internal server error occurred.', 'status': 500})}\n\n"
 
 
@@ -577,12 +585,21 @@ async def index_transcript(
     }
     video_data = req.video.model_dump()
 
-    stored = index_service.cache_video_transcripts(
-        channel_id=req.channel_id,
-        source_url=req.source_url,
-        video=video_data,
-        transcripts=[transcript_data],
-    )
+    try:
+        stored = index_service.cache_video_transcripts(
+            channel_id=req.channel_id,
+            source_url=req.source_url,
+            video=video_data,
+            transcripts=[transcript_data],
+        )
+    except Exception:
+        logger.exception(
+            "index_transcript failed channel=%s video=%s segments=%s",
+            req.channel_id,
+            req.video.id,
+            len(req.transcript.segments),
+        )
+        raise
     return IndexTranscriptResponse(stored=stored)
 
 
