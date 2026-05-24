@@ -94,11 +94,21 @@ class _TursoHTTPConnection:
         self._write_queue.append({"type": "execute", "stmt": stmt})
         return _TursoCursor({"cols": [], "rows": []})
 
+    # Turso's HTTP v2 pipeline rejects oversized requests with 400 Bad Request
+    # (~100 statements / ~1MB body). A 10-minute video produces 250-500 segment
+    # rows; sending them all in one pipeline crashed every index_transcript
+    # write that came in via the extension. Chunking keeps each POST under the
+    # cap. Chunks are independent (no `baton` continuation) so a mid-batch
+    # failure can leave a partial transcript stored — recoverable on retry
+    # because every write is an upsert.
+    _BATCH_SIZE = 50
+
     def commit(self) -> None:
         if not self._write_queue:
             return
-        self._send(self._write_queue + [{"type": "close"}])
-        self._write_queue.clear()
+        queue, self._write_queue = self._write_queue, []
+        for start in range(0, len(queue), self._BATCH_SIZE):
+            self._send(queue[start:start + self._BATCH_SIZE] + [{"type": "close"}])
 
     def close(self) -> None:
         self._write_queue.clear()
