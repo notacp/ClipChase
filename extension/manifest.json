@@ -8,11 +8,10 @@
   "host_permissions": [
     "https://*.youtube.com/*",
     "https://api.clipchase.xyz/*",
-    "https://web-production-c3d10.up.railway.app/*",
     "https://us.i.posthog.com/*"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://www.youtube-nocookie.com https://www.youtube.com; connect-src 'self' https://us.i.posthog.com https://us-assets.i.posthog.com https://api.clipchase.xyz https://web-production-c3d10.up.railway.app https://www.youtube.com https://*.youtube.com"
+    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://www.youtube-nocookie.com https://www.youtube.com; connect-src 'self' https://us.i.posthog.com https://us-assets.i.posthog.com https://api.clipchase.xyz https://www.youtube.com https://*.youtube.com"
   },
   "action": {
     "default_title": "Open ClipChase"

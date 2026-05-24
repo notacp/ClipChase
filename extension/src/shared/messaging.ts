@@ -7,12 +7,19 @@ import posthog from "./posthog";
 // hangs the search spinner. The in-SW per-video budget can't save this: that
 // timer dies with the worker. So the side panel needs its own ceiling.
 //
-// Single value, not a per-type map: every message type completes well under
-// 30s normally, and 30s clears the slowest case (fetch-transcript's in-SW
-// PER_VIDEO_BUDGET_MS of 15s + spoof-rule re-await + executeScript overhead),
-// so this only fires on an actually-dead worker. Per-type tuning would be
-// config without evidence.
-const SEND_TIMEOUT_MS = 30_000;
+// Per-type tuning: fetch-transcript legitimately runs up to PER_VIDEO_BUDGET_MS
+// (~15s) of network + executeScript work and needs the larger 30s ceiling.
+// match-transcript is pure CPU on the SW (regex over a transcript array) and
+// should complete in <1s — a 30s wait there always means the worker died, so
+// cut the timeout to 15s to surface dead workers (e.g. Arc/Brave keepalive
+// regressions) faster instead of leaving the user staring at a spinner.
+const SEND_TIMEOUT_MS_BY_TYPE: Record<string, number> = {
+  "list-videos": 15_000,
+  "fetch-transcript": 30_000,
+  "match-transcript": 15_000,
+  "index-transcript": 20_000,
+};
+const DEFAULT_SEND_TIMEOUT_MS = 30_000;
 
 // `signal` lets a superseded search stop *waiting* on an in-flight SW round
 // trip immediately. chrome.runtime.sendMessage can't be cancelled, so the SW
@@ -97,15 +104,16 @@ export function send(msg: ExtMessage, opts?: SendOpts): Promise<MessageResponse<
       opts.signal.addEventListener("abort", onAbort, { once: true });
     }
 
+    const timeoutMs = SEND_TIMEOUT_MS_BY_TYPE[msg.type] ?? DEFAULT_SEND_TIMEOUT_MS;
     const timer = setTimeout(() => {
       // Worker never answered and never errored — treat as dead. Soft-fail so
       // the caller's loop continues instead of hanging.
       posthog.capture("sw_message_timeout", {
         message_type: msg.type,
-        timeout_ms: SEND_TIMEOUT_MS,
+        timeout_ms: timeoutMs,
       });
       finish({ ok: false, error: "sw_timeout" });
-    }, SEND_TIMEOUT_MS);
+    }, timeoutMs);
 
     chrome.runtime.sendMessage(msg, (response: MessageResponse<unknown>) => {
       if (chrome.runtime.lastError) {
