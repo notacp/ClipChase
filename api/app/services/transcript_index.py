@@ -29,9 +29,16 @@ def _encode_value(val: Any) -> dict:
     if isinstance(val, bool):
         return {"type": "integer", "value": str(int(val))}
     if isinstance(val, int):
+        # Integers are string-encoded because i64 can overflow JSON Number
+        # precision; Turso v2 spec keeps them as strings on purpose.
         return {"type": "integer", "value": str(val)}
     if isinstance(val, float):
-        return {"type": "float", "value": str(val)}
+        # Floats are NUMBER-encoded per the v2 spec — Turso rejects string
+        # form with `JSON parse error: invalid type: string "0.0", expected
+        # f64`. This was the actual root cause of the index_transcript 500
+        # cascade (mistakenly blamed on YouTube quota during the 5/20
+        # incident); every transcript with a 0.0 start/duration tripped it.
+        return {"type": "float", "value": val}
     return {"type": "text", "value": str(val)}
 
 
