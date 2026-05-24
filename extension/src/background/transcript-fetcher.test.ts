@@ -134,7 +134,10 @@ describe("classifyFailure", () => {
 
   it("classifies tab_failed for any other tab- prefix", () => {
     expect(classifyFailure(["sw-android-status=403", "tab-no-tracks"])).toBe("tab_failed");
-    expect(classifyFailure(["sw-android-status=403", "tab-android-no-baseUrl tracks=1"])).toBe("tab_failed");
+  });
+
+  it("routes tab-android-no-baseUrl to sw_no_baseurl (same YouTube-side cause as SW path)", () => {
+    expect(classifyFailure(["sw-android-status=403", "tab-android-no-baseUrl tracks=1"])).toBe("sw_no_baseurl");
   });
 
   it("classifies sw_blocked for InnerTube non-ok status", () => {
