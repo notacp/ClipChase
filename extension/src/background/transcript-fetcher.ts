@@ -39,6 +39,12 @@ export function classifyFailure(debugStrings: string[]): FailureReason {
   const last = debugStrings[debugStrings.length - 1] ?? "";
   if (last === "no-youtube-tab") return "no_tab";
   if (last.startsWith("tab-threw")) return "tab_threw";
+  // The tab fallback's Android-client subroutine also hits InnerTube /player;
+  // a "no-baseUrl" outcome there is the same YouTube-side issue as the SW
+  // path's sw_no_baseurl (no caption track exposed for the video), not a
+  // DOM/scripting failure of the tab itself. Route it to the same bucket so
+  // breakdowns over failure_reason don't lump it into the generic tab_failed.
+  if (last.startsWith("tab-android-no-baseUrl")) return "sw_no_baseurl";
   if (last.startsWith("tab-")) return "tab_failed";
   // SW debug strings are prefixed `sw-<client>-`. Strip for matching.
   const m = last.match(/^sw-[a-z0-9_]+-(.+)$/);

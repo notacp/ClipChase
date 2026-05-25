@@ -82,7 +82,10 @@ class _TursoHTTPConnection:
 
     def _send(self, requests: List[dict]) -> List[dict]:
         import httpx  # deferred — not needed in local-dev path
-        with httpx.Client(timeout=30.0) as client:
+        # 60s ceiling: a single chunked pipeline POST should never need more
+        # than a few seconds, but the original 30s tripped on long videos
+        # before chunking; keep the headroom even now.
+        with httpx.Client(timeout=60.0) as client:
             response = client.post(self._url, headers=self._headers, json={"requests": requests})
         if response.status_code >= 400:
             # Surface Turso's actual error body. raise_for_status() drops it,
@@ -107,11 +110,21 @@ class _TursoHTTPConnection:
         self._write_queue.append({"type": "execute", "stmt": stmt})
         return _TursoCursor({"cols": [], "rows": []})
 
+    # Auto-captioned long videos can produce 4000+ segments per transcript;
+    # sending them in one Turso pipeline POST trips httpx ReadTimeout because
+    # Turso processes the whole batch before responding. Real failure observed
+    # on a 4313-segment video. Chunk to keep each POST well under the read
+    # timeout. Chunks are independent (no `baton` continuation), so a mid-
+    # batch failure can leave a partial transcript stored — recoverable on
+    # retry since every write is an upsert.
+    _BATCH_SIZE = 100
+
     def commit(self) -> None:
         if not self._write_queue:
             return
-        self._send(self._write_queue + [{"type": "close"}])
-        self._write_queue.clear()
+        queue, self._write_queue = self._write_queue, []
+        for start in range(0, len(queue), self._BATCH_SIZE):
+            self._send(queue[start:start + self._BATCH_SIZE] + [{"type": "close"}])
 
     def close(self) -> None:
         self._write_queue.clear()
