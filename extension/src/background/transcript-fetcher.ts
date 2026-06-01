@@ -56,7 +56,52 @@ export function classifyFailure(debugStrings: string[]): FailureReason {
   if (body.startsWith("xml-failed")) return "xml_status_err";
   if (body.startsWith("parse-empty")) return "parse_empty";
   if (body.startsWith("threw")) return "sw_threw";
+  if (body === "budget") return "budget_exceeded";
   return "unknown";
+}
+
+// Extracts the `ytInitialPlayerResponse` object embedded in a watch-page's
+// HTML. YouTube only includes `captions` in this object when the request
+// carries a logged-in session, which is why we fetch the page with the user's
+// cookies instead of an anonymous InnerTube call. Brace-matches from the first
+// `{` after the marker, respecting string literals so braces/quotes inside
+// caption titles don't end the object early.
+export function extractPlayerResponse(html: string): any | null {
+  const marker = "ytInitialPlayerResponse";
+  const markerIdx = html.indexOf(marker);
+  if (markerIdx === -1) return null;
+  const start = html.indexOf("{", markerIdx);
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inStr = false;
+  let quote = "";
+  let escaped = false;
+  for (let i = start; i < html.length; i++) {
+    const c = html[i];
+    if (inStr) {
+      if (escaped) escaped = false;
+      else if (c === "\\") escaped = true;
+      else if (c === quote) inStr = false;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      inStr = true;
+      quote = c;
+    } else if (c === "{") {
+      depth++;
+    } else if (c === "}") {
+      depth--;
+      if (depth === 0) {
+        try {
+          return JSON.parse(html.slice(start, i + 1));
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
 }
 
 export function parseSegments(xml: string): TranscriptSegment[] {

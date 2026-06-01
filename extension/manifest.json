@@ -4,7 +4,7 @@
   "version": "1.2.5",
   "description": "Search any phrase across a YouTube channel's transcripts. Get every video that mentions it with clickable timestamps.",
   "minimum_chrome_version": "116",
-  "permissions": ["sidePanel", "scripting", "tabs", "storage", "declarativeNetRequestWithHostAccess"],
+  "permissions": ["sidePanel", "tabs", "storage", "declarativeNetRequestWithHostAccess"],
   "host_permissions": [
     "https://*.youtube.com/*",
     "https://api.clipchase.xyz/*",

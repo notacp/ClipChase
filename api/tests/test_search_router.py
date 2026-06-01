@@ -1,3 +1,4 @@
+import inspect
 import json
 import os
 from unittest.mock import MagicMock, patch
@@ -8,6 +9,7 @@ from fastapi.testclient import TestClient
 os.environ["YT_API_KEY"] = "mock_api_key"
 
 from api.app.main import app
+from api.app.services.transcript_index import TranscriptIndexService
 
 client = TestClient(app)
 
@@ -398,3 +400,77 @@ def test_deleted_get_transcript_endpoint_returns_404():
     # to shrink the Vercel bundle and remove a dead IP-ban surface.
     response = client.get("/api/transcript/abc123")
     assert response.status_code == 404
+
+
+def test_index_transcript_runs_off_event_loop():
+    # Handler must be sync so FastAPI runs it in a threadpool. The Turso write
+    # path is blocking I/O; an `async def` handler runs it ON the event loop,
+    # so a burst of fire-and-forget index calls stalls every concurrent request
+    # (root cause of the 502/504 FUNCTION_INVOCATION_TIMEOUT cascade).
+    from api.app.routers.search import index_transcript
+
+    assert not inspect.iscoroutinefunction(index_transcript), (
+        "index_transcript must be a sync def so blocking Turso I/O runs in a "
+        "threadpool instead of blocking the event loop"
+    )
+
+
+def test_index_transcript_surfaces_pipeline_error_detail():
+    # A bare `raise` returns FastAPI's generic "Internal Server Error" with no
+    # body, which is why 172 client-side 500s were blind. The real reason must
+    # reach the caller so telemetry can see it.
+    mock_index = MagicMock()
+    mock_index.cache_video_transcripts.side_effect = Exception(
+        "Turso 400 on 5 reqs: invalid type"
+    )
+    dep = _override_index_service(mock_index)
+    try:
+        valid_id = "UC" + "x" * 22
+        response = client.post("/api/index/transcript", json=_index_payload(valid_id))
+        assert response.status_code == 500, response.text
+        assert "Turso 400" in response.json().get("detail", "")
+    finally:
+        app.dependency_overrides.pop(dep, None)
+
+
+def test_cache_video_transcripts_uses_single_connection(tmp_path):
+    # One index request must open ONE connection, not one per upsert_* method.
+    # Per-method reconnects multiplied Turso HTTP round-trips (each a fresh TLS
+    # handshake), driving the timeouts. Uses a real local SQLite db (explicit
+    # db_path always stays local) so the write is also verified end-to-end.
+    svc = TranscriptIndexService(db_path=str(tmp_path / "idx.sqlite3"))
+    connects = {"n": 0}
+    real_connect = svc._connect
+
+    def counting_connect():
+        connects["n"] += 1
+        return real_connect()
+
+    svc._connect = counting_connect
+
+    stored = svc.cache_video_transcripts(
+        channel_id="UC" + "x" * 22,
+        source_url="https://www.youtube.com/@example",
+        video={
+            "id": "vid1",
+            "title": "t",
+            "publishedAt": "2026-01-01T00:00:00Z",
+            "thumbnail": "https://i.ytimg.com/vi/vid1/default.jpg",
+        },
+        transcripts=[
+            {
+                "language_code": "en",
+                "language_label": "English",
+                "is_generated": False,
+                "segments": [{"start": 0.0, "duration": 1.0, "text": "hello world"}],
+            }
+        ],
+    )
+
+    assert stored == 1
+    assert connects["n"] == 1, f"expected 1 connection per index, got {connects['n']}"
+
+    # Write must actually round-trip back.
+    got = svc.get_transcript("vid1", "en")
+    assert got is not None
+    assert got["segments"][0]["text"] == "hello world"

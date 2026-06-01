@@ -79,14 +79,22 @@ class _TursoHTTPConnection:
             "Content-Type": "application/json",
         }
         self._write_queue: List[dict] = []
+        self._client = None
+
+    def _http_client(self):
+        # One keep-alive client per connection, reused across every chunk POST.
+        # A fresh httpx.Client per _send meant a new TLS handshake for each of
+        # the ~47 round-trips a long video produces — a major slice of the wall
+        # clock that drove FUNCTION_INVOCATION_TIMEOUTs.
+        if self._client is None:
+            import httpx  # deferred — not needed in local-dev path
+            self._client = httpx.Client(timeout=60.0)
+        return self._client
 
     def _send(self, requests: List[dict]) -> List[dict]:
-        import httpx  # deferred — not needed in local-dev path
-        # 60s ceiling: a single chunked pipeline POST should never need more
-        # than a few seconds, but the original 30s tripped on long videos
-        # before chunking; keep the headroom even now.
-        with httpx.Client(timeout=60.0) as client:
-            response = client.post(self._url, headers=self._headers, json={"requests": requests})
+        response = self._http_client().post(
+            self._url, headers=self._headers, json={"requests": requests}
+        )
         if response.status_code >= 400:
             # Surface Turso's actual error body. raise_for_status() drops it,
             # leaving "400 Bad Request" with no clue why the pipeline was
@@ -128,6 +136,9 @@ class _TursoHTTPConnection:
 
     def close(self) -> None:
         self._write_queue.clear()
+        if self._client is not None:
+            self._client.close()
+            self._client = None
 
 
 def _utc_now_iso() -> str:
@@ -258,19 +269,115 @@ class TranscriptIndexService:
         finally:
             conn.close()
 
+    def _queue_channel(self, conn, channel_id: str, source_url: str) -> None:
+        conn.execute(
+            """
+            INSERT INTO indexed_channels (channel_id, source_url, indexed_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(channel_id) DO UPDATE SET
+                source_url = excluded.source_url,
+                indexed_at = excluded.indexed_at
+            """,
+            (channel_id, source_url, _utc_now_iso()),
+        )
+
+    def _queue_video(self, conn, channel_id: str, video: Dict[str, Any]) -> None:
+        conn.execute(
+            """
+            INSERT INTO indexed_videos (video_id, channel_id, title, published_at, thumbnail, indexed_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(video_id) DO UPDATE SET
+                channel_id = excluded.channel_id,
+                title = excluded.title,
+                published_at = excluded.published_at,
+                thumbnail = excluded.thumbnail,
+                indexed_at = excluded.indexed_at
+            """,
+            (
+                video["id"],
+                channel_id,
+                video.get("title") or "",
+                video.get("publishedAt") or "",
+                video.get("thumbnail") or "",
+                _utc_now_iso(),
+            ),
+        )
+
+    def _queue_transcript(self, conn, video_id: str, transcript: Dict[str, Any]) -> bool:
+        language_code = normalize_language_code(transcript.get("language_code"))
+        segments = transcript.get("segments") or []
+        if not video_id or not language_code or not segments:
+            return False
+        # Bail before touching the DB if every segment normalises to empty text
+        # (music-only videos, formatting-only captions). Without this guard the
+        # DELETE below fires and wipes existing segments while writing nothing.
+        if not any(_normalize_text(s.get("text", "")) for s in segments):
+            return False
+
+        conn.execute(
+            """
+            INSERT INTO indexed_transcripts (
+                video_id,
+                language_code,
+                language_label,
+                is_generated,
+                segment_count,
+                indexed_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(video_id, language_code) DO UPDATE SET
+                language_label = excluded.language_label,
+                is_generated = excluded.is_generated,
+                segment_count = excluded.segment_count,
+                indexed_at = excluded.indexed_at
+            """,
+            (
+                video_id,
+                language_code,
+                transcript.get("language_label") or language_code.upper(),
+                1 if transcript.get("is_generated") else 0,
+                len(segments),
+                _utc_now_iso(),
+            ),
+        )
+        conn.execute(
+            "DELETE FROM transcript_segments WHERE video_id = ? AND language_code = ?",
+            (video_id, language_code),
+        )
+
+        for index, segment in enumerate(segments):
+            text = _normalize_text(segment.get("text", ""))
+            if not text:
+                continue
+            conn.execute(
+                """
+                INSERT INTO transcript_segments (
+                    video_id,
+                    language_code,
+                    segment_index,
+                    start,
+                    duration,
+                    text,
+                    search_text
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    video_id,
+                    language_code,
+                    index,
+                    float(segment.get("start", 0)),
+                    float(segment.get("duration", 0)),
+                    text,
+                    _build_search_text(text),
+                ),
+            )
+        return True
+
     def upsert_channel(self, channel_id: str, source_url: str) -> None:
         conn = self._connect()
         try:
-            conn.execute(
-                """
-                INSERT INTO indexed_channels (channel_id, source_url, indexed_at)
-                VALUES (?, ?, ?)
-                ON CONFLICT(channel_id) DO UPDATE SET
-                    source_url = excluded.source_url,
-                    indexed_at = excluded.indexed_at
-                """,
-                (channel_id, source_url, _utc_now_iso()),
-            )
+            self._queue_channel(conn, channel_id, source_url)
             conn.commit()
         finally:
             conn.close()
@@ -278,99 +385,18 @@ class TranscriptIndexService:
     def upsert_video(self, channel_id: str, video: Dict[str, Any]) -> None:
         conn = self._connect()
         try:
-            conn.execute(
-                """
-                INSERT INTO indexed_videos (video_id, channel_id, title, published_at, thumbnail, indexed_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(video_id) DO UPDATE SET
-                    channel_id = excluded.channel_id,
-                    title = excluded.title,
-                    published_at = excluded.published_at,
-                    thumbnail = excluded.thumbnail,
-                    indexed_at = excluded.indexed_at
-                """,
-                (
-                    video["id"],
-                    channel_id,
-                    video.get("title") or "",
-                    video.get("publishedAt") or "",
-                    video.get("thumbnail") or "",
-                    _utc_now_iso(),
-                ),
-            )
+            self._queue_video(conn, channel_id, video)
             conn.commit()
         finally:
             conn.close()
 
     def upsert_transcript(self, video_id: str, transcript: Dict[str, Any]) -> bool:
-        language_code = normalize_language_code(transcript.get("language_code"))
-        segments = transcript.get("segments") or []
-        if not video_id or not language_code or not segments:
-            return False
-
         conn = self._connect()
         try:
-            conn.execute(
-                """
-                INSERT INTO indexed_transcripts (
-                    video_id,
-                    language_code,
-                    language_label,
-                    is_generated,
-                    segment_count,
-                    indexed_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(video_id, language_code) DO UPDATE SET
-                    language_label = excluded.language_label,
-                    is_generated = excluded.is_generated,
-                    segment_count = excluded.segment_count,
-                    indexed_at = excluded.indexed_at
-                """,
-                (
-                    video_id,
-                    language_code,
-                    transcript.get("language_label") or language_code.upper(),
-                    1 if transcript.get("is_generated") else 0,
-                    len(segments),
-                    _utc_now_iso(),
-                ),
-            )
-            conn.execute(
-                "DELETE FROM transcript_segments WHERE video_id = ? AND language_code = ?",
-                (video_id, language_code),
-            )
-
-            for index, segment in enumerate(segments):
-                text = _normalize_text(segment.get("text", ""))
-                if not text:
-                    continue
-                conn.execute(
-                    """
-                    INSERT INTO transcript_segments (
-                        video_id,
-                        language_code,
-                        segment_index,
-                        start,
-                        duration,
-                        text,
-                        search_text
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        video_id,
-                        language_code,
-                        index,
-                        float(segment.get("start", 0)),
-                        float(segment.get("duration", 0)),
-                        text,
-                        _build_search_text(text),
-                    ),
-                )
-
-            conn.commit()
-            return True
+            ok = self._queue_transcript(conn, video_id, transcript)
+            if ok:
+                conn.commit()
+            return ok
         finally:
             conn.close()
 
@@ -384,19 +410,28 @@ class TranscriptIndexService:
         if not transcripts:
             return 0
 
-        self.upsert_channel(channel_id, source_url)
-        self.upsert_video(channel_id, video)
+        # One connection (one reused HTTP client) and one chunked commit for the
+        # whole video — channel, video, and every transcript. Previously each
+        # upsert_* opened its own connection, multiplying Turso round-trips.
+        conn = self._connect()
+        try:
+            self._queue_channel(conn, channel_id, source_url)
+            self._queue_video(conn, channel_id, video)
 
-        stored = 0
-        seen_languages = set()
-        for transcript in transcripts:
-            language_code = normalize_language_code(transcript.get("language_code"))
-            if not language_code or language_code in seen_languages:
-                continue
-            seen_languages.add(language_code)
-            if self.upsert_transcript(video["id"], transcript):
-                stored += 1
-        return stored
+            stored = 0
+            seen_languages = set()
+            for transcript in transcripts:
+                language_code = normalize_language_code(transcript.get("language_code"))
+                if not language_code or language_code in seen_languages:
+                    continue
+                seen_languages.add(language_code)
+                if self._queue_transcript(conn, video["id"], transcript):
+                    stored += 1
+
+            conn.commit()
+            return stored
+        finally:
+            conn.close()
 
     def get_indexed_video_ids(self, channel_id: str, video_ids: Sequence[str]) -> Set[str]:
         if not channel_id or not video_ids:

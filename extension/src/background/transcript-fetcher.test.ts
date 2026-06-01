@@ -1,6 +1,6 @@
 // extension/src/background/transcript-fetcher.test.ts
 import { describe, it, expect } from "vitest";
-import { pickTrack, parseSegments, normalizeLanguageCode, classifyFailure, type CaptionTrack } from "./transcript-fetcher";
+import { pickTrack, parseSegments, normalizeLanguageCode, classifyFailure, extractPlayerResponse, type CaptionTrack } from "./transcript-fetcher";
 
 // ── normalizeLanguageCode ─────────────────────────────────────────────────────
 
@@ -118,6 +118,38 @@ describe("parseSegments", () => {
   it("returns empty array for empty XML", () => {
     expect(parseSegments("")).toHaveLength(0);
     expect(parseSegments("<transcript></transcript>")).toHaveLength(0);
+  });
+});
+
+// ── extractPlayerResponse ─────────────────────────────────────────────────────
+
+describe("extractPlayerResponse", () => {
+  it("extracts the player response from a watch-page assignment", () => {
+    const html = `<script>var ytInitialPlayerResponse = {"videoDetails":{"videoId":"abc"},"captions":{"playerCaptionsTracklistRenderer":{"captionTracks":[{"languageCode":"en","baseUrl":"https://x/en"}]}}};var meta=1;</script>`;
+    const pr = extractPlayerResponse(html);
+    expect(pr?.captions?.playerCaptionsTracklistRenderer?.captionTracks?.[0]?.baseUrl).toBe("https://x/en");
+  });
+
+  it("does not stop early on braces inside string values", () => {
+    const html = `ytInitialPlayerResponse = {"a":"text with } brace {","b":2};`;
+    const pr = extractPlayerResponse(html);
+    expect(pr?.a).toBe("text with } brace {");
+    expect(pr?.b).toBe(2);
+  });
+
+  it("handles escaped quotes inside strings", () => {
+    const html = `ytInitialPlayerResponse = {"t":"she said \\"hi\\" }","n":3};`;
+    const pr = extractPlayerResponse(html);
+    expect(pr?.t).toBe('she said "hi" }');
+    expect(pr?.n).toBe(3);
+  });
+
+  it("returns null when the marker is absent", () => {
+    expect(extractPlayerResponse("<html>no player here</html>")).toBeNull();
+  });
+
+  it("returns null on malformed JSON", () => {
+    expect(extractPlayerResponse("ytInitialPlayerResponse = {bad json")).toBeNull();
   });
 });
 

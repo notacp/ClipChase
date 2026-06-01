@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -46,6 +47,11 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${sans.variable} ${mono.variable} antialiased`}>
         {children}
+        <Script
+          src="https://getsleek.io/v1.js"
+          data-site="16gnatpnl3J9M5Fy"
+          strategy="afterInteractive"
+        />
       </body>
     </html>
   );

@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import threading
 from datetime import datetime
 from typing import Any, Iterator, List, Optional, Sequence, Tuple
 
@@ -48,8 +49,17 @@ def get_yt_service():
     return YouTubeService(api_key)
 
 
+_index_service: Optional[TranscriptIndexService] = None
+_index_service_lock = threading.Lock()
+
+
 def get_index_service():
-    return TranscriptIndexService()
+    global _index_service
+    if _index_service is None:
+        with _index_service_lock:
+            if _index_service is None:
+                _index_service = TranscriptIndexService()
+    return _index_service
 
 
 class SearchResult(BaseModel):
@@ -565,10 +575,13 @@ async def index_channel(
 
 
 @router.post("/index/transcript", response_model=IndexTranscriptResponse)
-async def index_transcript(
+def index_transcript(
     req: IndexTranscriptRequest,
     index_service: TranscriptIndexService = Depends(get_index_service),
 ):
+    # Sync def on purpose: cache_video_transcripts does blocking Turso HTTP I/O.
+    # FastAPI runs sync handlers in a threadpool, so a burst of fire-and-forget
+    # index calls can't stall the event loop (the 502/504 cascade).
     # Validate channel_id format only. Re-resolving against source_url here
     # burned a YouTube Data API quota unit per indexed video and caused the
     # 5/20 cascade of 500s under burst. Format check is sufficient: a forged
@@ -592,14 +605,17 @@ async def index_transcript(
             video=video_data,
             transcripts=[transcript_data],
         )
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "index_transcript failed channel=%s video=%s segments=%s",
             req.channel_id,
             req.video.id,
             len(req.transcript.segments),
         )
-        raise
+        # Surface the real reason (truncated) instead of a blind 500. The
+        # Turso adapter raises errors shaped like "Turso 400 on N reqs: <body>";
+        # the auth token lives in headers, never in these messages.
+        raise HTTPException(status_code=500, detail=str(exc)[:500])
     return IndexTranscriptResponse(stored=stored)
 
 

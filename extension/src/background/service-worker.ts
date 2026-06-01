@@ -1,7 +1,7 @@
 // extension/src/background/service-worker.ts
 import { listVideos, matchTranscript, indexTranscript } from "./api-client";
 import { captureSW, captureExceptionSW } from "./posthog-sw";
-import { classifyFailure } from "./transcript-fetcher";
+import { classifyFailure, extractPlayerResponse } from "./transcript-fetcher";
 import { PREFERRED_TRANSCRIPT_LANGS } from "../shared/constants";
 import type { FetchTranscriptResult, MessageResponse, Transcript } from "../shared/types";
 
@@ -213,9 +213,6 @@ chrome.action.onClicked.addListener(async (tab) => {
 });
 
 // ─── Shared transcript helpers (SW context) ─────────────────────────────────
-// fetchTranscriptInPage below cannot reuse these — executeScript only carries
-// the function body to MAIN world, not module-scope closures. Helpers are
-// duplicated inside it on purpose.
 
 function pickBestTrack(tracks: any[], langs: string[]): any | null {
   for (const lang of langs) {
@@ -370,151 +367,62 @@ async function fetchTranscriptFromSW(
   return { result: { _debug: perClientDebug.join("|") }, perClientDebug };
 }
 
-// ─── Tab fallback (runs in MAIN world via executeScript) ────────────────────
-// Self-contained — helpers re-declared inside because executeScript only
-// carries this function body across the world boundary.
-async function fetchTranscriptInPage(
+// Reliable fallback: fetch the watch page with the user's YouTube session
+// (credentials: "include") and scrape ytInitialPlayerResponse. Anonymous
+// InnerTube calls get `captions` stripped by YouTube's bot-gating; the
+// logged-in page does not. Runs in the SW with the user's own cookies/IP, so
+// it needs no open YouTube tab and carries none of the server-scraper ban risk.
+async function fetchTranscriptFromWatchPage(
   videoId: string,
   preferredLangs: string[],
-  budgetDeadlineMs: number,
+  budget: AbortSignal,
 ): Promise<ExtractResult> {
-  const FETCH_TIMEOUT_MS_INNER = 10_000;
-  // Can't carry an AbortSignal across the MAIN-world boundary, so the in-page
-  // ladder self-bounds: never wait/fetch past the caller's per-video deadline.
-  const remainingMs = () => Math.max(0, budgetDeadlineMs - Date.now());
-  const innerTimeout = () =>
-    AbortSignal.timeout(Math.min(FETCH_TIMEOUT_MS_INNER, remainingMs()));
-  function pickBestTrack(tracks: any[], langs: string[]): any | null {
-    for (const lang of langs) {
-      const norm = lang.toLowerCase().split("-")[0];
-      const manual = tracks.find((t) => t.languageCode?.toLowerCase().split("-")[0] === norm && t.kind !== "asr");
-      if (manual) return manual;
-      const generated = tracks.find((t) => t.languageCode?.toLowerCase().split("-")[0] === norm);
-      if (generated) return generated;
-    }
-    return tracks[0] ?? null;
-  }
-  function decodeEntities(s: string): string {
-    return s
-      .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-      .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&apos;/g, "'");
-  }
-  function parseXml(xml: string): Segment[] {
-    const segs: Segment[] = [];
-    const re1 = /<text\b([^>]*)>([\s\S]*?)<\/text>/g;
-    for (const m of xml.matchAll(re1)) {
-      const sM = m[1].match(/\bstart="([^"]+)"/);
-      const dM = m[1].match(/\bdur="([^"]+)"/);
-      if (!sM || !dM) continue;
-      const text = decodeEntities(m[2].replace(/<[^>]+>/g, "")).trim();
-      if (text) segs.push({ text, start: parseFloat(sM[1]), duration: parseFloat(dM[1]) });
-    }
-    if (segs.length) return segs;
-    const re2 = /<p\b([^>]*)>([\s\S]*?)<\/p>/g;
-    for (const m of xml.matchAll(re2)) {
-      const tM = m[1].match(/\bt="(\d+)"/);
-      const dM = m[1].match(/\bd="(\d+)"/);
-      if (!tM || !dM) continue;
-      const text = decodeEntities(m[2].replace(/<[^>]+>/g, "")).trim();
-      if (text) segs.push({ text, start: parseInt(tM[1], 10) / 1000, duration: parseInt(dM[1], 10) / 1000 });
-    }
-    return segs;
-  }
-  async function fetchXml(baseUrl: string): Promise<{ xml: string | null; err: string }> {
-    const delays = [0, 1500, 3000];
-    for (let attempt = 0; attempt < delays.length; attempt++) {
-      if (remainingMs() <= 0) return { xml: null, err: "budget" };
-      if (delays[attempt]) {
-        if (delays[attempt] >= remainingMs()) return { xml: null, err: "budget" };
-        await new Promise<void>((r) => setTimeout(r, delays[attempt]));
-      }
-      try {
-        const res = await fetch(baseUrl, { signal: innerTimeout() });
-        if (res.status === 429) continue;
-        if (!res.ok) return { xml: null, err: `status=${res.status}` };
-        const text = await res.text();
-        if (text.length <= 10) return { xml: null, err: `empty len=${text.length}` };
-        return { xml: text, err: "" };
-      } catch (e) {
-        return { xml: null, err: `threw=${String(e)}` };
-      }
-    }
-    return { xml: null, err: "status=429 after retries" };
-  }
-
-  // Strategy 1: Android API
+  const prefix = "sw-watch-";
+  if (budget.aborted) return { _debug: `${prefix}budget` };
   try {
-    const res = await fetch("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        context: { client: { clientName: "ANDROID", clientVersion: "20.10.38" } },
-        videoId,
-      }),
-      signal: innerTimeout(),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-      if (tracks?.length) {
-        const track = pickBestTrack(tracks, preferredLangs);
-        if (track?.baseUrl) {
-          const { xml, err } = await fetchXml(track.baseUrl);
-          if (xml) {
-            const segments = parseXml(xml);
-            if (segments.length) {
-              return {
-                _debug: "tab-android-ok",
-                segments,
-                langCode: track.languageCode,
-                isGenerated: track.kind === "asr",
-              };
-            }
-            return { _debug: `tab-android-parse-empty xml_len=${xml.length}` };
-          }
-          return { _debug: `tab-android-xml-failed err=${err}` };
-        }
-        return { _debug: `tab-android-no-baseUrl tracks=${tracks.length}` };
+    let res = await fetch(
+      `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`,
+      {
+        credentials: "include",
+        signal: AbortSignal.any([AbortSignal.timeout(FETCH_TIMEOUT_MS), budget]),
+      },
+    );
+    if (!res.ok) {
+      if (res.status === 429) {
+        // single retry after brief backoff
+        await new Promise<void>((r) => setTimeout(r, 1500));
+        if (budget.aborted) return { _debug: `${prefix}budget` };
+        res = await fetch(
+          `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`,
+          {
+            credentials: "include",
+            signal: AbortSignal.any([AbortSignal.timeout(FETCH_TIMEOUT_MS), budget]),
+          },
+        );
+        if (!res.ok) return { _debug: `${prefix}status=${res.status}` };
+      } else {
+        return { _debug: `${prefix}status=${res.status}` };
       }
-      return { _debug: `tab-android-no-tracks keys=${Object.keys(data ?? {}).join(",")}` };
     }
-  } catch {
-    // fall through to strategy 2
+    const html = await res.text();
+    const player = extractPlayerResponse(html);
+    const tracks = player?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (!tracks?.length) return { _debug: `${prefix}no-tracks` };
+    const track = pickBestTrack(tracks, preferredLangs);
+    if (!track?.baseUrl) return { _debug: `${prefix}no-baseUrl tracks=${tracks.length}` };
+    const { xml, err } = await fetchTimedTextXml(track.baseUrl, budget);
+    if (!xml) return { _debug: `${prefix}xml-failed err=${err}` };
+    const segments = parseXml(xml);
+    if (!segments.length) return { _debug: `${prefix}parse-empty xml_len=${xml.length}` };
+    return {
+      _debug: `${prefix}ok`,
+      segments,
+      langCode: track.languageCode,
+      isGenerated: track.kind === "asr",
+    };
+  } catch (e) {
+    return { _debug: `${prefix}threw=${String(e)}` };
   }
-
-  // Strategy 2: ytInitialPlayerResponse already injected on watch page.
-  const yt = (window as any).ytInitialPlayerResponse;
-  const ytiprTracks = yt?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-  if (ytiprTracks?.length) {
-    const track = pickBestTrack(ytiprTracks, preferredLangs);
-    if (track?.baseUrl) {
-      const { xml, err } = await fetchXml(track.baseUrl);
-      if (xml) {
-        const segments = parseXml(xml);
-        if (segments.length) {
-          return {
-            _debug: "tab-ytipr-ok",
-            segments,
-            langCode: track.languageCode,
-            isGenerated: track.kind === "asr",
-          };
-        }
-        return { _debug: `tab-ytipr-parse-empty xml_len=${xml.length}` };
-      }
-      return { _debug: `tab-ytipr-xml-failed err=${err}` };
-    }
-  }
-
-  return { _debug: "tab-no-tracks" };
-}
-
-// ─── Tab discovery ──────────────────────────────────────────────────────────
-async function getYouTubeTabId(): Promise<number | null> {
-  // currentWindow: true is undefined in service worker context — use lastFocusedWindow.
-  const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  if (active?.id && active.url?.includes("youtube.com")) return active.id;
-  const [any] = await chrome.tabs.query({ url: "*://*.youtube.com/*" });
-  return any?.id ?? null;
 }
 
 // ─── Message routing ────────────────────────────────────────────────────────
@@ -548,8 +456,6 @@ async function handleFetchTranscript(
   // idempotent (removeRuleIds + addRules) so paying ~5-50ms here is safe.
   await registerHeaderSpoofRules();
 
-  const deadline = Date.now() + PER_VIDEO_BUDGET_MS;
-
   const result = await runWithVideoBudget(async (budget) => {
     const { result: sw, perClientDebug } = await fetchTranscriptFromSW(
       videoId,
@@ -562,44 +468,25 @@ async function handleFetchTranscript(
 
     // Budget blew during the SW path: bail WITHOUT telemetry. Promise.race has
     // already resolved to budget_exceeded and the wrapper emits that single
-    // event — firing a no_tab capture here too would double-count this video.
+    // event — firing a capture here too would double-count this video.
     if (budget.aborted) {
       return { transcript: null, failure_reason: "budget_exceeded" };
     }
 
-    // Fallback: piggy-back on a YouTube tab if all SW clients returned nothing.
-    const tabId = await getYouTubeTabId();
-    if (!tabId) {
-      const reason = classifyFailure([...perClientDebug, "no-youtube-tab"]);
-      void captureSW("transcript_fetch_failed", {
-        video_id: videoId,
-        sw_debug: perClientDebug.join("|"),
-        tab_debug: "no-youtube-tab",
-        failure_reason: reason,
-        preferred_langs: preferredLangs.join(","),
-      });
-      return { transcript: null, failure_reason: reason };
+    // Fallback: scrape the watch page with the user's session — no open tab
+    // required, unlike the old executeScript path.
+    const watch = await fetchTranscriptFromWatchPage(videoId, preferredLangs, budget);
+    if (watch.segments?.length) {
+      return { transcript: buildTranscript(watch), failure_reason: null };
     }
-    let tab: ExtractResult = { _debug: "tab-not-run" };
-    try {
-      const res = await chrome.scripting.executeScript({
-        target: { tabId },
-        func: fetchTranscriptInPage,
-        args: [videoId, preferredLangs, deadline],
-        world: "MAIN" as chrome.scripting.ExecutionWorld,
-      });
-      tab = res[0]?.result ?? { _debug: "tab-no-result" };
-    } catch (e) {
-      tab = { _debug: `tab-threw=${String(e)}` };
+    if (budget.aborted) {
+      return { transcript: null, failure_reason: "budget_exceeded" };
     }
-    if (tab.segments?.length) {
-      return { transcript: buildTranscript(tab), failure_reason: null };
-    }
-    const reason = classifyFailure([...perClientDebug, tab._debug]);
+    const reason = classifyFailure([...perClientDebug, watch._debug]);
     void captureSW("transcript_fetch_failed", {
       video_id: videoId,
       sw_debug: perClientDebug.join("|"),
-      tab_debug: tab._debug,
+      watch_debug: watch._debug,
       failure_reason: reason,
       preferred_langs: preferredLangs.join(","),
     });
@@ -610,7 +497,7 @@ async function handleFetchTranscript(
     void captureSW("transcript_fetch_failed", {
       video_id: videoId,
       sw_debug: "budget",
-      tab_debug: "budget",
+      watch_debug: "budget",
       failure_reason: "budget_exceeded",
       preferred_langs: preferredLangs.join(","),
     });
