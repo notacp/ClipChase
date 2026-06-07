@@ -7,17 +7,20 @@ import posthog from "./posthog";
 // hangs the search spinner. The in-SW per-video budget can't save this: that
 // timer dies with the worker. So the side panel needs its own ceiling.
 //
-// Per-type tuning: fetch-transcript legitimately runs up to PER_VIDEO_BUDGET_MS
-// (~15s) of network + executeScript work and needs the larger 30s ceiling.
-// match-transcript is pure CPU on the SW (regex over a transcript array) and
-// should complete in <1s — a 30s wait there always means the worker died, so
-// cut the timeout to 15s to surface dead workers (e.g. Arc/Brave keepalive
-// regressions) faster instead of leaving the user staring at a spinner.
+// Per-type tuning: fetch-transcript and match-transcript are both network-bound
+// (fetch-transcript fetches from YouTube; match-transcript POSTs the transcript
+// to /api/match on the backend). Both need a 30s ceiling to survive large
+// transcripts, Vercel cold starts, and concurrent worker load.
+// index-transcript is also network-bound (Turso write, up to ~40 batch POSTs
+// for a long video) — 30s matches the rest so a Turso latency blip doesn't
+// silently drop the write before it finishes.
+// Dead workers are already caught by sw_message_failed (chrome.runtime.lastError),
+// not by timeouts.
 const SEND_TIMEOUT_MS_BY_TYPE: Record<string, number> = {
   "list-videos": 15_000,
   "fetch-transcript": 30_000,
-  "match-transcript": 15_000,
-  "index-transcript": 20_000,
+  "match-transcript": 30_000,
+  "index-transcript": 30_000,
 };
 const DEFAULT_SEND_TIMEOUT_MS = 30_000;
 

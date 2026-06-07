@@ -72,20 +72,22 @@ class _TursoCursor:
 class _TursoHTTPConnection:
     """Minimal sqlite3-compatible wrapper using Turso HTTP API v2."""
 
-    def __init__(self, url: str, token: str):
+    def __init__(self, url: str, token: str, shared_client=None):
         self._url = url.replace("libsql://", "https://") + "/v2/pipeline"
         self._headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         }
         self._write_queue: List[dict] = []
+        # Service-level shared client (not owned here — don't close in close()).
+        # Falls back to a lazily-created per-connection client for local/test use.
+        self._shared_client = shared_client
         self._client = None
 
     def _http_client(self):
-        # One keep-alive client per connection, reused across every chunk POST.
-        # A fresh httpx.Client per _send meant a new TLS handshake for each of
-        # the ~47 round-trips a long video produces — a major slice of the wall
-        # clock that drove FUNCTION_INVOCATION_TIMEOUTs.
+        if self._shared_client is not None:
+            return self._shared_client
+        # Fallback: own client for local-dev / tests where no shared client is injected.
         if self._client is None:
             import httpx  # deferred — not needed in local-dev path
             self._client = httpx.Client(timeout=60.0)
@@ -139,6 +141,7 @@ class _TursoHTTPConnection:
         if self._client is not None:
             self._client.close()
             self._client = None
+        # _shared_client is owned by TranscriptIndexService — not closed here.
 
 
 def _utc_now_iso() -> str:
@@ -198,6 +201,15 @@ class TranscriptIndexService:
         self.db_path = Path(db_path).expanduser() if db_path else _default_db_path()
         if not self._remote:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Single persistent HTTP client shared across all _TursoHTTPConnection
+        # instances for this service. Sequential index_transcript calls from the
+        # same warm Vercel instance reuse the TLS session instead of paying the
+        # handshake cost on every request — the root cause of the Jun-5 timeout
+        # spike where 45 back-to-back calls each opened a fresh connection.
+        self._shared_http_client = None
+        if self._remote:
+            import httpx
+            self._shared_http_client = httpx.Client(timeout=60.0)
         self.ensure_schema()
 
     def _connect(self):
@@ -205,6 +217,7 @@ class TranscriptIndexService:
             return _TursoHTTPConnection(
                 url=os.environ["TURSO_DATABASE_URL"],
                 token=os.getenv("TURSO_AUTH_TOKEN", ""),
+                shared_client=self._shared_http_client,
             )
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
