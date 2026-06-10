@@ -181,6 +181,15 @@ describe("classifyFailure", () => {
     expect(classifyFailure(["sw-android-no-tracks keys=playabilityStatus"])).toBe("sw_no_tracks");
   });
 
+  it("classifies no_captions when the player was playable/parsed but exposed no tracks", () => {
+    expect(classifyFailure(["sw-android-no-captions keys=playabilityStatus,streamingData"])).toBe("no_captions");
+    expect(classifyFailure(["sw-android-no-captions keys=x", "sw-watch-no-captions"])).toBe("no_captions");
+  });
+
+  it("routes watch-page parse failure to the ambiguous sw_no_tracks bucket", () => {
+    expect(classifyFailure(["sw-android-no-tracks keys=x", "sw-watch-parse-failed"])).toBe("sw_no_tracks");
+  });
+
   it("classifies sw_no_baseurl", () => {
     expect(classifyFailure(["sw-ios-no-baseUrl tracks=2"])).toBe("sw_no_baseurl");
   });

@@ -29,6 +29,20 @@ export function dominantReason(
   return top;
 }
 
+// Users paste keywords with wrapping quotes ("startup"), trailing punctuation
+// ("hello.") or stray whitespace. The matcher's word-boundary regex treats
+// those characters literally, so they guarantee zero results. Strip edge
+// punctuation/quotes and collapse whitespace; never touch interior characters
+// (apostrophes and hyphens inside words must survive: "don't", "re-render").
+const EDGE_PUNCTUATION_RE = /^[\s.,!?;:…¡¿"'“”‘’«»()[\]{}]+|[\s.,!?;:…¡¿"'“”‘’«»()[\]{}]+$/g;
+
+export function cleanKeyword(raw: string): string {
+  const cleaned = raw.replace(EDGE_PUNCTUATION_RE, "").replace(/\s+/g, " ");
+  // All-punctuation input cleans to "" — fall back to the trimmed original so
+  // validation sees what the user sees instead of a confusing "enter a keyword".
+  return cleaned || raw.trim();
+}
+
 export function getPublishedAfterDate(range: TimeRange): string | null {
   if (range === "all") return null;
   const now = new Date();

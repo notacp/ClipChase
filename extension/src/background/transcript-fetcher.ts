@@ -50,6 +50,11 @@ export function classifyFailure(debugStrings: string[]): FailureReason {
   const m = last.match(/^sw-[a-z0-9_]+-(.+)$/);
   const body = m ? m[1] : last.replace(/^sw-/, "");
   if (body.startsWith("status=")) return "sw_blocked";
+  // "no-captions": the player response was playable/parsed but exposed no
+  // caption tracks — the video genuinely has none (Shorts and live streams,
+  // mostly). Distinct from "no-tracks", where we can't rule out bot-gating.
+  if (body.startsWith("no-captions")) return "no_captions";
+  if (body.startsWith("parse-failed")) return "sw_no_tracks";
   if (body.startsWith("no-tracks")) return "sw_no_tracks";
   if (body.startsWith("no-baseUrl")) return "sw_no_baseurl";
   if (body.startsWith("xml-failed") && body.includes("429")) return "xml_429";

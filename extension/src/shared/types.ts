@@ -49,6 +49,7 @@ export interface Transcript {
 export type FailureReason =
   | "sw_blocked"
   | "sw_no_tracks"
+  | "no_captions"
   | "sw_no_baseurl"
   | "xml_429"
   | "xml_status_err"

@@ -334,7 +334,17 @@ async function tryClient(
     if (!res.ok) return { _debug: `${prefix}status=${res.status}` };
     const data = await res.json();
     const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-    if (!tracks?.length) return { _debug: `${prefix}no-tracks keys=${Object.keys(data ?? {}).join(",")}` };
+    if (!tracks?.length) {
+      // A playable response (status OK, streamingData present) without a
+      // `captions` key means the video has no caption tracks at all — typical
+      // for music/no-speech Shorts and live streams. Bot-gated responses look
+      // different (playability not OK, or stripped streamingData), so keep
+      // those in the ambiguous no-tracks bucket.
+      const playable =
+        data?.playabilityStatus?.status === "OK" && data?.streamingData != null;
+      const marker = playable ? "no-captions" : "no-tracks";
+      return { _debug: `${prefix}${marker} keys=${Object.keys(data ?? {}).join(",")}` };
+    }
     const track = pickBestTrack(tracks, preferredLangs);
     if (!track?.baseUrl) return { _debug: `${prefix}no-baseUrl tracks=${tracks.length}` };
     const { xml, err } = await fetchTimedTextXml(track.baseUrl, budget);
@@ -363,6 +373,11 @@ async function fetchTranscriptFromSW(
     const r = await tryClient(videoId, preferredLangs, client, budget);
     perClientDebug.push(r._debug);
     if (r.segments?.length) return { result: r, perClientDebug };
+    // One client proving the video has no captions means they all will
+    // (telemetry shows the three clients always agree on this). Skip the
+    // remaining clients and let the watch-page fallback confirm — saves two
+    // InnerTube calls per captionless Short and spares the shared budget.
+    if (r._debug.includes("no-captions")) break;
   }
   return { result: { _debug: perClientDebug.join("|") }, perClientDebug };
 }
@@ -406,8 +421,12 @@ async function fetchTranscriptFromWatchPage(
     }
     const html = await res.text();
     const player = extractPlayerResponse(html);
+    // Parse failure (consent wall, markup change) is ambiguous; a parsed
+    // player without captions is authoritative — this fetch carries the
+    // user's own cookies, so nothing is bot-stripped.
+    if (!player) return { _debug: `${prefix}parse-failed` };
     const tracks = player?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-    if (!tracks?.length) return { _debug: `${prefix}no-tracks` };
+    if (!tracks?.length) return { _debug: `${prefix}no-captions` };
     const track = pickBestTrack(tracks, preferredLangs);
     if (!track?.baseUrl) return { _debug: `${prefix}no-baseUrl tracks=${tracks.length}` };
     const { xml, err } = await fetchTimedTextXml(track.baseUrl, budget);
