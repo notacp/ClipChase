@@ -194,6 +194,35 @@ def _quote_fts_term(term: str) -> str:
     return '"' + (term or "").replace('"', '""') + '"'
 
 
+def _token_match_queries(term: str) -> List[str]:
+    """One FTS MATCH query per token of `term`. A video must satisfy ALL of
+    them (each possibly in a different segment) to stay a candidate.
+
+    FTS5 MATCH evaluates per row, and each row is one caption segment —
+    YouTube chops auto-captions into 2-5 word segments, so a multi-word
+    phrase routinely spans rows. A single phrase query would reject videos
+    the authoritative sliding-window matcher accepts, which made indexed
+    channels return FEWER results than their first (live-path) search. The
+    pre-filter must stay recall-safe: relax to per-token presence here and
+    let the window matcher downstream re-impose adjacency.
+    """
+    queries: List[str] = []
+    for token in MIXED_TOKEN_RE.findall(term) or [term]:
+        alternatives: List[str] = []
+        seen: Set[str] = set()
+        for candidate in (token, _phonetic_key(token)):
+            if not candidate:
+                continue
+            key = candidate.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            alternatives.append(candidate)
+        if alternatives:
+            queries.append(" OR ".join(_quote_fts_term(a) for a in alternatives))
+    return queries
+
+
 class TranscriptIndexService:
     def __init__(self, db_path: Optional[str] = None):
         # Explicit db_path always uses local SQLite regardless of env vars.
@@ -210,7 +239,13 @@ class TranscriptIndexService:
         if self._remote:
             import httpx
             self._shared_http_client = httpx.Client(timeout=60.0)
-        self.ensure_schema()
+        try:
+            self.ensure_schema()
+        except Exception:
+            if self._shared_http_client is not None:
+                self._shared_http_client.close()
+                self._shared_http_client = None
+            raise
 
     def _connect(self):
         if self._remote:
@@ -551,45 +586,36 @@ class TranscriptIndexService:
         if not video_ids or not cleaned_terms:
             return set()
 
-        # Expand each query term to its pronunciation key so the FTS pre-filter
-        # mirrors what _build_search_text put into the index. Without this the
-        # index has the bridge form but the query never asks for it.
-        expanded: List[str] = []
-        seen: Set[str] = set()
-        for term in cleaned_terms:
-            for candidate in (term, _phonetic_key(term)):
-                if not candidate:
-                    continue
-                k = candidate.casefold()
-                if k in seen:
-                    continue
-                seen.add(k)
-                expanded.append(candidate)
-            for token in MIXED_TOKEN_RE.findall(term):
-                key = _phonetic_key(token)
-                if not key:
-                    continue
-                k = key.casefold()
-                if k in seen:
-                    continue
-                seen.add(k)
-                expanded.append(key)
-
-        placeholders = ",".join("?" for _ in video_ids)
-        match_query = " OR ".join(_quote_fts_term(term) for term in expanded)
-
         conn = self._connect()
         try:
-            rows = conn.execute(
-                f"""
-                SELECT DISTINCT video_id
-                FROM transcript_segments
-                WHERE transcript_segments MATCH ?
-                  AND video_id IN ({placeholders})
-                """,
-                [match_query, *video_ids],
-            ).fetchall()
-            return {row["video_id"] for row in rows}
+            # A term survives if every one of its tokens matches somewhere in
+            # the video (tokens are queried with their pronunciation keys so
+            # the filter mirrors what _build_search_text put into the index).
+            # Terms are script variants of the same keyword, so videos passing
+            # ANY term are candidates.
+            candidates: Set[str] = set()
+            for term in cleaned_terms:
+                survivors: Optional[Set[str]] = None
+                for match_query in _token_match_queries(term):
+                    scope = list(survivors) if survivors is not None else list(video_ids)
+                    if not scope:
+                        break
+                    placeholders = ",".join("?" for _ in scope)
+                    rows = conn.execute(
+                        f"""
+                        SELECT DISTINCT video_id
+                        FROM transcript_segments
+                        WHERE transcript_segments MATCH ?
+                          AND video_id IN ({placeholders})
+                        """,
+                        [match_query, *scope],
+                    ).fetchall()
+                    survivors = {row["video_id"] for row in rows}
+                    if not survivors:
+                        break
+                if survivors:
+                    candidates |= survivors
+            return candidates
         finally:
             conn.close()
 
