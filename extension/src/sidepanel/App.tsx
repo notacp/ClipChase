@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search } from "lucide-react";
 import { SearchResult, TimeRange, ChannelSuggestion, VideoInfo, SortBy, FailureReason } from "../shared/types";
-import { getPublishedAfterDate, dominantReason } from "../shared/utils";
+import { getPublishedAfterDate, dominantReason, cleanKeyword } from "../shared/utils";
 import { send, startKeepalive } from "../shared/messaging";
 import { SearchForm } from "../components/SearchForm";
 import { TimeRangeSelector } from "../components/TimeRangeSelector";
@@ -54,7 +54,16 @@ export function App() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [error, setError] = useState("");
   const [hasSearched, setHasSearched] = useState(false);
-  const [lastSearch, setLastSearch] = useState<{ channel: string; keyword: string } | null>(null);
+  const [lastSearch, setLastSearch] = useState<{
+    channel: string;
+    keyword: string;
+    failureReason?: string | null;
+    // transcriptFailures / videosScanned for the search. Distinguishes "the
+    // dominant failure reason" (could be 1 of 20 videos) from "most videos
+    // failed" — copy that says "most videos…" must check this, not just
+    // failureReason.
+    failureRatio?: number;
+  } | null>(null);
   const [formError, setFormError] = useState("");
   const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem("hasSeenWelcome"));
   const [showReviewPrompt, setShowReviewPrompt] = useState(false);
@@ -176,7 +185,10 @@ export function App() {
     if (formError) setFormError("");
   };
 
-  const runSearch = async () => {
+  // `keyword` parameter deliberately shadows the input state: everything in a
+  // search (API params, matching, telemetry) must use the cleaned form, never
+  // whatever the input field currently holds.
+  const runSearch = async (keyword: string) => {
     // Cancel any in-flight SSE before claiming a new generation.
     searchAbortRef.current?.abort();
     const controller = new AbortController();
@@ -363,8 +375,6 @@ export function App() {
 
       if (superseded()) return;
       if (!videosScanned) videosScanned = unindexedVideos.length + indexedHits;
-
-      setLastSearch({ channel: channelUrl, keyword });
     } catch (err: unknown) {
       if (superseded()) return; // swallow errors from a superseded search
       // Abort fired by a newer search — caller already updated state, ignore.
@@ -407,6 +417,14 @@ export function App() {
             : null;
         const hadAnyTranscript = videosWithTranscript > 0;
         const transcriptFailureReasonTop = dominantReason(failureReasonCounts);
+        if (!searchFailed) {
+          setLastSearch({
+            channel: channelUrl,
+            keyword,
+            failureReason: transcriptFailureReasonTop,
+            failureRatio: videosScanned > 0 ? transcriptFailures / videosScanned : 0,
+          });
+        }
         posthog.capture("search_completed", {
           channel: channelUrl,
           keyword,
@@ -459,7 +477,8 @@ export function App() {
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!channelUrl && !keyword) {
+    const cleanedKeyword = keyword.trim() ? cleanKeyword(keyword) : "";
+    if (!channelUrl && !cleanedKeyword) {
       setFormError("Enter a channel and a keyword to search");
       posthog.capture("search_validation_error", { missing_field: "both" });
       return;
@@ -469,13 +488,16 @@ export function App() {
       posthog.capture("search_validation_error", { missing_field: "channel" });
       return;
     }
-    if (!keyword) {
+    if (!cleanedKeyword) {
       setFormError("Enter a keyword to search for");
       posthog.capture("search_validation_error", { missing_field: "keyword" });
       return;
     }
     setFormError("");
-    await runSearch();
+    // Reflect the cleaned form in the input so the user sees exactly what was
+    // searched (e.g. pasted "startup" loses its quotes visibly).
+    if (cleanedKeyword !== keyword) setKeyword(cleanedKeyword);
+    await runSearch(cleanedKeyword);
   };
 
   return (
@@ -529,7 +551,7 @@ export function App() {
           <p className="text-[11px] leading-relaxed text-yt-red/80">{error}</p>
           <button
             type="button"
-            onClick={runSearch}
+            onClick={() => runSearch(cleanKeyword(keyword))}
             className="mt-3 text-[11px] font-semibold text-yt-red hover:text-white border border-yt-red/40 hover:border-yt-red hover:bg-yt-red px-3 py-2 rounded transition-all"
           >
             Try again
@@ -546,10 +568,22 @@ export function App() {
           <Search className="w-7 h-7 text-yt-tert" strokeWidth={1.4} />
           <p className="text-[12px] text-yt-light-gray leading-relaxed max-w-xs">
             {lastSearch ? (
-              <>
-                No mentions of <span className="text-yt-text font-medium">&ldquo;{lastSearch.keyword}&rdquo;</span><br />
-                in recent videos. Try a different keyword<br />or expand the time range.
-              </>
+              lastSearch.failureReason === "no_tab" || lastSearch.failureReason === "tab_failed" ? (
+                <>
+                  No mentions of <span className="text-yt-text font-medium">&ldquo;{lastSearch.keyword}&rdquo;</span> in indexed videos.<br />
+                  <span className="text-yt-tert">Some videos couldn&rsquo;t be checked — YouTube tab not accessible.</span>
+                </>
+              ) : lastSearch.failureReason === "no_captions" && (lastSearch.failureRatio ?? 0) > 0.5 ? (
+                <>
+                  No mentions of <span className="text-yt-text font-medium">&ldquo;{lastSearch.keyword}&rdquo;</span> in recent videos.<br />
+                  <span className="text-yt-tert">Most videos in this range have no captions — common for Shorts and live streams.</span>
+                </>
+              ) : (
+                <>
+                  No mentions of <span className="text-yt-text font-medium">&ldquo;{lastSearch.keyword}&rdquo;</span><br />
+                  in recent videos. Try a different keyword<br />or expand the time range.
+                </>
+              )
             ) : (
               <>No results found.<br />Try a different keyword or time range.</>
             )}
