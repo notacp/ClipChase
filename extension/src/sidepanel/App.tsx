@@ -45,6 +45,7 @@ export function App() {
   const [channelUrl, setChannelUrl] = useState("");
   const [channelDisplay, setChannelDisplay] = useState("");
   const [suggestions, setSuggestions] = useState<ChannelSuggestion[]>([]);
+  const [suggestionsFailed, setSuggestionsFailed] = useState(false);
   const [isSuggestionsLoading, setIsSuggestionsLoading] = useState(false);
   const [keyword, setKeyword] = useState("");
   const [timeRange, setTimeRange] = useState<TimeRange>("30d");
@@ -95,17 +96,20 @@ export function App() {
     }
     if (channelDisplay.length < 2) {
       setSuggestions([]);
+      setSuggestionsFailed(false);
       setIsSuggestionsLoading(false);
       return;
     }
     const timer = setTimeout(async () => {
       setIsSuggestionsLoading(true);
+      setSuggestionsFailed(false);
       const query = channelDisplay;
       try {
         const res = await fetch(
           `${API_BASE}/api/suggest-channels?q=${encodeURIComponent(query)}`
         );
         if (!res.ok) {
+          setSuggestionsFailed(true);
           if (suggestionFailureLoggedRef.current !== query) {
             suggestionFailureLoggedRef.current = query;
             posthog.capture("suggestion_fetch_failed", {
@@ -125,6 +129,7 @@ export function App() {
           });
         }
       } catch (err: unknown) {
+        setSuggestionsFailed(true);
         if (suggestionFailureLoggedRef.current !== query) {
           suggestionFailureLoggedRef.current = query;
           posthog.capture("suggestion_fetch_failed", {
@@ -170,7 +175,10 @@ export function App() {
     });
   };
 
-  const handleDismissSuggestions = () => setSuggestions([]);
+  const handleDismissSuggestions = () => {
+    setSuggestions([]);
+    setSuggestionsFailed(false);
+  };
 
   const handleChannelInputChange = (value: string) => {
     // User editing the field invalidates any prior suggestion pick.
@@ -517,6 +525,7 @@ export function App() {
         onChannelChange={handleChannelInputChange}
         onDismissSuggestions={handleDismissSuggestions}
         suggestions={suggestions}
+        suggestionsFailed={suggestionsFailed}
         isSuggestionsLoading={isSuggestionsLoading}
         onSelectSuggestion={handleSelectSuggestion}
         keyword={keyword}

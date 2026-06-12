@@ -153,9 +153,32 @@ chrome.runtime.onInstalled.addListener(async (details) => {
         stableId = `cc_${crypto.randomUUID()}`;
         await chrome.storage.local.set({ clipchase_stable_id: stableId });
       }
-      chrome.tabs.create({
-        url: `${LANDING_BASE}/installed?stable_id=${encodeURIComponent(stableId)}`,
-      });
+      // Chrome rejects tabs.create while the user is dragging a tab
+      // ("Tabs cannot be edited right now"). Retry a few times before giving
+      // up — without await the rejection escapes to unhandledrejection and
+      // the user silently gets no onboarding tab.
+      const url = `${LANDING_BASE}/installed?stable_id=${encodeURIComponent(stableId)}`;
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          await chrome.tabs.create({ url });
+          lastError = undefined;
+          break;
+        } catch (tabError) {
+          lastError = tabError;
+          if (attempt < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+          }
+        }
+      }
+      if (lastError !== undefined) {
+        // Awaited like extension_installed above — SW may idle out right
+        // after this handler, losing a fire-and-forget capture.
+        await captureSW("post_install_tab_failed", {
+          error_message:
+            lastError instanceof Error ? lastError.message : String(lastError),
+        });
+      }
     } catch (e) {
       console.warn("[CC] post-install tab failed:", e);
     }

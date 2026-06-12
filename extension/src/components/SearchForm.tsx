@@ -8,6 +8,7 @@ interface SearchFormProps {
   onChannelChange: (value: string) => void;
   onDismissSuggestions: () => void;
   suggestions: ChannelSuggestion[];
+  suggestionsFailed?: boolean;
   isSuggestionsLoading?: boolean;
   onSelectSuggestion: (suggestion: ChannelSuggestion) => void;
   keyword: string;
@@ -24,6 +25,7 @@ export function SearchForm({
   onChannelChange,
   onDismissSuggestions,
   suggestions,
+  suggestionsFailed = false,
   isSuggestionsLoading = false,
   onSelectSuggestion,
   keyword,
@@ -48,7 +50,7 @@ export function SearchForm({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [onDismissSuggestions]);
 
-  const showDropdown = suggestions.length > 0 || isSuggestionsLoading;
+  const showDropdown = suggestions.length > 0 || isSuggestionsLoading || suggestionsFailed;
 
   const inputCls = (focused: boolean) =>
     `w-full pl-9 pr-3 py-2 rounded text-[12px] text-yt-text placeholder:text-yt-tert outline-none transition-all border ${
@@ -97,6 +99,13 @@ export function SearchForm({
                 <li className="px-3 py-2.5 flex items-center gap-2.5">
                   <div className="w-3 h-3 border-2 border-yt-dark-gray border-t-yt-red rounded-full animate-spin shrink-0" />
                   <span className="text-[12px] text-yt-light-gray">Finding channels…</span>
+                </li>
+              ) : suggestionsFailed && suggestions.length === 0 ? (
+                <li className="px-3 py-2.5">
+                  <span className="text-[12px] text-yt-light-gray">
+                    Couldn&apos;t load suggestions — paste the channel URL instead, it works
+                    the same.
+                  </span>
                 </li>
               ) : (
                 suggestions.map((s) => (
