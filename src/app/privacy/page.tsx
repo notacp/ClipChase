@@ -228,12 +228,6 @@ function Footer({ T }: { T: Theme }) {
         </Link>
       </span>
       <div style={{ display: "flex", gap: 20 }}>
-        <Link
-          href="/#how-it-works"
-          style={{ fontSize: 12, color: T.muted, textDecoration: "none" }}
-        >
-          How it works
-        </Link>
         <a
           href={buildInstallUrl("privacy_footer")}
           style={{ fontSize: 12, color: T.muted, textDecoration: "none" }}
@@ -246,36 +240,33 @@ function Footer({ T }: { T: Theme }) {
 }
 
 type Section = {
-  n: string;
   title: string;
   body: React.ReactNode;
 };
 
 const SECTIONS: Section[] = [
   {
-    n: "01",
     title: "Information we collect",
     body: (
       <>
         ClipChase operates primarily as a client-side tool. To search YouTube
-        transcripts, the extension accesses the current YouTube channel and
-        its associated transcript data directly from your browser. We do not
+        transcripts, the extension accesses the current YouTube channel and its
+        associated transcript data directly from your browser. We do not
         collect, store, or sell your personal data.
       </>
     ),
   },
   {
-    n: "02",
     title: "Permissions needed",
     body: (
-      <ul style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 8 }}>
+      <ul style={{ margin: 0, paddingLeft: 20, display: "grid", gap: 10 }}>
         <li>
           <strong>sidePanel:</strong> displays the search interface alongside
           the video without interrupting playback.
         </li>
         <li>
-          <strong>scripting & tabs:</strong> interacts with the current
-          YouTube tab — for example, jumping to a timestamp when a result is
+          <strong>scripting &amp; tabs:</strong> interacts with the current
+          YouTube tab, for example jumping to a timestamp when a result is
           clicked.
         </li>
         <li>
@@ -283,56 +274,52 @@ const SECTIONS: Section[] = [
           requests required for reliable transcript fetching.
         </li>
         <li>
-          <strong>Host permissions:</strong> fetches transcripts of the
-          channel you are searching and communicates with our backend APIs.
+          <strong>Host permissions:</strong> fetches transcripts of the channel
+          you are searching and communicates with our backend APIs.
         </li>
       </ul>
     ),
   },
   {
-    n: "03",
     title: "How your data is handled",
     body: (
       <>
         When you perform a search, the extension may communicate with our
         backend servers to process and deliver phonetic matches. Data
-        transmitted is strictly limited to transcript segments and your
-        search query. We do not tie this data to your identity, IP address,
-        or user account.
+        transmitted is strictly limited to transcript segments and your search
+        query. We do not tie this data to your identity, IP address, or user
+        account.
       </>
     ),
   },
   {
-    n: "04",
-    title: "Third-party services & analytics",
+    title: "Third-party services and analytics",
     body: (
       <>
-        ClipChase interacts with YouTube&apos;s services to function. Your
-        use of YouTube is governed by YouTube&apos;s Terms of Service and
-        Privacy Policy. ClipChase is not affiliated with, endorsed, or
-        sponsored by YouTube.
+        ClipChase interacts with YouTube&apos;s services to function. Your use
+        of YouTube is governed by YouTube&apos;s Terms of Service and Privacy
+        Policy. ClipChase is not affiliated with, endorsed, or sponsored by
+        YouTube.
         <br />
         <br />
-        We use PostHog to collect anonymous, aggregated usage analytics to
-        help improve the extension. This data does not contain personally
+        We use PostHog to collect anonymous, aggregated usage analytics to help
+        improve the extension. This data does not contain personally
         identifiable information.
       </>
     ),
   },
   {
-    n: "05",
     title: "Changes to this policy",
     body: (
       <>
-        We may update this Privacy Policy from time to time to reflect
-        changes in our practices or for other operational, legal, or
-        regulatory reasons. We will notify you of any material changes by
-        updating the &ldquo;last updated&rdquo; date below.
+        We may update this Privacy Policy from time to time to reflect changes
+        in our practices or for other operational, legal, or regulatory reasons.
+        We will notify you of any material changes by updating the last updated
+        date below.
       </>
     ),
   },
   {
-    n: "06",
     title: "Contact",
     body: (
       <>
@@ -364,113 +351,86 @@ export default function PrivacyPolicy() {
     >
       <Nav T={T} dark={dark} onToggle={() => setDark((d) => !d)} />
 
-      <section
+      <main
+        className="privacy-main"
         style={{
-          maxWidth: 1120,
+          maxWidth: 720,
           margin: "0 auto",
-          padding: "96px 48px 48px",
+          padding: "80px 48px 96px",
         }}
       >
-        <div
-          style={{
-            fontFamily: MONO,
-            fontSize: 11,
-            color: ACCENT,
-            fontWeight: 600,
-            letterSpacing: "0.1em",
-            textTransform: "uppercase",
-            marginBottom: 16,
-          }}
-        >
-          Legal · Privacy
-        </div>
-        <h1
-          style={{
-            margin: "0 0 16px",
-            fontSize: "clamp(36px, 4.5vw, 56px)",
-            fontWeight: 800,
-            letterSpacing: "-0.045em",
-            lineHeight: 1.0,
-          }}
-        >
-          Privacy Policy
-        </h1>
-        <p
-          style={{
-            margin: 0,
-            fontSize: 16,
-            color: T.sub,
-            maxWidth: 560,
-            lineHeight: 1.6,
-          }}
-        >
-          Everything ClipChase collects, what it does with that data, and the
-          permissions it requests from your browser.
-        </p>
-        <div
-          style={{
-            marginTop: 32,
-            fontFamily: MONO,
-            fontSize: 12,
-            color: T.muted,
-          }}
-        >
-          Last updated · 2026-04-26
-        </div>
-      </section>
+        <header style={{ marginBottom: 56 }}>
+          <h1
+            style={{
+              margin: "0 0 16px",
+              fontSize: "clamp(32px, 4vw, 48px)",
+              fontWeight: 800,
+              letterSpacing: "-0.04em",
+              lineHeight: 1.05,
+              textWrap: "balance",
+            }}
+          >
+            Privacy Policy
+          </h1>
+          <p
+            style={{
+              margin: "0 0 20px",
+              fontSize: 16,
+              color: T.sub,
+              lineHeight: 1.65,
+              maxWidth: "60ch",
+            }}
+          >
+            Everything ClipChase collects, what it does with that data, and the
+            permissions it requests from your browser.
+          </p>
+          <span
+            style={{
+              fontFamily: MONO,
+              fontSize: 12,
+              color: T.muted,
+            }}
+          >
+            Last updated · 2026-04-26
+          </span>
+        </header>
 
-      <section
-        style={{
-          maxWidth: 1120,
-          margin: "0 auto",
-          padding: "0 48px 96px",
-        }}
-      >
         <div
-          className="privacy-grid"
           style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(2, 1fr)",
             borderTop: `1px solid ${T.border}`,
           }}
         >
-          {SECTIONS.map((s, i) => (
+          {SECTIONS.map((s) => (
             <article
-              key={s.n}
+              key={s.title}
               style={{
-                padding: 28,
+                padding: "32px 0",
                 borderBottom: `1px solid ${T.border}`,
-                borderRight:
-                  i % 2 === 0 ? `1px solid ${T.border}` : "none",
+                display: "grid",
+                gridTemplateColumns: "200px 1fr",
+                gap: "24px 48px",
+                alignItems: "start",
               }}
+              className="privacy-section"
             >
-              <div
-                style={{
-                  fontFamily: MONO,
-                  fontSize: 11,
-                  color: ACCENT,
-                  fontWeight: 600,
-                  marginBottom: 12,
-                  letterSpacing: "0.05em",
-                }}
-              >
-                {s.n}
-              </div>
               <h2
                 style={{
-                  margin: "0 0 12px",
-                  fontSize: 17,
-                  fontWeight: 700,
-                  letterSpacing: "-0.02em",
+                  margin: 0,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  letterSpacing: "-0.01em",
+                  lineHeight: 1.4,
+                  color: T.text,
+                  paddingTop: 2,
                 }}
               >
                 {s.title}
               </h2>
               <div
                 style={{
-                  fontSize: 14,
+                  fontSize: 15,
                   color: T.sub,
-                  lineHeight: 1.7,
+                  lineHeight: 1.75,
                 }}
               >
                 {s.body}
@@ -478,17 +438,19 @@ export default function PrivacyPolicy() {
             </article>
           ))}
         </div>
-      </section>
+      </main>
 
       <Footer T={T} />
 
-      <style jsx>{`
-        @media (max-width: 720px) {
-          :global(.privacy-grid) {
+      <style>{`
+        @media (max-width: 600px) {
+          .privacy-section {
             grid-template-columns: 1fr !important;
+            gap: 12px !important;
           }
-          :global(.privacy-grid > article) {
-            border-right: none !important;
+          .privacy-main {
+            padding-left: 24px !important;
+            padding-right: 24px !important;
           }
         }
       `}</style>

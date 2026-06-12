@@ -2,8 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body {
+html,
+body {
   font-family: var(--font-sans), system-ui, sans-serif;
+  overflow-x: clip;
 }
 
 ::-webkit-scrollbar {
@@ -14,31 +16,40 @@ html, body {
   border-radius: 2px;
 }
 
-@media (max-width: 860px) {
-  .hero-grid {
+/* ── Workbench page — responsive ─────────────────────────────── */
+
+@media (max-width: 768px) {
+  .nav-n9 {
+    padding: 0 20px !important;
+  }
+  .hero-section {
     grid-template-columns: 1fr !important;
-    gap: 48px !important;
-    padding: 72px 24px 64px !important;
+    padding: 48px 24px 56px !important;
+    gap: 40px 0 !important;
   }
-  .hero-grid > div:last-child {
-    justify-self: center !important;
+  .spec-sheet-section {
+    padding: 48px 24px 64px !important;
   }
-  .feature-grid {
-    grid-template-columns: repeat(2, 1fr) !important;
-  }
-  .steps-grid {
+  .use-case-grid {
     grid-template-columns: 1fr !important;
   }
-  .steps-grid > div {
-    border-right: none !important;
+  .site-footer {
+    padding: 20px 24px !important;
+  }
+  .sticky-cta-bar {
+    padding: 10px 20px !important;
   }
 }
 
 @media (max-width: 560px) {
-  .feature-grid {
+  .spec-row {
     grid-template-columns: 1fr !important;
+    gap: 4px 0 !important;
   }
-  .feature-grid > div {
-    border-right: none !important;
+  .sticky-cta-label {
+    display: none !important;
+  }
+  .sticky-cta-bar {
+    justify-content: space-between !important;
   }
 }
