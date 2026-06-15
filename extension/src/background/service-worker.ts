@@ -385,7 +385,7 @@ async function tryClient(
   }
 }
 
-async function fetchTranscriptFromSW(
+export async function fetchTranscriptFromSW(
   videoId: string,
   preferredLangs: string[],
   budget: AbortSignal,
@@ -488,7 +488,7 @@ function buildTranscript(extracted: ExtractResult): Transcript | null {
   };
 }
 
-async function handleFetchTranscript(
+export async function handleFetchTranscript(
   videoId: string,
   preferredLangs: string[],
 ): Promise<FetchTranscriptResult> {
