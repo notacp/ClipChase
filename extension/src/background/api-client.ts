@@ -32,10 +32,3 @@ export const indexTranscript = (
   params: IndexTranscriptParams,
 ): Promise<IndexTranscriptResponse> =>
   postJson<IndexTranscriptResponse>("/api/index/transcript", params);
-
-export async function fetchTranscript(videoId: string, lang = "en"): Promise<import("../shared/types").Transcript | null> {
-  const r = await fetch(`${API_BASE}/api/transcript/${videoId}?lang=${lang}`);
-  if (r.status === 404) return null;
-  if (!r.ok) throw new Error(`transcript ${r.status}`);
-  return r.json();
-}

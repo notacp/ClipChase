@@ -1,8 +1,24 @@
 import os
+import re
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set
+
+
+# commit() routes each queued write into an ordered phase by matching its SQL.
+# Tolerant of `INSERT OR REPLACE` and extra whitespace: a brittle startswith that
+# silently mis-routed would either de-parallelise the hot path or break
+# DELETE-before-INSERT ordering. (An explicit per-statement phase tag would be
+# cleaner, but execute() must stay drop-in compatible with
+# sqlite3.Connection.execute, which takes no such argument.)
+_SEGMENT_INSERT_RE = re.compile(
+    r"^\s*INSERT(\s+OR\s+\w+)?\s+INTO\s+transcript_segments\b", re.IGNORECASE
+)
+_META_INSERT_RE = re.compile(
+    r"^\s*INSERT(\s+OR\s+\w+)?\s+INTO\s+indexed_transcripts\b", re.IGNORECASE
+)
 
 from .youtube import (
     DEVANAGARI_TOKEN_RE,
@@ -129,12 +145,104 @@ class _TursoHTTPConnection:
     # retry since every write is an upsert.
     _BATCH_SIZE = 100
 
+    # A 4000-segment video is ~40 segment batches. Sent SEQUENTIALLY, total
+    # wall-time = 40 x (round-trip + Turso processing), which on higher-latency
+    # clients (telemetry: Windows Chrome ~2.8x Mac) routinely outran the side
+    # panel's 30s deadman → the index_transcript_failed/sw_timeout cascade.
+    # Segment inserts are mutually independent, so fan them out concurrently and
+    # overlap the round-trips. Capped so we don't open 40 connections at once.
+    _MAX_CONCURRENT_BATCHES = 8
+
+    # Per-commit fan-out is bounded above, but TranscriptIndexService is a
+    # process singleton sharing ONE httpx.Client: under concurrent index
+    # requests N commits would otherwise drive N x _MAX_CONCURRENT_BATCHES
+    # simultaneous POSTs and exhaust the client's connection pool, re-triggering
+    # the very timeout cascade this concurrency was added to fix. This
+    # process-global semaphore caps total in-flight segment POSTs across all
+    # commits regardless of how many run at once.
+    _GLOBAL_MAX_INFLIGHT = 16
+    _global_batch_semaphore = threading.BoundedSemaphore(_GLOBAL_MAX_INFLIGHT)
+
+    @staticmethod
+    def _phase(req: dict) -> str:
+        """Ordering phase for a queued write:
+        - 'segments' : INSERT INTO transcript_segments — order-independent bulk.
+        - 'post'     : the indexed_transcripts marker — written LAST, so a
+                       partially-failed index never leaves a marker pointing at
+                       zero stored segments (which get_indexed_video_ids would
+                       misclassify as 'indexed', silently returning zero matches).
+        - 'pre'      : everything else (channel/video upserts + the DELETEs that
+                       clear a video's old segments AND its old marker) — must
+                       land before the segment inserts.
+        """
+        if req.get("type") != "execute":
+            return "pre"
+        sql = req["stmt"]["sql"]
+        if _SEGMENT_INSERT_RE.match(sql):
+            return "segments"
+        if _META_INSERT_RE.match(sql):
+            return "post"
+        return "pre"
+
     def commit(self) -> None:
         if not self._write_queue:
             return
         queue, self._write_queue = self._write_queue, []
-        for start in range(0, len(queue), self._BATCH_SIZE):
-            self._send(queue[start:start + self._BATCH_SIZE] + [{"type": "close"}])
+
+        # Single pass partition into the three ordered phases.
+        pre: List[dict] = []
+        segments: List[dict] = []
+        post: List[dict] = []
+        bucket = {"segments": segments, "post": post}
+        for req in queue:
+            bucket.get(self._phase(req), pre).append(req)
+
+        # Phase 1 — channel/video upserts + the DELETEs clearing old segments and
+        # the old marker. Sequential and first: a DELETE racing behind a parallel
+        # INSERT would wipe freshly written rows.
+        self._send_sequential(pre)
+        # Phase 2 — order-independent segment inserts, fanned out (globally bounded).
+        self._send_parallel(segments)
+        # Phase 3 — the indexed_transcripts marker, LAST. Reached only if Phase 2
+        # didn't raise, so a failed index leaves no marker and falls through to
+        # the live path instead of returning zero matches.
+        self._send_sequential(post)
+
+    def _send_sequential(self, requests: List[dict]) -> None:
+        for start in range(0, len(requests), self._BATCH_SIZE):
+            self._send(requests[start:start + self._BATCH_SIZE] + [{"type": "close"}])
+
+    def _send_one_bounded(self, batch: List[dict]) -> None:
+        # Cap total concurrent segment POSTs across ALL commits sharing the client.
+        with self._global_batch_semaphore:
+            self._send(batch + [{"type": "close"}])
+
+    def _send_parallel(self, requests: List[dict]) -> None:
+        batches = [
+            requests[start:start + self._BATCH_SIZE]
+            for start in range(0, len(requests), self._BATCH_SIZE)
+        ]
+        if len(batches) <= 1:
+            if batches:
+                self._send_one_bounded(batches[0])
+            return
+
+        from concurrent.futures import (
+            FIRST_EXCEPTION,
+            ThreadPoolExecutor,
+            wait,
+        )
+
+        workers = min(self._MAX_CONCURRENT_BATCHES, len(batches))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(self._send_one_bounded, b) for b in batches]
+            done, not_done = wait(futures, return_when=FIRST_EXCEPTION)
+            # On first failure, cancel batches that haven't started — limits the
+            # partial write and surfaces the error without waiting on slow peers.
+            for future in not_done:
+                future.cancel()
+            for future in done:
+                future.result()  # re-raise the first failure
 
     def close(self) -> None:
         self._write_queue.clear()
@@ -362,6 +470,16 @@ class TranscriptIndexService:
         if not any(_normalize_text(s.get("text", "")) for s in segments):
             return False
 
+        # Clear the old marker up front (program order: before the re-insert
+        # below, so the atomic local-sqlite path stays correct). On the remote
+        # Turso path commit() routes this DELETE to the pre-phase and the INSERT
+        # to the post-phase, so if the segment writes fail in between, no marker
+        # survives — the video falls through to the live path instead of being
+        # classified 'indexed' with zero stored segments.
+        conn.execute(
+            "DELETE FROM indexed_transcripts WHERE video_id = ? AND language_code = ?",
+            (video_id, language_code),
+        )
         conn.execute(
             """
             INSERT INTO indexed_transcripts (

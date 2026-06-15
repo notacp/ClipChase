@@ -65,3 +65,49 @@ class TestFindCandidateVideoIds:
         _index_video(service, "v1", ["machine learning content"])
         assert service.find_candidate_video_ids([], ["machine learning"]) == set()
         assert service.find_candidate_video_ids(["v1"], [""]) == set()
+
+
+class TestGetIndexedVideoIds:
+    """Locks fix 1773b5a (the orphan JOIN). get_indexed_video_ids must JOIN
+    indexed_transcripts so a metadata-only video row (left behind by a failed
+    transcript fetch in a prior index run) is NOT classified 'indexed' — else it
+    never falls through to the live path and the channel returns zero matches
+    even though the videos are perfectly searchable. Dropping the JOIN passes
+    every other test, so guard it explicitly."""
+
+    def test_metadata_only_video_is_not_indexed(self, service):
+        service.upsert_channel("chan1", "https://youtube.com/@chan1")
+        service.upsert_video(
+            "chan1",
+            {"id": "v1", "title": "t", "publishedAt": "2026-01-01T00:00:00Z", "thumbnail": ""},
+        )
+        # Row exists in indexed_videos but has no transcript -> must not count.
+        assert service.get_indexed_video_ids("chan1", ["v1"]) == set()
+
+    def test_video_with_transcript_is_indexed(self, service):
+        _index_video(service, "v1", ["machine learning content"])
+        assert service.get_indexed_video_ids("chan1", ["v1"]) == {"v1"}
+
+
+class TestGetIndexedLanguages:
+    """Locks fix 7e12116. get_indexed_languages resolves the stored language set
+    in ONE query; callers use it to fetch only languages a video actually has
+    instead of brute-forcing get_transcript across ~25 (order x lang) combos —
+    each a fresh Turso connection. Guards against that N+1 creeping back."""
+
+    def test_returns_all_stored_languages(self, service):
+        service.cache_video_transcripts(
+            channel_id="chan1",
+            source_url="https://youtube.com/@chan1",
+            video={"id": "v1", "title": "t", "publishedAt": "2026-01-01T00:00:00Z", "thumbnail": ""},
+            transcripts=[
+                {"language_code": "en", "language_label": "English", "is_generated": True,
+                 "segments": [{"text": "hello world", "start": 0.0, "duration": 1.0}]},
+                {"language_code": "hi", "language_label": "Hindi", "is_generated": True,
+                 "segments": [{"text": "नमस्ते दुनिया", "start": 0.0, "duration": 1.0}]},
+            ],
+        )
+        assert service.get_indexed_languages("v1") == {"en", "hi"}
+
+    def test_empty_for_unknown_video(self, service):
+        assert service.get_indexed_languages("nope") == set()
