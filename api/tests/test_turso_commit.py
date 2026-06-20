@@ -1,18 +1,21 @@
 """Regression tests for the Turso write-commit path (_TursoHTTPConnection.commit).
 
-These lock the fix for the production `index_transcript_failed`/sw_timeout
-cascade: large auto-caption transcripts (4000+ segments) committed as ~40
-SEQUENTIAL Turso batch POSTs outran the side panel's 30s deadman, worst on
-Windows Chrome (~40x per-round-trip latency amplification). The fix commits the
-segment-insert batches CONCURRENTLY (bounded), so total wall-time stops scaling
-linearly with the number of batches.
+Turso (libsql) is a single-writer database. Concurrent HTTP POSTs that each
+carry write statements fight for the write lock and produce "database is locked"
+500s on Vercel, which cascades into extension SW timeouts.
+
+The fix: ALL writes (pre, segments, post) are sent SEQUENTIALLY — one pipeline
+POST at a time — never in parallel. This is the Python equivalent of Turso's JS
+`db.batch()` API.
+
+These tests lock that guarantee. Any future refactor that re-introduces
+concurrent write POSTs (ThreadPoolExecutor, asyncio.gather, etc.) MUST fail
+`test_writes_are_strictly_sequential` — that is the regression sentinel.
 
 The existing test_transcript_index.py tests run against LOCAL sqlite and never
 touch _TursoHTTPConnection at all — which is exactly why this path was patched
-four times without a test catching the regression. These tests drive the remote
-adapter directly through a fake Turso HTTP server backed by an in-memory sqlite,
-so correctness (no DELETE wiping freshly-inserted rows) and concurrency are both
-verified against the real commit() code.
+several times without a test catching the regression. These tests drive the
+remote adapter through a fake Turso HTTP server backed by an in-memory sqlite.
 """
 
 import sqlite3
@@ -27,6 +30,10 @@ from api.app.services.transcript_index import (
     _encode_value,
 )
 
+
+# ---------------------------------------------------------------------------
+# Wire-encoding correctness
+# ---------------------------------------------------------------------------
 
 class TestEncodeValueWireType:
     """Locks fix d6f7e19. Every transcript segment carries float start/duration;
@@ -55,6 +62,10 @@ class TestEncodeValueWireType:
         assert _encode_value(False) == {"type": "integer", "value": "0"}
 
 
+# ---------------------------------------------------------------------------
+# Fake Turso HTTP server
+# ---------------------------------------------------------------------------
+
 def _decode_arg(arg: dict):
     """Inverse of transcript_index._encode_value."""
     t = arg.get("type")
@@ -79,15 +90,16 @@ class _FakeResp:
 class FakeTursoHTTP:
     """Stands in for httpx.Client against Turso's /v2/pipeline endpoint.
 
-    Applies each pipeline's statements to a shared in-memory sqlite DB (guarded
-    by a lock, since the fix fires POSTs from multiple threads) and records call
-    ordering + peak concurrency so tests can assert both correctness and that
-    the commit actually parallelised.
+    Applies each pipeline's statements to a shared in-memory sqlite DB and
+    records call ordering and peak concurrency so tests can assert that writes
+    are strictly sequential (peak_concurrency == 1 at all times).
     """
 
-    # Simulated per-round-trip network latency. The whole point of the fix is to
-    # overlap these instead of paying them serially, so make it long enough that
-    # concurrent batches reliably overlap.
+    # Simulated per-round-trip network latency. Without this, POSTs complete
+    # in microseconds and concurrent threads never overlap — the concurrency
+    # tests would pass even without the global write lock, proving nothing.
+    # Keep it long enough that concurrent batches would reliably overlap if
+    # the lock were removed.
     LATENCY_S = 0.02
 
     def __init__(self, fail_on_segment: bool = False):
@@ -103,9 +115,7 @@ class FakeTursoHTTP:
 
         self._counter_lock = threading.Lock()
         self._in_flight = 0
-        self.peak_concurrency = 0
-        self._segment_in_flight = 0
-        self.segment_peak = 0  # peak concurrent segment-insert POSTs (semaphore)
+        self.peak_concurrency = 0          # must stay == 1 for sequential writes
         self.received_batches: list[list[dict]] = []  # in receive order
 
     @staticmethod
@@ -124,13 +134,11 @@ class FakeTursoHTTP:
         with self._counter_lock:
             self._in_flight += 1
             self.peak_concurrency = max(self.peak_concurrency, self._in_flight)
-            if is_segment:
-                self._segment_in_flight += 1
-                self.segment_peak = max(self.segment_peak, self._segment_in_flight)
             self.received_batches.append(requests)
         try:
-            # Network latency happens OUTSIDE the db lock so concurrent batches
-            # genuinely overlap — this is what the fix is supposed to exploit.
+            # Simulate network latency OUTSIDE the db lock so concurrent
+            # threads would genuinely overlap if the global write lock in
+            # _send_sequential were removed.
             time.sleep(self.LATENCY_S)
             with self._db_lock:
                 for req in requests:
@@ -143,8 +151,6 @@ class FakeTursoHTTP:
         finally:
             with self._counter_lock:
                 self._in_flight -= 1
-                if is_segment:
-                    self._segment_in_flight -= 1
         return _FakeResp()
 
     def segment_count(self, video_id: str, language_code: str) -> int:
@@ -172,9 +178,6 @@ def _queue_index(conn: _TursoHTTPConnection, video_id: str, n_segments: int) -> 
     """Mirror the statement order TranscriptIndexService queues for one video:
     channel/video/transcript-meta upserts, the DELETE that clears old segments,
     then one INSERT per segment."""
-    # INSERT OR REPLACE mirrors the ON CONFLICT DO UPDATE upserts the real
-    # service queues, so re-indexing the same channel/video doesn't trip a
-    # UNIQUE constraint.
     conn.execute(
         "INSERT OR REPLACE INTO indexed_channels (channel_id, source_url, indexed_at) VALUES (?, ?, ?)",
         ("chan1", "https://youtube.com/@chan1", "2026-01-01T00:00:00Z"),
@@ -213,56 +216,100 @@ def _segment_insert_batches(received: list[list[dict]]) -> list[list[dict]]:
     return out
 
 
-class TestParallelCommit:
+# ---------------------------------------------------------------------------
+# Sequential-write sentinel — the primary regression lock
+# ---------------------------------------------------------------------------
+
+class TestSequentialWrites:
+    """Locks the single-writer guarantee.
+
+    Turso is single-writer. ANY concurrent write POSTs (ThreadPoolExecutor,
+    asyncio.gather, Promise.all equivalent) cause write-lock 500s on Vercel
+    and cascade into extension SW timeouts.
+
+    peak_concurrency must be exactly 1 for every commit, no matter how large
+    the transcript. If any future refactor re-introduces parallel sends, these
+    tests MUST fail — that is their entire purpose.
+    """
+
+    def test_large_transcript_never_sends_concurrent_posts(self):
+        # 4000 segments = 8 batches of 500. If sent in parallel, peak > 1.
+        fake = FakeTursoHTTP()
+        conn = _remote_conn(fake)
+        _queue_index(conn, "vbig", 4000)
+        conn.commit()
+        assert fake.peak_concurrency == 1, (
+            f"peak_concurrency={fake.peak_concurrency} — writes must be sequential. "
+            "Re-introducing ThreadPoolExecutor or any parallel send re-triggers the "
+            "Turso write-lock 500s and SW timeout cascade."
+        )
+
+    def test_medium_transcript_never_sends_concurrent_posts(self):
+        # 1500 segments = 3 batches of 500.
+        fake = FakeTursoHTTP()
+        conn = _remote_conn(fake)
+        _queue_index(conn, "vmed", 1500)
+        conn.commit()
+        assert fake.peak_concurrency == 1
+
+    def test_concurrent_index_calls_still_sequential_per_commit(self):
+        """Multiple simultaneous index_transcript requests (e.g. concurrent
+        Vercel invocations) must each send their own writes sequentially.
+        They share an httpx.Client but must never interleave write POSTs.
+
+        Uses 1500 segments per commit (= 3 batches of 500 each) and 20ms
+        simulated latency per POST. Without the global write lock, 4 threads
+        x 3 batches = 12 near-simultaneous POSTs → peak would hit 4+.
+        With the lock, peak must stay at 1."""
+        fake = FakeTursoHTTP()
+
+        def run(vid: str):
+            conn = _remote_conn(fake)
+            _queue_index(conn, vid, 1500)  # 3 segment batches of 500
+            conn.commit()
+
+        threads = [threading.Thread(target=run, args=(f"vc{i}",)) for i in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert fake.peak_concurrency == 1, (
+            f"peak_concurrency={fake.peak_concurrency} — concurrent callers must not "
+            "produce overlapping write POSTs. If this fails, the global write lock "
+            "was removed or bypassed."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Correctness: data integrity
+# ---------------------------------------------------------------------------
+
+class TestCommitCorrectness:
     def test_large_transcript_stores_every_segment(self):
-        # The headline failure: a 4000+ segment auto-caption video. Must persist
-        # in full — no DELETE racing ahead of inserts, no dropped batch.
+        # 4000-segment auto-caption video must persist in full.
         fake = FakeTursoHTTP()
         conn = _remote_conn(fake)
         _queue_index(conn, "vbig", 4000)
         conn.commit()
         assert fake.segment_count("vbig", "en") == 4000
 
-    def test_segment_batches_commit_concurrently(self):
-        # The fix: with many batches, segment-insert POSTs must overlap. On the
-        # old sequential commit() peak concurrency is exactly 1 — this is the
-        # assertion that fails before the fix.
-        fake = FakeTursoHTTP()
-        conn = _remote_conn(fake)
-        _queue_index(conn, "vpar", 1500)  # 15 segment batches at _BATCH_SIZE=100
-        conn.commit()
-        assert fake.peak_concurrency > 1
-
-    def test_concurrency_is_bounded(self):
-        # Don't unleash 40 simultaneous connections at Turso — cap the fan-out.
-        fake = FakeTursoHTTP()
-        conn = _remote_conn(fake)
-        _queue_index(conn, "vcap", 4000)  # 40 segment batches
-        conn.commit()
-        assert fake.peak_concurrency <= _TursoHTTPConnection._MAX_CONCURRENT_BATCHES
-
     def test_delete_lands_before_any_segment_insert(self):
-        # Correctness hazard introduced by parallelism: the per-video DELETE that
-        # clears old segments MUST complete before any new INSERT, or a DELETE
-        # landing late wipes freshly written rows. Verified two ways: ordering of
-        # received batches, and the final row count after re-indexing over an
-        # existing transcript.
+        # The DELETE clearing old segments MUST arrive before any new INSERTs,
+        # or stale rows survive a re-index.
         fake = FakeTursoHTTP()
 
-        # Pre-existing index for the same video (stale rows to be replaced).
+        # First index.
         conn1 = _remote_conn(fake)
         _queue_index(conn1, "vrep", 50)
         conn1.commit()
         assert fake.segment_count("vrep", "en") == 50
 
-        # Re-index with a different segment count; DELETE must clear the old 50
-        # before the new 300 land. Reset the receive log so we inspect only the
-        # second commit's batch ordering.
+        # Re-index with different count; DELETE must precede inserts.
         fake.received_batches.clear()
         conn2 = _remote_conn(fake)
         _queue_index(conn2, "vrep", 300)
         conn2.commit()
-        # If the DELETE raced behind the inserts, this would be < 300 (often 0).
         assert fake.segment_count("vrep", "en") == 300
 
         def _is_delete(batch):
@@ -277,75 +324,24 @@ class TestParallelCommit:
         first_seg_idx = next(
             i for i, b in enumerate(fake.received_batches) if b in seg_batches
         )
-        # DELETE-bearing preamble batch is received before any segment INSERT.
         assert delete_idx < first_seg_idx
         assert seg_batches  # sanity: inserts actually happened
 
 
-class _ErrResp:
-    def __init__(self, status_code: int, text: str):
-        self.status_code = status_code
-        self.text = text
-
-    @staticmethod
-    def json():
-        return {"results": []}
-
-
-class _ErrTursoHTTP:
-    """Returns a >=400 with a Turso error body, to exercise the _send error
-    branch that the FakeTursoHTTP (always 200) and the router test (mocks the
-    service) both skip."""
-
-    def __init__(self, status_code=400, text='invalid type: string "0.0", expected f64'):
-        self._resp = _ErrResp(status_code, text)
-
-    def post(self, url, headers=None, json=None):  # noqa: A002
-        return self._resp
-
-
-class TestSendErrorSurfacing:
-    """Locks fix be1cdf0. _send must raise with Turso's actual error BODY, not a
-    bare status — reverting to response.raise_for_status() (which drops the body)
-    must fail a test, or we go back to debugging '400 Bad Request' blind."""
-
-    def test_send_raises_with_turso_error_body(self):
-        conn = _TursoHTTPConnection(
-            url="libsql://fake", token="tok", shared_client=_ErrTursoHTTP()
-        )
-        conn.execute("INSERT INTO indexed_channels (channel_id, source_url, indexed_at) VALUES (?,?,?)", ("c", "u", "t"))
-        with pytest.raises(Exception) as exc:
-            conn.commit()
-        msg = str(exc.value)
-        assert "400" in msg
-        assert "expected f64" in msg  # the body, not just the status
-
-
-class TestSharedHttpClient:
-    """Locks fix 3d43a8e. Connections must reuse the injected shared httpx.Client
-    instead of each opening its own — per-connection TLS handshakes were the
-    Jun-5 timeout spike (45 back-to-back index calls). Reverting to a
-    per-connection client would make _http_client() create a private _client."""
-
-    def test_connections_reuse_injected_client(self):
-        fake = FakeTursoHTTP()
-        c1 = _remote_conn(fake)
-        c2 = _remote_conn(fake)
-        assert c1._http_client() is fake
-        assert c2._http_client() is fake
-        # No private per-connection client was lazily created.
-        assert c1._client is None and c2._client is None
-
-
-@pytest.mark.parametrize("n_segments", [0, 1, 99, 100, 101])
+@pytest.mark.parametrize("n_segments", [0, 1, 99, 100, 101, 499, 500, 501])
 def test_small_and_boundary_sizes_round_trip(n_segments):
-    # The fix must not regress the common small-video path or batch boundaries.
+    # Sequential commit must not regress small videos or BATCH_SIZE boundaries.
     fake = FakeTursoHTTP()
     conn = _remote_conn(fake)
     _queue_index(conn, f"v{n_segments}", n_segments)
     conn.commit()
     assert fake.segment_count(f"v{n_segments}", "en") == n_segments
+    assert fake.peak_concurrency <= 1  # 0 if no segments, 1 otherwise
 
+
+# ---------------------------------------------------------------------------
+# Partial failure: no stale marker
+# ---------------------------------------------------------------------------
 
 def _transcript(n_segments: int) -> dict:
     return {
@@ -398,9 +394,13 @@ class TestPartialFailureLeavesNoMarker:
         assert fake.segment_count("vrep", "en") == 0
 
 
+# ---------------------------------------------------------------------------
+# Phase routing
+# ---------------------------------------------------------------------------
+
 class TestPhaseRouting:
     """Code-review finding 3. Phase routing tolerates INSERT OR REPLACE / case /
-    whitespace, so a spelling change can't silently de-parallelise segments or
+    whitespace, so a spelling change can't silently mis-route segments or
     break DELETE-before-INSERT ordering."""
 
     def _phase(self, sql: str) -> str:
@@ -421,32 +421,64 @@ class TestPhaseRouting:
         assert _TursoHTTPConnection._phase({"type": "close"}) == "pre"
 
 
-def test_segment_concurrency_bounded_globally_across_commits():
-    """Code-review finding 2. _MAX_CONCURRENT_BATCHES bounds ONE commit; the
-    process-global semaphore must bound segment POSTs across ALL concurrent
-    commits sharing the singleton client."""
-    cap = _TursoHTTPConnection._GLOBAL_MAX_INFLIGHT
-    n_commits = 4
-    # Demand must provably exceed the cap, or this test proves nothing — without
-    # the semaphore, n_commits x per-commit workers POSTs would run at once.
-    demand = n_commits * _TursoHTTPConnection._MAX_CONCURRENT_BATCHES
-    assert demand > cap
+# ---------------------------------------------------------------------------
+# HTTP error surfacing
+# ---------------------------------------------------------------------------
 
-    fake = FakeTursoHTTP()
+class _ErrResp:
+    def __init__(self, status_code: int, text: str):
+        self.status_code = status_code
+        self.text = text
 
-    def run(vid: str):
-        conn = _remote_conn(fake)
-        _queue_index(conn, vid, 1500)  # 15 segment batches per commit
-        conn.commit()
+    @staticmethod
+    def json():
+        return {"results": []}
 
-    threads = [threading.Thread(target=run, args=(f"vc{i}",)) for i in range(n_commits)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
 
-    # The cap holds despite demand far exceeding it. Removing the semaphore wrap
-    # lets peak climb toward `demand` (>cap) -> this fails (verified red-green).
-    assert fake.segment_peak <= cap
-    # And it actually engaged: overlap pushed past one commit's local cap.
-    assert fake.segment_peak > _TursoHTTPConnection._MAX_CONCURRENT_BATCHES
+class _ErrTursoHTTP:
+    """Returns a >=400 with a Turso error body, to exercise the _send error
+    branch that the FakeTursoHTTP (always 200) and the router test (mocks the
+    service) both skip."""
+
+    def __init__(self, status_code=400, text='invalid type: string "0.0", expected f64'):
+        self._resp = _ErrResp(status_code, text)
+
+    def post(self, url, headers=None, json=None):  # noqa: A002
+        return self._resp
+
+
+class TestSendErrorSurfacing:
+    """Locks fix be1cdf0. _send must raise with Turso's actual error BODY, not a
+    bare status — reverting to response.raise_for_status() (which drops the body)
+    must fail a test, or we go back to debugging '400 Bad Request' blind."""
+
+    def test_send_raises_with_turso_error_body(self):
+        conn = _TursoHTTPConnection(
+            url="libsql://fake", token="tok", shared_client=_ErrTursoHTTP()
+        )
+        conn.execute("INSERT INTO indexed_channels (channel_id, source_url, indexed_at) VALUES (?,?,?)", ("c", "u", "t"))
+        with pytest.raises(Exception) as exc:
+            conn.commit()
+        msg = str(exc.value)
+        assert "400" in msg
+        assert "expected f64" in msg  # the body, not just the status
+
+
+# ---------------------------------------------------------------------------
+# Shared HTTP client reuse
+# ---------------------------------------------------------------------------
+
+class TestSharedHttpClient:
+    """Locks fix 3d43a8e. Connections must reuse the injected shared httpx.Client
+    instead of each opening its own — per-connection TLS handshakes were the
+    Jun-5 timeout spike (45 back-to-back index calls). Reverting to a
+    per-connection client would make _http_client() create a private _client."""
+
+    def test_connections_reuse_injected_client(self):
+        fake = FakeTursoHTTP()
+        c1 = _remote_conn(fake)
+        c2 = _remote_conn(fake)
+        assert c1._http_client() is fake
+        assert c2._http_client() is fake
+        # No private per-connection client was lazily created.
+        assert c1._client is None and c2._client is None

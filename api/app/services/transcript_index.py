@@ -9,10 +9,9 @@ from typing import Any, Dict, List, Optional, Sequence, Set
 
 # commit() routes each queued write into an ordered phase by matching its SQL.
 # Tolerant of `INSERT OR REPLACE` and extra whitespace: a brittle startswith that
-# silently mis-routed would either de-parallelise the hot path or break
-# DELETE-before-INSERT ordering. (An explicit per-statement phase tag would be
-# cleaner, but execute() must stay drop-in compatible with
-# sqlite3.Connection.execute, which takes no such argument.)
+# silently mis-routed would break DELETE-before-INSERT ordering.  (An explicit
+# per-statement phase tag would be cleaner, but execute() must stay drop-in
+# compatible with sqlite3.Connection.execute, which takes no such argument.)
 _SEGMENT_INSERT_RE = re.compile(
     r"^\s*INSERT(\s+OR\s+\w+)?\s+INTO\s+transcript_segments\b", re.IGNORECASE
 )
@@ -136,32 +135,25 @@ class _TursoHTTPConnection:
         self._write_queue.append({"type": "execute", "stmt": stmt})
         return _TursoCursor({"cols": [], "rows": []})
 
-    # Auto-captioned long videos can produce 4000+ segments per transcript;
-    # sending them in one Turso pipeline POST trips httpx ReadTimeout because
-    # Turso processes the whole batch before responding. Real failure observed
-    # on a 4313-segment video. Chunk to keep each POST well under the read
-    # timeout. Chunks are independent (no `baton` continuation), so a mid-
-    # batch failure can leave a partial transcript stored — recoverable on
-    # retry since every write is an upsert.
-    _BATCH_SIZE = 100
+    # Turso (libsql) is a single-writer database: concurrent HTTP POSTs that
+    # each carry write statements fight for the write lock, producing "database
+    # is locked" 500s on Vercel and causing the extension SW to time out.
+    # All writes must therefore be sent SEQUENTIALLY — one pipeline POST at a
+    # time — which is the Python equivalent of Turso's JS `db.batch()` API.
+    #
+    # Chunk large transcripts so each POST stays well under the httpx read
+    # timeout (4000-segment videos → ~8 POSTs of 500 each, vs. 40 POSTs of
+    # 100 before). A mid-batch failure leaves a partial transcript that is
+    # recoverable on retry since every INSERT is an upsert.
+    _BATCH_SIZE = 500
 
-    # A 4000-segment video is ~40 segment batches. Sent SEQUENTIALLY, total
-    # wall-time = 40 x (round-trip + Turso processing), which on higher-latency
-    # clients (telemetry: Windows Chrome ~2.8x Mac) routinely outran the side
-    # panel's 30s deadman → the index_transcript_failed/sw_timeout cascade.
-    # Segment inserts are mutually independent, so fan them out concurrently and
-    # overlap the round-trips. Capped so we don't open 40 connections at once.
-    _MAX_CONCURRENT_BATCHES = 8
-
-    # Per-commit fan-out is bounded above, but TranscriptIndexService is a
-    # process singleton sharing ONE httpx.Client: under concurrent index
-    # requests N commits would otherwise drive N x _MAX_CONCURRENT_BATCHES
-    # simultaneous POSTs and exhaust the client's connection pool, re-triggering
-    # the very timeout cascade this concurrency was added to fix. This
-    # process-global semaphore caps total in-flight segment POSTs across all
-    # commits regardless of how many run at once.
-    _GLOBAL_MAX_INFLIGHT = 16
-    _global_batch_semaphore = threading.BoundedSemaphore(_GLOBAL_MAX_INFLIGHT)
+    # Process-global lock: only ONE write POST may be in-flight at any time,
+    # across ALL concurrent commits sharing the same Vercel process. Without
+    # this, N simultaneous index_transcript calls each call _send_sequential
+    # independently and their individual POSTs interleave, still triggering
+    # Turso write-lock 500s. A threading.Lock (not a Semaphore) ensures exactly
+    # one write POST is in-flight process-wide at all times.
+    _global_write_lock = threading.Lock()
 
     @staticmethod
     def _phase(req: dict) -> str:
@@ -197,52 +189,24 @@ class _TursoHTTPConnection:
         for req in queue:
             bucket.get(self._phase(req), pre).append(req)
 
-        # Phase 1 — channel/video upserts + the DELETEs clearing old segments and
-        # the old marker. Sequential and first: a DELETE racing behind a parallel
-        # INSERT would wipe freshly written rows.
+        # Phase 1 — channel/video upserts + the DELETEs clearing old segments
+        # and the old marker. Must arrive before segment inserts.
         self._send_sequential(pre)
-        # Phase 2 — order-independent segment inserts, fanned out (globally bounded).
-        self._send_parallel(segments)
-        # Phase 3 — the indexed_transcripts marker, LAST. Reached only if Phase 2
-        # didn't raise, so a failed index leaves no marker and falls through to
-        # the live path instead of returning zero matches.
+        # Phase 2 — segment inserts, sent sequentially to avoid write-lock
+        # contention (Turso is single-writer; concurrent POSTs cause 500s).
+        self._send_sequential(segments)
+        # Phase 3 — the indexed_transcripts marker, LAST. Reached only if
+        # Phase 2 didn't raise, so a failed index leaves no marker and the
+        # video falls through to the live path instead of returning zero matches.
         self._send_sequential(post)
 
     def _send_sequential(self, requests: List[dict]) -> None:
         for start in range(0, len(requests), self._BATCH_SIZE):
-            self._send(requests[start:start + self._BATCH_SIZE] + [{"type": "close"}])
-
-    def _send_one_bounded(self, batch: List[dict]) -> None:
-        # Cap total concurrent segment POSTs across ALL commits sharing the client.
-        with self._global_batch_semaphore:
-            self._send(batch + [{"type": "close"}])
-
-    def _send_parallel(self, requests: List[dict]) -> None:
-        batches = [
-            requests[start:start + self._BATCH_SIZE]
-            for start in range(0, len(requests), self._BATCH_SIZE)
-        ]
-        if len(batches) <= 1:
-            if batches:
-                self._send_one_bounded(batches[0])
-            return
-
-        from concurrent.futures import (
-            FIRST_EXCEPTION,
-            ThreadPoolExecutor,
-            wait,
-        )
-
-        workers = min(self._MAX_CONCURRENT_BATCHES, len(batches))
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = [pool.submit(self._send_one_bounded, b) for b in batches]
-            done, not_done = wait(futures, return_when=FIRST_EXCEPTION)
-            # On first failure, cancel batches that haven't started — limits the
-            # partial write and surfaces the error without waiting on slow peers.
-            for future in not_done:
-                future.cancel()
-            for future in done:
-                future.result()  # re-raise the first failure
+            # Hold the global write lock for each individual POST so concurrent
+            # commits (e.g. two simultaneous Vercel invocations) never send
+            # overlapping write requests to Turso.
+            with self._global_write_lock:
+                self._send(requests[start:start + self._BATCH_SIZE] + [{"type": "close"}])
 
     def close(self) -> None:
         self._write_queue.clear()
