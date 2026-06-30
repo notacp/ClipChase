@@ -1,5 +1,5 @@
 // extension/src/background/service-worker.ts
-import { listVideos, matchTranscript, indexTranscript } from "./api-client";
+import { listVideos, matchTranscript, indexTranscriptSSE } from "./api-client";
 import { captureSW, captureExceptionSW } from "./posthog-sw";
 import { classifyFailure, extractPlayerResponse } from "./transcript-fetcher";
 import { PREFERRED_TRANSCRIPT_LANGS } from "../shared/constants";
@@ -576,7 +576,7 @@ chrome.runtime.onMessage.addListener(
             data = await matchTranscript(msg.params as Parameters<typeof matchTranscript>[0]);
             break;
           case "index-transcript":
-            data = await indexTranscript(msg.params as Parameters<typeof indexTranscript>[0]);
+            data = await indexTranscriptSSE(msg.params as Parameters<typeof indexTranscriptSSE>[0]);
             break;
           default:
             sendResponse({ ok: false, error: `Unknown message type: ${msg.type}` } satisfies MessageResponse<never>);

@@ -200,6 +200,33 @@ class _TursoHTTPConnection:
         # video falls through to the live path instead of returning zero matches.
         self._send_sequential(post)
 
+    def commit_with_progress(self):
+        """Generator variant of commit() that yields after each phase.
+
+        Enables SSE heartbeats during index-transcript writes: the caller
+        yields a `: ping` after each yield, keeping the SW's 30s deadman
+        timer alive while Turso processes batches.
+        """
+        if not self._write_queue:
+            return
+        queue, self._write_queue = self._write_queue, []
+
+        pre: List[dict] = []
+        segments: List[dict] = []
+        post: List[dict] = []
+        bucket = {"segments": segments, "post": post}
+        for req in queue:
+            bucket.get(self._phase(req), pre).append(req)
+
+        self._send_sequential(pre)
+        yield
+
+        self._send_sequential(segments)
+        yield
+
+        self._send_sequential(post)
+        yield
+
     def _send_sequential(self, requests: List[dict]) -> None:
         for start in range(0, len(requests), self._BATCH_SIZE):
             # Hold the global write lock for each individual POST so concurrent
@@ -560,6 +587,39 @@ class TranscriptIndexService:
 
             conn.commit()
             return stored
+        finally:
+            conn.close()
+
+    def cache_video_transcripts_with_progress(
+        self,
+        channel_id: str,
+        source_url: str,
+        video: Dict[str, Any],
+        transcripts: Sequence[Dict[str, Any]],
+    ):
+        """Generator variant of cache_video_transcripts that yields after each
+        Turso write phase. Enables SSE heartbeats during index-transcript so the
+        SW's 30s deadman timer stays alive."""
+        if not transcripts:
+            return
+
+        conn = self._connect()
+        try:
+            self._queue_channel(conn, channel_id, source_url)
+            self._queue_video(conn, channel_id, video)
+
+            stored = 0
+            seen_languages = set()
+            for transcript in transcripts:
+                language_code = normalize_language_code(transcript.get("language_code"))
+                if not language_code or language_code in seen_languages:
+                    continue
+                seen_languages.add(language_code)
+                if self._queue_transcript(conn, video["id"], transcript):
+                    stored += 1
+
+            yield from conn.commit_with_progress()
+            yield stored
         finally:
             conn.close()
 

@@ -574,19 +574,12 @@ async def index_channel(
     )
 
 
-@router.post("/index/transcript", response_model=IndexTranscriptResponse)
+@router.post("/index/transcript")
 def index_transcript(
     req: IndexTranscriptRequest,
     index_service: TranscriptIndexService = Depends(get_index_service),
 ):
-    # Sync def on purpose: cache_video_transcripts does blocking Turso HTTP I/O.
-    # FastAPI runs sync handlers in a threadpool, so a burst of fire-and-forget
-    # index calls can't stall the event loop (the 502/504 cascade).
-    # Validate channel_id format only. Re-resolving against source_url here
-    # burned a YouTube Data API quota unit per indexed video and caused the
-    # 5/20 cascade of 500s under burst. Format check is sufficient: a forged
-    # channel_id that passes the UC prefix check still can't escape the index
-    # scoping done downstream by cache_video_transcripts.
+    # Validate channel_id format only.
     if not req.channel_id or not req.channel_id.startswith("UC") or len(req.channel_id) != 24:
         raise HTTPException(status_code=400, detail="Invalid channel_id")
 
@@ -598,25 +591,35 @@ def index_transcript(
     }
     video_data = req.video.model_dump()
 
-    try:
-        stored = index_service.cache_video_transcripts(
-            channel_id=req.channel_id,
-            source_url=req.source_url,
-            video=video_data,
-            transcripts=[transcript_data],
-        )
-    except Exception as exc:
-        logger.exception(
-            "index_transcript failed channel=%s video=%s segments=%s",
-            req.channel_id,
-            req.video.id,
-            len(req.transcript.segments),
-        )
-        # Surface the real reason (truncated) instead of a blind 500. The
-        # Turso adapter raises errors shaped like "Turso 400 on N reqs: <body>";
-        # the auth token lives in headers, never in these messages.
-        raise HTTPException(status_code=500, detail=str(exc)[:500])
-    return IndexTranscriptResponse(stored=stored)
+    def _stream():
+        try:
+            for item in index_service.cache_video_transcripts_with_progress(
+                channel_id=req.channel_id,
+                source_url=req.source_url,
+                video=video_data,
+                transcripts=[transcript_data],
+            ):
+                if isinstance(item, int):
+                    yield f"event: done\ndata: {json.dumps({'stored': item})}\n\n"
+                else:
+                    yield ": ping\n\n"
+        except Exception as exc:
+            logger.exception(
+                "index_transcript failed channel=%s video=%s segments=%s",
+                req.channel_id,
+                req.video.id,
+                len(req.transcript.segments),
+            )
+            yield f"event: error\ndata: {json.dumps({'detail': str(exc)[:500]})}\n\n"
+
+    return StreamingResponse(
+        _stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/match", response_model=MatchResponse)

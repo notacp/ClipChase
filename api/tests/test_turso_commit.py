@@ -282,6 +282,61 @@ class TestSequentialWrites:
 
 
 # ---------------------------------------------------------------------------
+# commit_with_progress — SSE heartbeat generator
+# ---------------------------------------------------------------------------
+
+class TestCommitWithProgress:
+    """Locks commit_with_progress() — the SSE heartbeat generator used by
+    the index-transcript endpoint. Yields after each phase so the caller
+    can send `: ping` heartbeats to keep the SW's 30s deadman alive."""
+
+    def test_yields_once_per_phase(self):
+        fake = FakeTursoHTTP()
+        conn = _remote_conn(fake)
+        _queue_index(conn, "vprog", 1500)
+        yields = list(conn.commit_with_progress())
+        # Three phases: pre, segments, post → 3 yields
+        assert len(yields) == 3, f"expected 3 yields (pre/segments/post), got {len(yields)}"
+
+    def test_yields_zero_for_empty_queue(self):
+        fake = FakeTursoHTTP()
+        conn = _remote_conn(fake)
+        yields = list(conn.commit_with_progress())
+        assert len(yields) == 0
+
+    def test_data_integrity_matches_commit(self):
+        fake = FakeTursoHTTP()
+        conn = _remote_conn(fake)
+        _queue_index(conn, "vint", 2000)
+        list(conn.commit_with_progress())
+        assert fake.segment_count("vint", "en") == 2000
+
+    def test_peak_concurrency_stays_one(self):
+        fake = FakeTursoHTTP()
+        conn = _remote_conn(fake)
+        _queue_index(conn, "vconc", 1500)
+        list(conn.commit_with_progress())
+        assert fake.peak_concurrency == 1
+
+    def test_progress_with_concurrent_callers(self):
+        """Multiple concurrent commit_with_progress calls must not interleave
+        their writes — same single-writer guarantee as commit()."""
+        fake = FakeTursoHTTP()
+
+        def run(vid: str):
+            conn = _remote_conn(fake)
+            _queue_index(conn, vid, 1500)
+            list(conn.commit_with_progress())
+
+        threads = [threading.Thread(target=run, args=(f"vc{i}",)) for i in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert fake.peak_concurrency == 1
+
+
+# ---------------------------------------------------------------------------
 # Correctness: data integrity
 # ---------------------------------------------------------------------------
 
