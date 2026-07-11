@@ -1,6 +1,6 @@
 // extension/src/background/transcript-fetcher.test.ts
 import { describe, it, expect } from "vitest";
-import { classifyFailure, extractPlayerResponse } from "./transcript-fetcher";
+import { classifyFailure, extractPlayerResponse, extractVisitorData } from "./transcript-fetcher";
 
 // ── extractPlayerResponse ─────────────────────────────────────────────────────
 
@@ -83,5 +83,30 @@ describe("classifyFailure", () => {
 
   it("uses only the last entry for classification", () => {
     expect(classifyFailure(["sw-android-status=403", "sw-ios-status=403", "sw-web_embedded_player-no-tracks keys=x"])).toBe("sw_no_tracks");
+  });
+
+  it("classifies pot_blocked when the watch-page baseUrl returns an empty body", () => {
+    // Watch page found caption tracks but its WEB-client timedtext URL requires
+    // a proof-of-origin token — YouTube answers 200 with an empty body.
+    expect(
+      classifyFailure(["sw-android-no-tracks keys=x", "sw-watch-xml-failed err=empty len=0"]),
+    ).toBe("pot_blocked");
+  });
+
+  it("keeps InnerTube-client empty xml in xml_status_err (not pot_blocked)", () => {
+    expect(classifyFailure(["sw-android-xml-failed err=empty len=0"])).toBe("xml_status_err");
+  });
+});
+
+// ── extractVisitorData ────────────────────────────────────────────────────────
+
+describe("extractVisitorData", () => {
+  it("extracts visitorData from watch-page HTML", () => {
+    const html = `<script>ytcfg.set({"INNERTUBE_CONTEXT":{"client":{"visitorData":"CgtXUTZsa0NqZmFsWSiF%3D%3D","hl":"en"}}});</script>`;
+    expect(extractVisitorData(html)).toBe("CgtXUTZsa0NqZmFsWSiF%3D%3D");
+  });
+
+  it("returns null when absent", () => {
+    expect(extractVisitorData("<html>nothing</html>")).toBeNull();
   });
 });

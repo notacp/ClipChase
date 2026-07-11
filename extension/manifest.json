@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ClipChase — Search YouTube Transcripts",
-  "version": "1.2.8",
+  "version": "1.2.9",
   "description": "Search any phrase across a YouTube channel's transcripts. Get every video that mentions it with clickable timestamps.",
   "minimum_chrome_version": "116",
   "permissions": ["sidePanel", "tabs", "storage", "declarativeNetRequestWithHostAccess"],

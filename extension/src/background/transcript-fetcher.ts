@@ -11,6 +11,14 @@ export function classifyFailure(debugStrings: string[]): FailureReason {
   // SW debug strings are prefixed `sw-<client>-`. Strip for matching.
   const m = last.match(/^sw-[a-z0-9_]+-(.+)$/);
   const body = m ? m[1] : last.replace(/^sw-/, "");
+  // Watch-page timedtext URLs are WEB-client-signed and need a proof-of-origin
+  // token (`pot`) we don't have — YouTube answers 200 with an empty body. The
+  // captions exist; only this fetch route is gated. Keep it out of
+  // xml_status_err so the UI can say "blocked by YouTube" instead of implying
+  // the video has no transcript.
+  if (last.startsWith("sw-watch-xml-failed") && body.includes("err=empty")) {
+    return "pot_blocked";
+  }
   if (body.startsWith("status=")) return "sw_blocked";
   // "no-captions": the player response was playable/parsed but exposed no
   // caption tracks — the video genuinely has none (Shorts and live streams,
@@ -25,6 +33,15 @@ export function classifyFailure(debugStrings: string[]): FailureReason {
   if (body.startsWith("threw")) return "sw_threw";
   if (body === "budget") return "budget_exceeded";
   return "unknown";
+}
+
+// Extracts the session's `visitorData` token from watch-page HTML. Anonymous
+// InnerTube calls without visitorData get bot-gated under burst load (all
+// clients return no-tracks); replaying the ANDROID client WITH the watch
+// page's visitorData ungates it, and ANDROID baseUrls don't require the
+// proof-of-origin token that blocks the watch page's own caption URLs.
+export function extractVisitorData(html: string): string | null {
+  return html.match(/"visitorData":"([^"]+)"/)?.[1] ?? null;
 }
 
 // Extracts the `ytInitialPlayerResponse` object embedded in a watch-page's

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { dominantReason, cleanKeyword } from "./utils";
+import { dominantReason, cleanKeyword, describeFailureCounts } from "./utils";
 import type { FailureReason } from "./types";
 
 describe("cleanKeyword", () => {
@@ -74,5 +74,25 @@ describe("dominantReason", () => {
     counts.parse_empty = 1;
     counts.no_tab = 1;
     expect(dominantReason(counts)).toBe("parse_empty");
+  });
+});
+
+describe("describeFailureCounts", () => {
+  it("returns empty for no failures", () => {
+    expect(describeFailureCounts({})).toEqual([]);
+  });
+
+  it("labels the main user-facing groups", () => {
+    expect(
+      describeFailureCounts({ no_captions: 3, pot_blocked: 2, xml_429: 1, sw_blocked: 1 }),
+    ).toEqual(["3 without captions", "2 blocked by YouTube", "2 rate-limited"]);
+  });
+
+  it("buckets unknown/technical reasons into a generic failed count", () => {
+    expect(describeFailureCounts({ sw_threw: 1, unknown: 2 })).toEqual(["3 failed"]);
+  });
+
+  it("labels timeouts", () => {
+    expect(describeFailureCounts({ budget_exceeded: 4 })).toEqual(["4 timed out"]);
   });
 });

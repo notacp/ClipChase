@@ -1,7 +1,7 @@
 // extension/src/background/service-worker.ts
 import { listVideos, matchTranscript, indexTranscriptSSE } from "./api-client";
 import { captureSW, captureExceptionSW } from "./posthog-sw";
-import { classifyFailure, extractPlayerResponse } from "./transcript-fetcher";
+import { classifyFailure, extractPlayerResponse, extractVisitorData } from "./transcript-fetcher";
 import { PREFERRED_TRANSCRIPT_LANGS } from "../shared/constants";
 import type { FetchTranscriptResult, MessageResponse, Transcript } from "../shared/types";
 
@@ -341,15 +341,22 @@ async function tryClient(
   preferredLangs: string[],
   client: InnertubeClient,
   budget: AbortSignal,
+  visitorData?: string,
 ): Promise<ExtractResult> {
-  const prefix = `sw-${client.clientName.toLowerCase()}-`;
+  const prefix = `sw-${client.clientName.toLowerCase()}${visitorData ? "+vd" : ""}-`;
   if (budget.aborted) return { _debug: `${prefix}budget` };
   try {
     const res = await fetch("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        context: { client: { clientName: client.clientName, clientVersion: client.clientVersion } },
+        context: {
+          client: {
+            clientName: client.clientName,
+            clientVersion: client.clientVersion,
+            ...(visitorData ? { visitorData } : {}),
+          },
+        },
         videoId,
       }),
       signal: AbortSignal.any([AbortSignal.timeout(FETCH_TIMEOUT_MS), budget]),
@@ -414,7 +421,7 @@ async function fetchTranscriptFromWatchPage(
   videoId: string,
   preferredLangs: string[],
   budget: AbortSignal,
-): Promise<ExtractResult> {
+): Promise<ExtractResult & { visitorData?: string | null }> {
   const prefix = "sw-watch-";
   if (budget.aborted) return { _debug: `${prefix}budget` };
   try {
@@ -443,17 +450,21 @@ async function fetchTranscriptFromWatchPage(
       }
     }
     const html = await res.text();
+    // visitorData rides along so the caller can replay the ANDROID client with
+    // a real session token when this page proves captions exist but the
+    // WEB-signed caption URL below is pot-gated (returns an empty body).
+    const visitorData = extractVisitorData(html);
     const player = extractPlayerResponse(html);
     // Parse failure (consent wall, markup change) is ambiguous; a parsed
     // player without captions is authoritative — this fetch carries the
     // user's own cookies, so nothing is bot-stripped.
-    if (!player) return { _debug: `${prefix}parse-failed` };
+    if (!player) return { _debug: `${prefix}parse-failed`, visitorData };
     const tracks = player?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-    if (!tracks?.length) return { _debug: `${prefix}no-captions` };
+    if (!tracks?.length) return { _debug: `${prefix}no-captions`, visitorData };
     const track = pickBestTrack(tracks, preferredLangs);
-    if (!track?.baseUrl) return { _debug: `${prefix}no-baseUrl tracks=${tracks.length}` };
+    if (!track?.baseUrl) return { _debug: `${prefix}no-baseUrl tracks=${tracks.length}`, visitorData };
     const { xml, err } = await fetchTimedTextXml(track.baseUrl, budget);
-    if (!xml) return { _debug: `${prefix}xml-failed err=${err}` };
+    if (!xml) return { _debug: `${prefix}xml-failed err=${err}`, visitorData };
     const segments = parseXml(xml);
     if (!segments.length) return { _debug: `${prefix}parse-empty xml_len=${xml.length}` };
     return {
@@ -524,11 +535,42 @@ export async function handleFetchTranscript(
     if (budget.aborted) {
       return { transcript: null, failure_reason: "budget_exceeded" };
     }
-    const reason = classifyFailure([...perClientDebug, watch._debug]);
+
+    // Recovery: the watch page proved captions exist (it found tracks but its
+    // WEB-signed caption URL is pot-gated → empty body, or exposed no baseUrl),
+    // while the earlier anonymous InnerTube calls were bot-gated. Replaying
+    // ANDROID with the watch page's own visitorData ungates it, and ANDROID
+    // caption URLs don't require the proof-of-origin token.
+    const watchProvedCaptions =
+      watch._debug.startsWith("sw-watch-xml-failed") ||
+      watch._debug.startsWith("sw-watch-no-baseUrl");
+    let retryDebug: string | null = null;
+    if (watchProvedCaptions && watch.visitorData) {
+      const retry = await tryClient(
+        videoId,
+        preferredLangs,
+        INNERTUBE_CLIENTS[0],
+        budget,
+        watch.visitorData,
+      );
+      retryDebug = retry._debug;
+      if (retry.segments?.length) {
+        return { transcript: buildTranscript(retry), failure_reason: null };
+      }
+      if (budget.aborted) {
+        return { transcript: null, failure_reason: "budget_exceeded" };
+      }
+    }
+
+    // Keep the watch-page debug last (unless the retry ran): classifyFailure
+    // reads the final attempt, and pot_blocked must win over the retry's
+    // ambiguous no-tracks so the UI reports "blocked", not "no transcript".
+    const reason = classifyFailure([...perClientDebug, ...(retryDebug ? [retryDebug] : []), watch._debug]);
     void captureSW("transcript_fetch_failed", {
       video_id: videoId,
       sw_debug: perClientDebug.join("|"),
       watch_debug: watch._debug,
+      retry_debug: retryDebug,
       failure_reason: reason,
       preferred_langs: preferredLangs.join(","),
     });

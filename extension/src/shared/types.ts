@@ -53,6 +53,7 @@ export type FailureReason =
   | "sw_no_baseurl"
   | "xml_429"
   | "xml_status_err"
+  | "pot_blocked"
   | "parse_empty"
   | "sw_threw"
   | "no_tab"

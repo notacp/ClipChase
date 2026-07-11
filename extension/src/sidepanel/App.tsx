@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search } from "lucide-react";
 import { SearchResult, TimeRange, ChannelSuggestion, VideoInfo, SortBy, FailureReason } from "../shared/types";
-import { getPublishedAfterDate, dominantReason, cleanKeyword } from "../shared/utils";
+import { getPublishedAfterDate, dominantReason, cleanKeyword, describeFailureCounts } from "../shared/utils";
 import { send, startKeepalive } from "../shared/messaging";
 import { SearchForm } from "../components/SearchForm";
 import { TimeRangeSelector } from "../components/TimeRangeSelector";
@@ -64,6 +64,11 @@ export function App() {
     // failed" — copy that says "most videos…" must check this, not just
     // failureReason.
     failureRatio?: number;
+    // Per-reason counts + scan size, so the UI can state exactly what was and
+    // wasn't searched instead of hiding skipped videos behind the results list.
+    failureCounts?: Partial<Record<FailureReason, number>>;
+    videosScanned?: number;
+    transcriptFailures?: number;
   } | null>(null);
   const [formError, setFormError] = useState("");
   const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem("hasSeenWelcome"));
@@ -431,6 +436,9 @@ export function App() {
             keyword,
             failureReason: transcriptFailureReasonTop,
             failureRatio: videosScanned > 0 ? transcriptFailures / videosScanned : 0,
+            failureCounts: failureReasonCounts,
+            videosScanned,
+            transcriptFailures,
           });
         }
         posthog.capture("search_completed", {
@@ -582,6 +590,13 @@ export function App() {
                   No mentions of <span className="text-yt-text font-medium">&ldquo;{lastSearch.keyword}&rdquo;</span> in indexed videos.<br />
                   <span className="text-yt-tert">Some videos couldn&rsquo;t be checked — YouTube tab not accessible.</span>
                 </>
+              ) : lastSearch.failureReason === "pot_blocked" && (lastSearch.failureRatio ?? 0) > 0.3 ? (
+                <>
+                  No mentions of <span className="text-yt-text font-medium">&ldquo;{lastSearch.keyword}&rdquo;</span> in the videos we could search.<br />
+                  <span className="text-yt-tert">
+                    YouTube blocked transcript access for {lastSearch.transcriptFailures} of {lastSearch.videosScanned} videos — these have transcripts, we just couldn&rsquo;t read them. Retrying in a minute usually helps.
+                  </span>
+                </>
               ) : lastSearch.failureReason === "no_captions" && (lastSearch.failureRatio ?? 0) > 0.5 ? (
                 <>
                   No mentions of <span className="text-yt-text font-medium">&ldquo;{lastSearch.keyword}&rdquo;</span> in recent videos.<br />
@@ -651,6 +666,13 @@ export function App() {
 
       {results.length > 0 && (
         <div className="mt-5">
+          {!isLoading && (lastSearch?.transcriptFailures ?? 0) > 0 && (
+            <p className="mb-3 text-[10px] text-yt-tert leading-relaxed">
+              Searched {(lastSearch!.videosScanned ?? 0) - (lastSearch!.transcriptFailures ?? 0)} of {lastSearch!.videosScanned} videos
+              {" · "}
+              {describeFailureCounts(lastSearch!.failureCounts ?? {}).join(" · ")}
+            </p>
+          )}
           <SearchResults
             results={results}
             sortBy={sortBy}
