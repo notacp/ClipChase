@@ -136,6 +136,118 @@ describe("service-worker transcript pipeline", () => {
     expect(eventLog).not.toContain("player:WEB_EMBEDDED_PLAYER");
   });
 
+  it("recovers a pot-blocked video by replaying ANDROID with the watch page's visitorData", async () => {
+    // All anonymous clients bot-gated; watch page proves captions exist but its
+    // WEB-signed timedtext URL is pot-gated (200, empty body). The visitorData
+    // replay must ungate ANDROID and return the transcript.
+    playerByClient.ANDROID = playerNoTracksAmbiguous;
+    playerByClient.IOS = playerNoTracksAmbiguous;
+    playerByClient.WEB_EMBEDDED_PLAYER = playerNoTracksAmbiguous;
+
+    const watchHtml =
+      `<script>"visitorData":"CgtWRFRFU1Q%3D";var ytInitialPlayerResponse = {"captions":{"playerCaptionsTracklistRenderer":{"captionTracks":[{"languageCode":"en","baseUrl":"https://www.youtube.com/api/timedtext?src=watch","kind":"asr"}]}}};</script>`;
+
+    const playerBodies: { clientName: string; visitorData?: string }[] = [];
+    globalThis.fetch = vi.fn(async (url: string, opts?: { body?: string }) => {
+      if (url.includes("youtubei/v1/player")) {
+        const client = JSON.parse(opts!.body!).context.client;
+        playerBodies.push({ clientName: client.clientName, visitorData: client.visitorData });
+        eventLog.push(`player:${client.clientName}${client.visitorData ? "+vd" : ""}`);
+        const body = client.visitorData ? playerWithTracks() : playerByClient[client.clientName]();
+        return { ok: true, status: 200, json: async () => body } as unknown as Response;
+      }
+      if (url.includes("timedtext")) {
+        eventLog.push("timedtext");
+        // pot-gated watch URL answers 200 with an empty body; the ungated
+        // ANDROID baseUrl (from the +vd replay) returns real XML.
+        const text = url.includes("src=watch") ? "" : VALID_XML;
+        return { ok: true, status: 200, text: async () => text } as unknown as Response;
+      }
+      if (url.includes("/watch?v=")) {
+        eventLog.push("watch");
+        return { ok: true, status: 200, text: async () => watchHtml } as unknown as Response;
+      }
+      return { ok: false, status: 404, text: async () => "" } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const sw = await import("./service-worker");
+    eventLog.length = 0;
+
+    const result = await sw.handleFetchTranscript("vid4", ["en"]);
+
+    expect(result.transcript).not.toBeNull();
+    expect(result.failure_reason).toBeNull();
+    // The replay must carry the visitorData scraped from the watch page.
+    const retryCall = playerBodies.find((b) => b.visitorData);
+    expect(retryCall?.clientName).toBe("ANDROID");
+    expect(retryCall?.visitorData).toBe("CgtWRFRFU1Q%3D");
+    expect(eventLog).toContain("player:ANDROID+vd");
+  });
+
+  it("classifies pot_blocked when even the visitorData replay stays gated", async () => {
+    playerByClient.ANDROID = playerNoTracksAmbiguous;
+    playerByClient.IOS = playerNoTracksAmbiguous;
+    playerByClient.WEB_EMBEDDED_PLAYER = playerNoTracksAmbiguous;
+
+    const watchHtml =
+      `<script>"visitorData":"CgtWRFRFU1Q%3D";var ytInitialPlayerResponse = {"captions":{"playerCaptionsTracklistRenderer":{"captionTracks":[{"languageCode":"en","baseUrl":"https://www.youtube.com/api/timedtext?src=watch","kind":"asr"}]}}};</script>`;
+
+    globalThis.fetch = vi.fn(async (url: string, opts?: { body?: string }) => {
+      if (url.includes("youtubei/v1/player")) {
+        const client = JSON.parse(opts!.body!).context.client;
+        // Every player call — including the +vd replay — stays gated.
+        return { ok: true, status: 200, json: async () => playerNoTracksAmbiguous() } as unknown as Response;
+      }
+      if (url.includes("timedtext")) {
+        return { ok: true, status: 200, text: async () => "" } as unknown as Response;
+      }
+      if (url.includes("/watch?v=")) {
+        return { ok: true, status: 200, text: async () => watchHtml } as unknown as Response;
+      }
+      return { ok: false, status: 404, text: async () => "" } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const sw = await import("./service-worker");
+    const result = await sw.handleFetchTranscript("vid5", ["en"]);
+
+    expect(result.transcript).toBeNull();
+    expect(result.failure_reason).toBe("pot_blocked");
+  });
+
+  it("does NOT replay with visitorData when the watch page proves the video has no captions", async () => {
+    playerByClient.ANDROID = playerNoTracksAmbiguous;
+    playerByClient.IOS = playerNoTracksAmbiguous;
+    playerByClient.WEB_EMBEDDED_PLAYER = playerNoTracksAmbiguous;
+
+    // Watch page parses fine, has visitorData, but exposes no caption tracks —
+    // authoritative no_captions. A retry would waste budget on every
+    // captionless Short.
+    const watchHtml =
+      `<script>"visitorData":"CgtWRFRFU1Q%3D";var ytInitialPlayerResponse = {"videoDetails":{"videoId":"vid6"}};</script>`;
+
+    const playerCalls: (string | undefined)[] = [];
+    globalThis.fetch = vi.fn(async (url: string, opts?: { body?: string }) => {
+      if (url.includes("youtubei/v1/player")) {
+        const client = JSON.parse(opts!.body!).context.client;
+        playerCalls.push(client.visitorData);
+        return { ok: true, status: 200, json: async () => playerNoTracksAmbiguous() } as unknown as Response;
+      }
+      if (url.includes("/watch?v=")) {
+        return { ok: true, status: 200, text: async () => watchHtml } as unknown as Response;
+      }
+      return { ok: false, status: 404, text: async () => "" } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const sw = await import("./service-worker");
+    const result = await sw.handleFetchTranscript("vid6", ["en"]);
+
+    expect(result.transcript).toBeNull();
+    expect(result.failure_reason).toBe("no_captions");
+    // 3 anonymous client calls only — no visitorData replay.
+    expect(playerCalls).toHaveLength(3);
+    expect(playerCalls.every((vd) => vd === undefined)).toBe(true);
+  });
+
   it("short-circuits remaining clients on a definitive no-captions verdict", async () => {
     playerByClient.ANDROID = playerNoCaptionsDefinitive;
     const sw = await import("./service-worker");

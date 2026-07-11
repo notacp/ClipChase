@@ -666,7 +666,10 @@ export function App() {
 
       {results.length > 0 && (
         <div className="mt-5">
-          {!isLoading && (lastSearch?.transcriptFailures ?? 0) > 0 && (
+          {/* !error: a search that throws mid-stream leaves partial results
+              plus a lastSearch from the PREVIOUS search — the note would
+              describe the wrong search. */}
+          {!isLoading && !error && (lastSearch?.transcriptFailures ?? 0) > 0 && (
             <p className="mb-3 text-[10px] text-yt-tert leading-relaxed">
               Searched {(lastSearch!.videosScanned ?? 0) - (lastSearch!.transcriptFailures ?? 0)} of {lastSearch!.videosScanned} videos
               {" · "}
