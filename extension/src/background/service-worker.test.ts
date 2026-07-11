@@ -182,6 +182,12 @@ describe("service-worker transcript pipeline", () => {
     expect(retryCall?.clientName).toBe("ANDROID");
     expect(retryCall?.visitorData).toBe("CgtWRFRFU1Q%3D");
     expect(eventLog).toContain("player:ANDROID+vd");
+    // Recovery must be observable in PostHog, not silent.
+    const { captureSW } = await import("./posthog-sw");
+    expect(captureSW).toHaveBeenCalledWith(
+      "transcript_fetch_recovered",
+      expect.objectContaining({ video_id: "vid4" }),
+    );
   });
 
   it("classifies pot_blocked when even the visitorData replay stays gated", async () => {

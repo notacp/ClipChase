@@ -555,6 +555,15 @@ export async function handleFetchTranscript(
       );
       retryDebug = retry._debug;
       if (retry.segments?.length) {
+        // Success telemetry: recovered fetches would otherwise be invisible
+        // (only failures emit events), leaving no way to measure whether the
+        // visitorData replay actually works in the field.
+        void captureSW("transcript_fetch_recovered", {
+          video_id: videoId,
+          sw_debug: perClientDebug.join("|"),
+          watch_debug: watch._debug,
+          retry_debug: retry._debug,
+        });
         return { transcript: buildTranscript(retry), failure_reason: null };
       }
       if (budget.aborted) {
