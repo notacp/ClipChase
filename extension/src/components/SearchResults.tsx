@@ -1,9 +1,13 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, Clock, Link2 } from "lucide-react";
+import { Check, Clock, Link2, Play, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { SearchResult, SortBy } from "../shared/types";
 import { buildMomentLink, formatTime } from "../shared/utils";
 import posthog from "../shared/posthog";
+
+// One inline preview open at a time: multiple autoplaying iframes in a side
+// panel would fight over audio and memory.
+type PreviewKey = { videoId: string; matchIdx: number };
 
 interface SearchResultsProps {
   results: SearchResult[];
@@ -38,6 +42,22 @@ export function SearchResults({ results, sortBy, onSortChange, onSelectVideo }: 
   const totalMatches = results.reduce((sum, v) => sum + v.matches.length, 0);
   const sorted = sortResults(results, sortBy);
   const [expandedId, setExpandedId] = useState<string | null>(sorted[0]?.video_id ?? null);
+  const [preview, setPreview] = useState<PreviewKey | null>(null);
+
+  const togglePreview = (videoId: string, matchIdx: number, start: number, keyword: string | undefined, position: number) => {
+    const isOpen = preview?.videoId === videoId && preview?.matchIdx === matchIdx;
+    if (isOpen) {
+      setPreview(null);
+      return;
+    }
+    posthog.capture("preview_opened", {
+      video_id: videoId,
+      t: Math.floor(start),
+      keyword: keyword ?? null,
+      result_position: position,
+    });
+    setPreview({ videoId, matchIdx });
+  };
 
   return (
     <div className="rounded border border-yt-dark-gray bg-yt-gray/40 overflow-hidden">
@@ -76,7 +96,12 @@ export function SearchResults({ results, sortBy, onSortChange, onSelectVideo }: 
               {/* Card header */}
               <button
                 type="button"
-                onClick={() => setExpandedId(isExp ? null : video.video_id)}
+                onClick={() => {
+                  setExpandedId(isExp ? null : video.video_id);
+                  // Collapsing a card must also stop its playing preview —
+                  // otherwise reopening the card resumes audio unexpectedly.
+                  if (isExp && preview?.videoId === video.video_id) setPreview(null);
+                }}
                 className={`w-full text-left flex gap-2.5 px-3.5 py-2.5 transition-colors ${
                   isExp ? "" : "hover:bg-yt-gray"
                 }`}
@@ -118,29 +143,53 @@ export function SearchResults({ results, sortBy, onSortChange, onSelectVideo }: 
                       video.search_terms_used?.find((term) =>
                         quote.toLowerCase().includes(term.toLowerCase()),
                       ) ?? video.search_terms_used?.[0];
+                    const isPreviewing =
+                      preview?.videoId === video.video_id && preview?.matchIdx === mIdx;
                     return (
-                      <SnippetRow
-                        key={mIdx}
-                        timestamp={formatTime(match.start)}
-                        contextBefore={match.context_before}
-                        phrase={match.text}
-                        contextAfter={match.context_after}
-                        isLast={mIdx === video.matches.length - 1}
-                        onClick={() => onSelectVideo(video.video_id, match.start)}
-                        shareLink={buildMomentLink({
-                          videoId: video.video_id,
-                          start: match.start,
-                          quote,
-                          keyword,
-                        })}
-                        onShared={() =>
-                          posthog.capture("moment_link_copied", {
-                            video_id: video.video_id,
-                            t: Math.floor(match.start),
-                            keyword: keyword ?? null,
-                          })
-                        }
-                      />
+                      <div key={mIdx}>
+                        <SnippetRow
+                          timestamp={formatTime(match.start)}
+                          contextBefore={match.context_before}
+                          phrase={match.text}
+                          contextAfter={match.context_after}
+                          isLast={mIdx === video.matches.length - 1 && !isPreviewing}
+                          onClick={() => onSelectVideo(video.video_id, match.start)}
+                          isPreviewing={isPreviewing}
+                          onTogglePreview={() =>
+                            togglePreview(video.video_id, mIdx, match.start, keyword, idx)
+                          }
+                          shareLink={buildMomentLink({
+                            videoId: video.video_id,
+                            start: match.start,
+                            quote,
+                            keyword,
+                          })}
+                          onShared={() =>
+                            posthog.capture("moment_link_copied", {
+                              video_id: video.video_id,
+                              t: Math.floor(match.start),
+                              keyword: keyword ?? null,
+                            })
+                          }
+                        />
+                        {isPreviewing && (
+                          <div
+                            className={`px-3.5 pb-2.5 ${
+                              mIdx !== video.matches.length - 1 ? "border-b border-[#1e1e1e]" : ""
+                            }`}
+                          >
+                            <div className="rounded overflow-hidden border border-yt-dark-gray bg-black aspect-video">
+                              <iframe
+                                src={`https://www.youtube-nocookie.com/embed/${video.video_id}?start=${Math.floor(match.start)}&autoplay=1&cc_load_policy=1`}
+                                title={`Preview at ${formatTime(match.start)}`}
+                                allow="autoplay; encrypted-media; picture-in-picture"
+                                allowFullScreen
+                                className="w-full h-full border-0 block"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
@@ -187,6 +236,8 @@ function SnippetRow({
   onClick,
   shareLink,
   onShared,
+  isPreviewing,
+  onTogglePreview,
 }: {
   timestamp: string;
   contextBefore: string;
@@ -196,6 +247,8 @@ function SnippetRow({
   onClick: () => void;
   shareLink: string;
   onShared: () => void;
+  isPreviewing: boolean;
+  onTogglePreview: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   const resetTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -263,6 +316,23 @@ function SnippetRow({
       {/* Always visible (dimmed at rest): opacity-0-until-hover left an
           invisible but tappable control on touch devices, and made the
           feature undiscoverable there. */}
+      <button
+        type="button"
+        onClick={onTogglePreview}
+        aria-label={isPreviewing ? "Close preview" : "Preview this moment here"}
+        title={isPreviewing ? "Close preview" : "Preview this moment here"}
+        className={`shrink-0 flex items-start pt-2.5 pl-1 transition-all ${
+          isPreviewing
+            ? "text-yt-red"
+            : "text-yt-tert/60 hover:text-yt-light-gray group-hover:text-yt-tert focus-visible:text-yt-light-gray"
+        }`}
+      >
+        {isPreviewing ? (
+          <X className="w-[13px] h-[13px]" strokeWidth={2.5} />
+        ) : (
+          <Play className="w-[13px] h-[13px]" strokeWidth={2} />
+        )}
+      </button>
       <button
         type="button"
         onClick={handleShare}
