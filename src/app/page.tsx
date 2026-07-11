@@ -403,6 +403,8 @@ function HeroSection({ T, dark }: { T: Theme; dark: boolean }) {
         transition={{ duration: 0.6, delay: 0.1, ease: EASE_OUT }}
         style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "flex-start" }}
       >
+        {/* No nowrap: as the widest min-content child this line was forcing
+            the collapsed mobile grid column to 422px, clipping the hero. */}
         <p
           style={{
             margin: 0,
@@ -410,7 +412,6 @@ function HeroSection({ T, dark }: { T: Theme; dark: boolean }) {
             fontFamily: MONO,
             color: T.sub,
             letterSpacing: "0.04em",
-            whiteSpace: "nowrap",
           }}
         >
           Enter a channel · search a phrase · click any timestamp
