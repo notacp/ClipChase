@@ -2,6 +2,7 @@ import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import type { FailureReason } from "./types";
 import { TimeRange } from "./types";
+import { SHARE_BASE } from "./constants";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -27,6 +28,25 @@ export function dominantReason(
     }
   }
   return top;
+}
+
+// Builds a shareable moment link: clipchase.xyz/m/<videoId>?t=<sec>&x=<quote>&k=<kw>.
+// Quote capped at 200 chars so links stay pasteable in chat apps; the share
+// page renders entirely from these params (no backend lookup).
+export const MOMENT_QUOTE_MAX = 200;
+
+export function buildMomentLink(opts: {
+  videoId: string;
+  start: number;
+  quote: string;
+  keyword?: string;
+}): string {
+  const params = new URLSearchParams();
+  params.set("t", String(Math.max(0, Math.floor(opts.start))));
+  const quote = opts.quote.replace(/\s+/g, " ").trim();
+  if (quote) params.set("x", quote.slice(0, MOMENT_QUOTE_MAX));
+  if (opts.keyword) params.set("k", opts.keyword);
+  return `${SHARE_BASE}/m/${encodeURIComponent(opts.videoId)}?${params.toString()}`;
 }
 
 // Human-readable failure summary for the search UI, e.g. ["3 without captions",

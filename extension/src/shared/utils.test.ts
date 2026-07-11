@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { dominantReason, cleanKeyword, describeFailureCounts } from "./utils";
+import { dominantReason, cleanKeyword, describeFailureCounts, buildMomentLink } from "./utils";
 import type { FailureReason } from "./types";
 
 describe("cleanKeyword", () => {
@@ -94,5 +94,28 @@ describe("describeFailureCounts", () => {
 
   it("labels timeouts", () => {
     expect(describeFailureCounts({ budget_exceeded: 4 })).toEqual(["4 timed out"]);
+  });
+});
+
+describe("buildMomentLink", () => {
+  it("builds the share URL with floored timestamp, quote, and keyword", () => {
+    const url = buildMomentLink({ videoId: "abc123XYZ_-", start: 83.7, quote: "he got the hiccups mid sentence", keyword: "hiccup" });
+    expect(url).toBe("https://clipchase.xyz/m/abc123XYZ_-?t=83&x=he+got+the+hiccups+mid+sentence&k=hiccup");
+  });
+
+  it("caps the quote at 200 chars and collapses whitespace", () => {
+    const url = buildMomentLink({ videoId: "v", start: 0, quote: "  a  ".repeat(100) });
+    const x = new URL(url).searchParams.get("x")!;
+    expect(x.length).toBeLessThanOrEqual(200);
+    expect(x).not.toMatch(/\s{2}/);
+  });
+
+  it("omits empty quote and keyword params", () => {
+    const url = buildMomentLink({ videoId: "v", start: 5, quote: "   " });
+    expect(url).toBe("https://clipchase.xyz/m/v?t=5");
+  });
+
+  it("clamps negative timestamps to zero", () => {
+    expect(new URL(buildMomentLink({ videoId: "v", start: -3, quote: "q" })).searchParams.get("t")).toBe("0");
   });
 });

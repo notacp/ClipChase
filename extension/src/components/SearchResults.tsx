@@ -1,8 +1,9 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { Clock } from "lucide-react";
-import { useState } from "react";
+import { Check, Clock, Link2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { SearchResult, SortBy } from "../shared/types";
-import { formatTime } from "../shared/utils";
+import { buildMomentLink, formatTime } from "../shared/utils";
+import posthog from "../shared/posthog";
 
 interface SearchResultsProps {
   results: SearchResult[];
@@ -117,6 +118,19 @@ export function SearchResults({ results, sortBy, onSortChange, onSelectVideo }: 
                       contextAfter={match.context_after}
                       isLast={mIdx === video.matches.length - 1}
                       onClick={() => onSelectVideo(video.video_id, match.start)}
+                      shareLink={buildMomentLink({
+                        videoId: video.video_id,
+                        start: match.start,
+                        quote: `${match.context_before} ${match.text} ${match.context_after}`,
+                        keyword: video.search_terms_used?.[0],
+                      })}
+                      onShared={() =>
+                        posthog.capture("moment_link_copied", {
+                          video_id: video.video_id,
+                          t: Math.floor(match.start),
+                          keyword: video.search_terms_used?.[0] ?? null,
+                        })
+                      }
                     />
                   ))}
                 </div>
@@ -161,6 +175,8 @@ function SnippetRow({
   contextAfter,
   isLast,
   onClick,
+  shareLink,
+  onShared,
 }: {
   timestamp: string;
   contextBefore: string;
@@ -168,35 +184,86 @@ function SnippetRow({
   contextAfter: string;
   isLast: boolean;
   onClick: () => void;
+  shareLink: string;
+  onShared: () => void;
 }) {
+  const [copied, setCopied] = useState(false);
+  const resetTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => () => clearTimeout(resetTimer.current), []);
+
+  const handleShare = async () => {
+    try {
+      await navigator.clipboard.writeText(shareLink);
+    } catch {
+      // Clipboard API can be denied without a fresh user gesture; the
+      // textarea/execCommand path works in extension pages regardless.
+      const ta = document.createElement("textarea");
+      ta.value = shareLink;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    }
+    onShared();
+    setCopied(true);
+    clearTimeout(resetTimer.current);
+    resetTimer.current = setTimeout(() => setCopied(false), 1500);
+  };
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`w-full flex gap-2.5 items-start px-3.5 py-2 hover:bg-white/[0.03] transition-colors text-left ${
+    // Row is a div, not a button: the share control lives inside the row and
+    // nested buttons are invalid HTML (Chrome silently drops the inner one).
+    <div
+      className={`group w-full flex gap-2.5 items-start px-3.5 py-2 hover:bg-white/[0.03] transition-colors ${
         !isLast ? "border-b border-[#1e1e1e]" : ""
       }`}
     >
-      <div className="flex items-center gap-1 shrink-0 pt-0.5">
-        <Clock className="w-[13px] h-[13px] text-yt-red" strokeWidth={2} />
-        <span className="font-mono text-[11px] font-semibold text-yt-red whitespace-nowrap">
-          {timestamp}
-        </span>
-      </div>
-      <p className="m-0 text-[12px] text-yt-light-gray leading-[1.55]">
-        ...{contextBefore}{" "}
-        <mark
-          className="text-white font-bold rounded"
-          style={{
-            background: "#FF450028",
-            border: "1px solid #FF450055",
-            padding: "1px 4px",
-          }}
-        >
-          {phrase}
-        </mark>{" "}
-        {contextAfter}...
-      </p>
-    </button>
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex gap-2.5 items-start flex-1 min-w-0 text-left"
+      >
+        <div className="flex items-center gap-1 shrink-0 pt-0.5">
+          <Clock className="w-[13px] h-[13px] text-yt-red" strokeWidth={2} />
+          <span className="font-mono text-[11px] font-semibold text-yt-red whitespace-nowrap">
+            {timestamp}
+          </span>
+        </div>
+        <p className="m-0 text-[12px] text-yt-light-gray leading-[1.55]">
+          ...{contextBefore}{" "}
+          <mark
+            className="text-white font-bold rounded"
+            style={{
+              background: "#FF450028",
+              border: "1px solid #FF450055",
+              padding: "1px 4px",
+            }}
+          >
+            {phrase}
+          </mark>{" "}
+          {contextAfter}...
+        </p>
+      </button>
+      <button
+        type="button"
+        onClick={handleShare}
+        aria-label={copied ? "Link copied" : "Copy link to this moment"}
+        title={copied ? "Copied" : "Copy link to this moment"}
+        className={`shrink-0 flex items-center gap-1 pt-0.5 transition-all ${
+          copied
+            ? "text-green-500 opacity-100"
+            : "text-yt-tert hover:text-yt-light-gray opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+        }`}
+      >
+        {copied ? (
+          <>
+            <Check className="w-[13px] h-[13px]" strokeWidth={2.5} />
+            <span className="text-[10px] font-semibold">Copied</span>
+          </>
+        ) : (
+          <Link2 className="w-[13px] h-[13px]" strokeWidth={2} />
+        )}
+      </button>
+    </div>
   );
 }
