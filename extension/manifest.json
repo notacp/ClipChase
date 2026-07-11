@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "ClipChase — Search YouTube Transcripts",
-  "version": "1.2.9",
-  "description": "Search any phrase across a YouTube channel's transcripts. Get every video that mentions it with clickable timestamps.",
+  "name": "ClipChase: YouTube channel transcript search",
+  "version": "1.3.0",
+  "description": "Ctrl+F for YouTube. Search everything a creator has said, across their whole channel, and jump to the exact second they said it.",
   "minimum_chrome_version": "116",
   "permissions": ["sidePanel", "tabs", "storage", "declarativeNetRequestWithHostAccess"],
   "host_permissions": [
