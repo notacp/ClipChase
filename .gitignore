@@ -59,3 +59,6 @@ docs/superpowers/*
 .agents
 .claude
 .stitch
+# Internal strategy/planning docs — keep local, not on GitHub
+docs/promotion-targets.md
+docs/cws-listing.md
