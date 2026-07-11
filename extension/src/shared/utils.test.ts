@@ -85,7 +85,7 @@ describe("describeFailureCounts", () => {
   it("labels the main user-facing groups", () => {
     expect(
       describeFailureCounts({ no_captions: 3, pot_blocked: 2, xml_429: 1, sw_blocked: 1 }),
-    ).toEqual(["3 without captions", "2 blocked by YouTube", "2 rate-limited"]);
+    ).toEqual(["3 without captions", "3 blocked by YouTube", "1 rate-limited"]);
   });
 
   it("buckets unknown/technical reasons into a generic failed count", () => {
@@ -117,5 +117,10 @@ describe("buildMomentLink", () => {
 
   it("clamps negative timestamps to zero", () => {
     expect(new URL(buildMomentLink({ videoId: "v", start: -3, quote: "q" })).searchParams.get("t")).toBe("0");
+  });
+
+  it("caps keyword at 80 chars to match the share page's parseMoment", () => {
+    const url = buildMomentLink({ videoId: "v", start: 0, quote: "q", keyword: "k".repeat(120) });
+    expect(new URL(url).searchParams.get("k")).toHaveLength(80);
   });
 });

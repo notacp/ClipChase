@@ -14,21 +14,15 @@ function formatTimestamp(t: number): string {
   return `${mins}:${String(secs).padStart(2, "0")}`;
 }
 
-// Plus Jakarta Sans bold, fetched once per edge instance and cached by the
-// platform. If the fetch fails the card still renders with the default font.
-async function loadFont(): Promise<ArrayBuffer | null> {
-  try {
-    const css = await fetch(
-      "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@800&display=swap",
-      { headers: { "User-Agent": "Mozilla/5.0" } },
-    ).then((r) => r.text());
-    const url = css.match(/src: url\((.+?)\) format\('(woff2?|truetype|opentype)'\)/)?.[1];
-    if (!url) return null;
-    return await fetch(url).then((r) => r.arrayBuffer());
-  } catch {
-    return null;
-  }
-}
+// Plus Jakarta Sans 800 ships as a committed TTF next to this route (Satori
+// can't parse woff2, and scraping Google's CSS at request time both added
+// latency to every unfurl and broke whenever their serialization changed).
+// Module-scope promise: one load per isolate, awaited per request.
+const fontPromise: Promise<ArrayBuffer | null> = fetch(
+  new URL("./PlusJakartaSans-ExtraBold.ttf", import.meta.url),
+)
+  .then((r) => r.arrayBuffer())
+  .catch(() => null);
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -36,7 +30,7 @@ export async function GET(req: NextRequest) {
   const channel = (searchParams.get("c") ?? "").slice(0, 60).trim();
   const t = Math.max(0, Math.floor(Number(searchParams.get("t") ?? "0")) || 0);
 
-  const font = await loadFont();
+  const font = await fontPromise;
   const display = quote ? `“${quote}”` : "Jump to the exact moment";
   // Long quotes get a smaller size so the card never clips.
   const fontSize = display.length > 140 ? 44 : display.length > 80 ? 54 : 64;

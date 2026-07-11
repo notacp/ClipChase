@@ -343,7 +343,9 @@ async function tryClient(
   budget: AbortSignal,
   visitorData?: string,
 ): Promise<ExtractResult> {
-  const prefix = `sw-${client.clientName.toLowerCase()}${visitorData ? "+vd" : ""}-`;
+  // "_vd" not "+vd": classifyFailure strips prefixes with /^sw-[a-z0-9_]+-/,
+  // and "+" is outside that class — the variant marker must stay parseable.
+  const prefix = `sw-${client.clientName.toLowerCase()}${visitorData ? "_vd" : ""}-`;
   if (budget.aborted) return { _debug: `${prefix}budget` };
   try {
     const res = await fetch("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", {

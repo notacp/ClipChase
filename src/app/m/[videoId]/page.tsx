@@ -10,14 +10,23 @@ import { MomentView } from "./MomentView";
 const VIDEO_ID_RE = /^[\w-]{5,20}$/;
 
 type Params = { videoId: string };
-type Search = { t?: string; x?: string; k?: string };
+// Next hands repeated query params over as arrays (?x=a&x=b → ["a","b"]).
+// Coerce to the first value instead of calling string methods on an array.
+type Search = Record<string, string | string[] | undefined>;
 
+function first(v: string | string[] | undefined): string {
+  return (Array.isArray(v) ? v[0] : v) ?? "";
+}
+
+// Caps mirror the extension's buildMomentLink (extension/src/shared/utils.ts):
+// quote ≤ 200 there, accepted up to 300 here for slack; keyword ≤ 80 on both
+// sides. Change them together or shared links lose their highlight.
 function parseMoment(params: Params, searchParams: Search) {
   const videoId = params.videoId;
-  const t = Math.max(0, Math.floor(Number(searchParams.t ?? "0")) || 0);
+  const t = Math.max(0, Math.floor(Number(first(searchParams.t) || "0")) || 0);
   if (!VIDEO_ID_RE.test(videoId)) return null;
-  const quote = (searchParams.x ?? "").slice(0, 300).trim();
-  const keyword = (searchParams.k ?? "").slice(0, 80).trim();
+  const quote = first(searchParams.x).slice(0, 300).trim();
+  const keyword = first(searchParams.k).slice(0, 80).trim();
   return { videoId, t, quote, keyword };
 }
 

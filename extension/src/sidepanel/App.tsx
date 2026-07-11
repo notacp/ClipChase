@@ -590,11 +590,12 @@ export function App() {
                   No mentions of <span className="text-yt-text font-medium">&ldquo;{lastSearch.keyword}&rdquo;</span> in indexed videos.<br />
                   <span className="text-yt-tert">Some videos couldn&rsquo;t be checked — YouTube tab not accessible.</span>
                 </>
-              ) : lastSearch.failureReason === "pot_blocked" && (lastSearch.failureRatio ?? 0) > 0.3 ? (
+              ) : lastSearch.failureReason === "pot_blocked" &&
+                (lastSearch.failureCounts?.pot_blocked ?? 0) / (lastSearch.videosScanned || 1) > 0.3 ? (
                 <>
                   No mentions of <span className="text-yt-text font-medium">&ldquo;{lastSearch.keyword}&rdquo;</span> in the videos we could search.<br />
                   <span className="text-yt-tert">
-                    YouTube blocked transcript access for {lastSearch.transcriptFailures} of {lastSearch.videosScanned} videos — these have transcripts, we just couldn&rsquo;t read them. Retrying in a minute usually helps.
+                    YouTube blocked transcript access for {lastSearch.failureCounts?.pot_blocked ?? 0} of {lastSearch.videosScanned} videos. These have transcripts, we just couldn&rsquo;t read them. Retrying in a minute usually helps.
                   </span>
                 </>
               ) : lastSearch.failureReason === "no_captions" && (lastSearch.failureRatio ?? 0) > 0.5 ? (

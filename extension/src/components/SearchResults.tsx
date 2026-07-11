@@ -109,30 +109,40 @@ export function SearchResults({ results, sortBy, onSortChange, onSelectVideo }: 
               {/* Expanded snippets */}
               {isExp && (
                 <div className="border-t border-yt-dark-gray">
-                  {video.matches.map((match, mIdx) => (
-                    <SnippetRow
-                      key={mIdx}
-                      timestamp={formatTime(match.start)}
-                      contextBefore={match.context_before}
-                      phrase={match.text}
-                      contextAfter={match.context_after}
-                      isLast={mIdx === video.matches.length - 1}
-                      onClick={() => onSelectVideo(video.video_id, match.start)}
-                      shareLink={buildMomentLink({
-                        videoId: video.video_id,
-                        start: match.start,
-                        quote: `${match.context_before} ${match.text} ${match.context_after}`,
-                        keyword: video.search_terms_used?.[0],
-                      })}
-                      onShared={() =>
-                        posthog.capture("moment_link_copied", {
-                          video_id: video.video_id,
-                          t: Math.floor(match.start),
-                          keyword: video.search_terms_used?.[0] ?? null,
-                        })
-                      }
-                    />
-                  ))}
+                  {video.matches.map((match, mIdx) => {
+                    const quote = `${match.context_before} ${match.text} ${match.context_after}`;
+                    // Multi-term searches (variants, transliterations) can
+                    // match on any term — send the one actually present in
+                    // this quote so the share page's highlight finds it.
+                    const keyword =
+                      video.search_terms_used?.find((term) =>
+                        quote.toLowerCase().includes(term.toLowerCase()),
+                      ) ?? video.search_terms_used?.[0];
+                    return (
+                      <SnippetRow
+                        key={mIdx}
+                        timestamp={formatTime(match.start)}
+                        contextBefore={match.context_before}
+                        phrase={match.text}
+                        contextAfter={match.context_after}
+                        isLast={mIdx === video.matches.length - 1}
+                        onClick={() => onSelectVideo(video.video_id, match.start)}
+                        shareLink={buildMomentLink({
+                          videoId: video.video_id,
+                          start: match.start,
+                          quote,
+                          keyword,
+                        })}
+                        onShared={() =>
+                          posthog.capture("moment_link_copied", {
+                            video_id: video.video_id,
+                            t: Math.floor(match.start),
+                            keyword: keyword ?? null,
+                          })
+                        }
+                      />
+                    );
+                  })}
                 </div>
               )}
             </motion.div>
@@ -188,22 +198,26 @@ function SnippetRow({
   onShared: () => void;
 }) {
   const [copied, setCopied] = useState(false);
-  const resetTimer = useRef<ReturnType<typeof setTimeout>>();
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(resetTimer.current), []);
 
   const handleShare = async () => {
+    let ok = true;
     try {
       await navigator.clipboard.writeText(shareLink);
     } catch {
       // Clipboard API can be denied without a fresh user gesture; the
-      // textarea/execCommand path works in extension pages regardless.
+      // textarea/execCommand path usually works in extension pages.
       const ta = document.createElement("textarea");
       ta.value = shareLink;
       document.body.appendChild(ta);
       ta.select();
-      document.execCommand("copy");
+      ok = document.execCommand("copy");
       ta.remove();
     }
+    // Only claim success when a copy actually landed — a green "Copied" over
+    // an unchanged clipboard also inflates moment_link_copied.
+    if (!ok) return;
     onShared();
     setCopied(true);
     clearTimeout(resetTimer.current);
@@ -213,15 +227,17 @@ function SnippetRow({
   return (
     // Row is a div, not a button: the share control lives inside the row and
     // nested buttons are invalid HTML (Chrome silently drops the inner one).
+    // Padding lives on the buttons, not the div, so the whole padded band
+    // stays clickable like the original single-button row.
     <div
-      className={`group w-full flex gap-2.5 items-start px-3.5 py-2 hover:bg-white/[0.03] transition-colors ${
+      className={`group w-full flex items-stretch hover:bg-white/[0.03] transition-colors ${
         !isLast ? "border-b border-[#1e1e1e]" : ""
       }`}
     >
       <button
         type="button"
         onClick={onClick}
-        className="flex gap-2.5 items-start flex-1 min-w-0 text-left"
+        className="flex gap-2.5 items-start flex-1 min-w-0 text-left pl-3.5 py-2 pr-1"
       >
         <div className="flex items-center gap-1 shrink-0 pt-0.5">
           <Clock className="w-[13px] h-[13px] text-yt-red" strokeWidth={2} />
@@ -244,15 +260,18 @@ function SnippetRow({
           {contextAfter}...
         </p>
       </button>
+      {/* Always visible (dimmed at rest): opacity-0-until-hover left an
+          invisible but tappable control on touch devices, and made the
+          feature undiscoverable there. */}
       <button
         type="button"
         onClick={handleShare}
         aria-label={copied ? "Link copied" : "Copy link to this moment"}
         title={copied ? "Copied" : "Copy link to this moment"}
-        className={`shrink-0 flex items-center gap-1 pt-0.5 transition-all ${
+        className={`shrink-0 flex items-start gap-1 pt-2.5 pr-3.5 pl-1 transition-all ${
           copied
-            ? "text-green-500 opacity-100"
-            : "text-yt-tert hover:text-yt-light-gray opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+            ? "text-green-500"
+            : "text-yt-tert/60 hover:text-yt-light-gray group-hover:text-yt-tert focus-visible:text-yt-light-gray"
         }`}
       >
         {copied ? (

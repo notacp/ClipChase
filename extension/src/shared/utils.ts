@@ -33,7 +33,11 @@ export function dominantReason(
 // Builds a shareable moment link: clipchase.xyz/m/<videoId>?t=<sec>&x=<quote>&k=<kw>.
 // Quote capped at 200 chars so links stay pasteable in chat apps; the share
 // page renders entirely from these params (no backend lookup).
+// Caps must stay within what the share page accepts (parseMoment in
+// src/app/m/[videoId]/page.tsx: quote ≤ 300, keyword ≤ 80) — anything the
+// server truncates harder than the client breaks the recipient's highlight.
 export const MOMENT_QUOTE_MAX = 200;
+export const MOMENT_KEYWORD_MAX = 80;
 
 export function buildMomentLink(opts: {
   videoId: string;
@@ -45,7 +49,7 @@ export function buildMomentLink(opts: {
   params.set("t", String(Math.max(0, Math.floor(opts.start))));
   const quote = opts.quote.replace(/\s+/g, " ").trim();
   if (quote) params.set("x", quote.slice(0, MOMENT_QUOTE_MAX));
-  if (opts.keyword) params.set("k", opts.keyword);
+  if (opts.keyword) params.set("k", opts.keyword.slice(0, MOMENT_KEYWORD_MAX));
   return `${SHARE_BASE}/m/${encodeURIComponent(opts.videoId)}?${params.toString()}`;
 }
 
@@ -55,8 +59,10 @@ export function buildMomentLink(opts: {
 // them the transcript exists and the tool — not their keyword — is the problem.
 const FAILURE_GROUP_LABELS: [FailureReason[], (n: number) => string][] = [
   [["no_captions"], (n) => `${n} without captions`],
-  [["pot_blocked"], (n) => `${n} blocked by YouTube`],
-  [["xml_429", "sw_blocked"], (n) => `${n} rate-limited`],
+  // sw_blocked is a hard HTTP block (403/5xx), not throttling — "rate-limited"
+  // would tell the user to wait and retry when retrying can't help.
+  [["pot_blocked", "sw_blocked"], (n) => `${n} blocked by YouTube`],
+  [["xml_429"], (n) => `${n} rate-limited`],
   [["budget_exceeded"], (n) => `${n} timed out`],
 ];
 
