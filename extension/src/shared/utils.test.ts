@@ -100,7 +100,7 @@ describe("describeFailureCounts", () => {
 describe("buildMomentLink", () => {
   it("builds the share URL with floored timestamp, quote, and keyword", () => {
     const url = buildMomentLink({ videoId: "abc123XYZ_-", start: 83.7, quote: "he got the hiccups mid sentence", keyword: "hiccup" });
-    expect(url).toBe("https://clipchase.xyz/m/abc123XYZ_-?t=83&x=he+got+the+hiccups+mid+sentence&k=hiccup");
+    expect(url).toBe("https://www.clipchase.xyz/m/abc123XYZ_-?t=83&x=he+got+the+hiccups+mid+sentence&k=hiccup");
   });
 
   it("caps the quote at 200 chars and collapses whitespace", () => {
@@ -112,7 +112,7 @@ describe("buildMomentLink", () => {
 
   it("omits empty quote and keyword params", () => {
     const url = buildMomentLink({ videoId: "v", start: 5, quote: "   " });
-    expect(url).toBe("https://clipchase.xyz/m/v?t=5");
+    expect(url).toBe("https://www.clipchase.xyz/m/v?t=5");
   });
 
   it("clamps negative timestamps to zero", () => {
