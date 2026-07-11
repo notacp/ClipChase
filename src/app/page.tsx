@@ -113,6 +113,11 @@ export default function Landing() {
   // owns the CTA and the nav CTA fades out so two install buttons are never
   // visible at once.
   const [pastHero, setPastHero] = useState(false);
+  // The fixed sticky bar was covering the footer links (Privacy, Feedback,
+  // Install) at the bottom of the page. The footer carries its own install
+  // link, so the bar retires when the footer scrolls into view.
+  const [footerInView, setFooterInView] = useState(false);
+  const footerRef = useRef<HTMLDivElement | null>(null);
   const T = makeTheme(dark);
 
   useEffect(() => {
@@ -120,6 +125,14 @@ export default function Landing() {
     handler();
     window.addEventListener("scroll", handler, { passive: true });
     return () => window.removeEventListener("scroll", handler);
+  }, []);
+
+  useEffect(() => {
+    const el = footerRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(([entry]) => setFooterInView(entry.isIntersecting));
+    obs.observe(el);
+    return () => obs.disconnect();
   }, []);
 
   return (
@@ -135,8 +148,10 @@ export default function Landing() {
       <HeroSection T={T} dark={dark} />
       <UseCases T={T} />
       <SpecSheet T={T} />
-      <SiteFooter T={T} />
-      <StickyCta T={T} dark={dark} visible={pastHero} />
+      <div ref={footerRef}>
+        <SiteFooter T={T} />
+      </div>
+      <StickyCta T={T} dark={dark} visible={pastHero && !footerInView} />
     </div>
   );
 }
