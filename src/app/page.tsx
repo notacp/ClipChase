@@ -359,8 +359,9 @@ function HeroSection({ T, dark }: { T: Theme; dark: boolean }) {
             maxWidth: 420,
           }}
         >
-          Find every time a creator mentioned a topic, across their entire
-          channel, and jump to that exact moment.
+          Search everything a creator has ever said, across their whole
+          channel, and jump to the exact second they said it. For clips,
+          edits, and that one moment you can&rsquo;t find again.
         </p>
 
         <motion.a
@@ -1167,20 +1168,20 @@ function ExtensionPreview({ T, dark }: { T: Theme; dark: boolean }) {
 
 const USE_CASES: [string, string][] = [
   [
-    "He mentioned a book in some episode...",
+    "I need that clip where he says it.",
+    "Hunting a moment for an edit, a Short, or a compilation. Search the line, get every time it was said, each with a timestamp to the exact second.",
+  ],
+  [
+    "He says that catchphrase in literally every video.",
+    "Every single time, across the whole channel, in one list, ranked by how often it shows up. Compilation material, already sorted.",
+  ],
+  [
+    "She mentioned a book in some episode...",
     "Your favorite creator recommended a book, a movie, a tool. Months ago. Some episode. Search the title and jump straight to the moment.",
   ],
   [
-    "What has she actually said about Bitcoin?",
-    "Every take, across every video, in one list. Sorted by how often it comes up, filterable by date. See the latest position, not just the loudest one.",
-  ],
-  [
-    "The fix is somewhere in his hour-long video.",
-    "Search the error message or the function name. Land on the exact second they cover it. No scrubbing.",
-  ],
-  [
     "I need the exact quote, with a timestamp.",
-    "For writers, students, and anyone citing a video. Find the line, click the timestamp, and you're watching the moment it was said.",
+    "For writers, students, and anyone fact-checking a take. Find the line, click the timestamp, and you're watching the moment it was said.",
   ],
 ];
 
@@ -1263,6 +1264,7 @@ const SPEC_ROWS: [string, string, boolean?][] = [
   ["Full transcript search", "Every word of every video indexed. Not just titles.", true],
   ["Clickable timestamps", "Each result links directly to that second in the video. No manual seeking.", true],
   ["Any public channel", "Any channel you can think of. No account, no API key, no friction."],
+  ["100+ languages", "Search in हिंदी, English, or whatever language the creator speaks. If the video has captions, it's searchable."],
   ["Private by default", "Runs entirely in your browser. Searches never leave your device."],
   ["Ranked by frequency", "The videos where it comes up most appear first. Not just the most recent."],
   ["Time-range filter", "Narrow results to 1 day, 7 days, 1 month, 6 months, or all time."],
