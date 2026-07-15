@@ -105,7 +105,7 @@ class _TursoHTTPConnection:
         # Fallback: own client for local-dev / tests where no shared client is injected.
         if self._client is None:
             import httpx  # deferred — not needed in local-dev path
-            self._client = httpx.Client(timeout=60.0)
+            self._client = httpx.Client(timeout=120.0)
         return self._client
 
     def _send(self, requests: List[dict]) -> List[dict]:
@@ -325,7 +325,7 @@ class TranscriptIndexService:
         self._shared_http_client = None
         if self._remote:
             import httpx
-            self._shared_http_client = httpx.Client(timeout=60.0)
+            self._shared_http_client = httpx.Client(timeout=120.0)
         try:
             self.ensure_schema()
         except Exception:

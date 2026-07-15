@@ -2,6 +2,7 @@ import functools
 import json
 import logging
 import os
+import time
 from datetime import datetime
 from typing import Iterator, List, Optional, Sequence
 
@@ -449,17 +450,34 @@ def _index_after_match(
     # the ASGI request completes — Vercel keeps the invocation alive until it
     # returns (Python's waitUntil). Best-effort by design: a lost write only
     # means the next search of this channel refetches and re-indexes.
-    try:
-        index_service.cache_video_transcripts(
-            channel_id=channel_id,
-            source_url=source_url,
-            video=video,
-            transcripts=[transcript_data],
-        )
-    except Exception:
-        logger.exception(
-            "match-side indexing failed channel=%s video=%s", channel_id, video.get("id")
-        )
+    #
+    # Retry once: production showed Turso batch POSTs hitting httpx
+    # ReadTimeout under cold-wake/concurrent-write pressure, and the write is
+    # idempotent per video (single delete+insert commit), so a whole-video
+    # retry is safe.
+    for attempt in (1, 2):
+        try:
+            index_service.cache_video_transcripts(
+                channel_id=channel_id,
+                source_url=source_url,
+                video=video,
+                transcripts=[transcript_data],
+            )
+            return
+        except Exception:
+            if attempt == 2:
+                logger.exception(
+                    "match-side indexing failed twice channel=%s video=%s",
+                    channel_id,
+                    video.get("id"),
+                )
+            else:
+                logger.warning(
+                    "match-side indexing retrying channel=%s video=%s",
+                    channel_id,
+                    video.get("id"),
+                )
+                time.sleep(5)
 
 
 @router.post("/match", response_model=MatchResponse)

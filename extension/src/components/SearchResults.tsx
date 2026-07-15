@@ -179,8 +179,16 @@ export function SearchResults({ results, sortBy, onSortChange, onSelectVideo }: 
                             }`}
                           >
                             <div className="rounded overflow-hidden border border-yt-dark-gray bg-black aspect-video">
+                              {/* Via the moment page (?embed=1), not YouTube
+                                  directly: YouTube rejects embeds from
+                                  chrome-extension:// origins (error 153); the
+                                  player nested in our https page works. */}
                               <iframe
-                                src={`https://www.youtube-nocookie.com/embed/${video.video_id}?start=${Math.floor(match.start)}&autoplay=1&cc_load_policy=1`}
+                                src={`${buildMomentLink({
+                                  videoId: video.video_id,
+                                  start: match.start,
+                                  quote: "",
+                                })}&embed=1`}
                                 title={`Preview at ${formatTime(match.start)}`}
                                 allow="autoplay; encrypted-media; picture-in-picture"
                                 allowFullScreen
