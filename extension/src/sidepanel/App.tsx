@@ -201,7 +201,9 @@ export function App() {
   // `keyword` parameter deliberately shadows the input state: everything in a
   // search (API params, matching, telemetry) must use the cleaned form, never
   // whatever the input field currently holds.
-  const runSearch = async (keyword: string) => {
+  // channelUrl arrives as a parameter (shadowing the state binding) so
+  // handleSearch can pass a just-resolved value without waiting a render.
+  const runSearch = async (keyword: string, channelUrl: string) => {
     // Cancel any in-flight SSE before claiming a new generation.
     searchAbortRef.current?.abort();
     const controller = new AbortController();
@@ -218,8 +220,10 @@ export function App() {
 
     // Pin the SW alive for the full search. The SSE indexed phase runs without
     // any SW messages flowing, so the worker would otherwise hit the 30s idle
-    // eviction. Stopped in `finally` regardless of success/abort/error.
+    // eviction. Released in `finally`, but only after the fire-and-forget
+    // index writes settle — they stream past the end of the search.
     const stopKeepalive = startKeepalive();
+    const pendingIndexWrites: Promise<unknown>[] = [];
 
     const searchStartedAt = Date.now();
     let searchFailed = false;
@@ -342,12 +346,14 @@ export function App() {
             }
             const transcript = txRes.data.transcript;
 
-            // Fire-and-forget: persist transcript to backend index so future
-            // searches on this channel use the cached path. Failures here mean
-            // cached-path stays cold — capture the error so we can spot a
-            // broken indexer instead of just seeing low indexed_hits.
+            // Fire-and-forget for the SEARCH (results don't wait on indexing),
+            // but tracked in pendingIndexWrites: the keepalive port must stay
+            // open until these settle, or the SW gets evicted 30s after the
+            // search ends while index SSE streams are still mid-flight —
+            // that eviction was the top failure class in production
+            // ("message channel closed", ~70 index_transcript_failed/3d).
             if (resolvedChannelId) {
-              void send(
+              pendingIndexWrites.push(send(
                 {
                   type: "index-transcript",
                   params: {
@@ -366,7 +372,7 @@ export function App() {
                     error_message: res.error,
                   });
                 }
-              });
+              }));
             }
 
             const matchRes = await send(
@@ -407,7 +413,10 @@ export function App() {
         error_message: message,
       });
     } finally {
-      stopKeepalive();
+      // send() never rejects (resolves {ok:false} on failure), so allSettled
+      // vs all is belt-and-braces; the point is: keepalive outlives the
+      // index writes, not the other way around.
+      void Promise.allSettled(pendingIndexWrites).then(() => stopKeepalive());
       if (superseded()) {
         posthog.capture("search_cancelled", {
           channel: channelUrl,
@@ -513,7 +522,36 @@ export function App() {
     // Reflect the cleaned form in the input so the user sees exactly what was
     // searched (e.g. pasted "startup" loses its quotes visibly).
     if (cleanedKeyword !== keyword) setKeyword(cleanedKeyword);
-    await runSearch(cleanedKeyword);
+
+    // Users paste VIDEO urls into the channel field (observed in prod: 4
+    // straight "SSE 400"s from one user). Resolve the video to its channel
+    // via oEmbed instead of letting the API reject it.
+    let searchChannel = channelUrl;
+    const videoId = channelUrl.match(
+      /(?:youtube\.com\/(?:watch\?[^#\s]*v=|shorts\/|live\/)|youtu\.be\/)([\w-]{5,20})/,
+    )?.[1];
+    if (videoId) {
+      try {
+        const r = await fetch(
+          `https://www.youtube.com/oembed?url=${encodeURIComponent(
+            `https://www.youtube.com/watch?v=${videoId}`,
+          )}&format=json`,
+        );
+        if (r.ok) {
+          const d = (await r.json()) as { author_url?: string; author_name?: string };
+          if (d.author_url) {
+            searchChannel = d.author_url;
+            setChannelUrl(d.author_url);
+            if (d.author_name) setChannelDisplay(d.author_name);
+            posthog.capture("channel_resolved_from_video", { video_id: videoId });
+          }
+        }
+      } catch {
+        // oEmbed unreachable — search with the raw input; the API error path
+        // still surfaces, same as before this fix.
+      }
+    }
+    await runSearch(cleanedKeyword, searchChannel);
   };
 
   return (
@@ -568,7 +606,7 @@ export function App() {
           <p className="text-[11px] leading-relaxed text-yt-red/80">{error}</p>
           <button
             type="button"
-            onClick={() => runSearch(cleanKeyword(keyword))}
+            onClick={() => runSearch(cleanKeyword(keyword), channelUrl)}
             className="mt-3 text-[11px] font-semibold text-yt-red hover:text-white border border-yt-red/40 hover:border-yt-red hover:bg-yt-red px-3 py-2 rounded transition-all"
           >
             Try again
@@ -585,7 +623,16 @@ export function App() {
           <Search className="w-7 h-7 text-yt-tert" strokeWidth={1.4} />
           <p className="text-[12px] text-yt-light-gray leading-relaxed max-w-xs">
             {lastSearch ? (
-              lastSearch.failureReason === "no_tab" || lastSearch.failureReason === "tab_failed" ? (
+              lastSearch.videosScanned === 0 ? (
+                // Zero videos even entered the scan (observed in prod: French
+                // user, channel whose uploads predate the 30-day default).
+                // Saying "no mentions" here blames the keyword; the time
+                // range is the actual problem.
+                <>
+                  No videos found in this time range for this channel.<br />
+                  <span className="text-yt-tert">Try expanding the range · the All filter covers the whole catalog.</span>
+                </>
+              ) : lastSearch.failureReason === "no_tab" || lastSearch.failureReason === "tab_failed" ? (
                 <>
                   No mentions of <span className="text-yt-text font-medium">&ldquo;{lastSearch.keyword}&rdquo;</span> in indexed videos.<br />
                   <span className="text-yt-tert">Some videos couldn&rsquo;t be checked — YouTube tab not accessible.</span>
