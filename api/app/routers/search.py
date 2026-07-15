@@ -6,7 +6,7 @@ import threading
 from datetime import datetime
 from typing import Any, Iterator, List, Optional, Sequence, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -126,6 +126,12 @@ class MatchRequest(BaseModel):
     keyword: str
     video: VideoInput
     transcript: TranscriptInput
+    # When set (clients >= 1.3.3), /match also indexes the transcript
+    # server-side after responding, replacing the separate /index/transcript
+    # round-trip. The transcript is already in this request body; the client
+    # was uploading it twice.
+    channel_id: Optional[str] = None
+    source_url: Optional[str] = None
 
 
 class MatchResponse(BaseModel):
@@ -622,10 +628,36 @@ def index_transcript(
     )
 
 
+def _index_after_match(
+    index_service: TranscriptIndexService,
+    channel_id: str,
+    source_url: str,
+    video: dict,
+    transcript_data: dict,
+) -> None:
+    # Runs as a Starlette background task: after the response is sent, before
+    # the ASGI request completes — Vercel keeps the invocation alive until it
+    # returns (Python's waitUntil). Best-effort by design: a lost write only
+    # means the next search of this channel refetches and re-indexes.
+    try:
+        index_service.cache_video_transcripts(
+            channel_id=channel_id,
+            source_url=source_url,
+            video=video,
+            transcripts=[transcript_data],
+        )
+    except Exception:
+        logger.exception(
+            "match-side indexing failed channel=%s video=%s", channel_id, video.get("id")
+        )
+
+
 @router.post("/match", response_model=MatchResponse)
 async def match_transcript(
     req: MatchRequest,
+    background_tasks: BackgroundTasks,
     service: YouTubeService = Depends(get_yt_service),
+    index_service: TranscriptIndexService = Depends(get_index_service),
 ):
     transcript_data = {
         "language_code": req.transcript.language_code,
@@ -643,5 +675,16 @@ async def match_transcript(
         thumbnail=req.video.thumbnail,
         transcript_data=transcript_data,
     )
+
+    # Same channel_id validation as /index/transcript.
+    if req.channel_id and req.channel_id.startswith("UC") and len(req.channel_id) == 24:
+        background_tasks.add_task(
+            _index_after_match,
+            index_service,
+            req.channel_id,
+            req.source_url or "",
+            req.video.model_dump(),
+            transcript_data,
+        )
 
     return MatchResponse(match_result=match_result)

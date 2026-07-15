@@ -223,10 +223,8 @@ export function App() {
 
     // Pin the SW alive for the full search. The SSE indexed phase runs without
     // any SW messages flowing, so the worker would otherwise hit the 30s idle
-    // eviction. Released in `finally`, but only after the fire-and-forget
-    // index writes settle — they stream past the end of the search.
+    // eviction. Stopped in `finally` regardless of success/abort/error.
     const stopKeepalive = startKeepalive();
-    const pendingIndexWrites: Promise<unknown>[] = [];
 
     const searchStartedAt = Date.now();
     let searchFailed = false;
@@ -349,41 +347,22 @@ export function App() {
             }
             const transcript = txRes.data.transcript;
 
-            // Fire-and-forget for the SEARCH (results don't wait on indexing),
-            // but tracked in pendingIndexWrites: the keepalive port must stay
-            // open until these settle, or the SW gets evicted 30s after the
-            // search ends while index SSE streams are still mid-flight —
-            // that eviction was the top failure class in production
-            // ("message channel closed", ~70 index_transcript_failed/3d).
-            if (resolvedChannelId) {
-              // No abort signal: the transcript is already fetched, and the
-              // write helps every future search. Aborting on supersede also
-              // settled pendingIndexWrites instantly and dropped the keepalive
-              // while the SW was still mid-write — the eviction this tracking
-              // exists to prevent.
-              pendingIndexWrites.push(send(
-                {
-                  type: "index-transcript",
-                  params: {
-                    channel_id: resolvedChannelId,
-                    source_url: channelUrl,
-                    video,
-                    transcript,
-                  },
-                },
-              ).then((res) => {
-                if (!res.ok && res.error !== "aborted") {
-                  posthog.capture("index_transcript_failed", {
-                    channel_id: resolvedChannelId,
-                    video_id: video.id,
-                    error_message: res.error,
-                  });
-                }
-              }));
-            }
-
+            // channel_id/source_url make the server index this transcript
+            // after responding — the old client-driven index-transcript
+            // round-trip (second upload of the same transcript, SSE stream
+            // babysat through SW keepalive) is gone.
             const matchRes = await send(
-              { type: "match-transcript", params: { keyword, video, transcript } },
+              {
+                type: "match-transcript",
+                params: {
+                  keyword,
+                  video,
+                  transcript,
+                  ...(resolvedChannelId
+                    ? { channel_id: resolvedChannelId, source_url: channelUrl }
+                    : {}),
+                },
+              },
               { signal: controller.signal },
             );
             if (superseded()) return;
@@ -420,10 +399,7 @@ export function App() {
         error_message: message,
       });
     } finally {
-      // send() never rejects (resolves {ok:false} on failure), so allSettled
-      // vs all is belt-and-braces; the point is: keepalive outlives the
-      // index writes, not the other way around.
-      void Promise.allSettled(pendingIndexWrites).then(() => stopKeepalive());
+      stopKeepalive();
       if (superseded()) {
         posthog.capture("search_cancelled", {
           channel: channelUrl,

@@ -16,7 +16,6 @@ vi.mock("./posthog-sw", () => ({
 vi.mock("./api-client", () => ({
   listVideos: vi.fn(),
   matchTranscript: vi.fn(),
-  indexTranscript: vi.fn(),
 }));
 
 const VALID_XML = '<transcript><text start="0" dur="1">hello world</text></transcript>';

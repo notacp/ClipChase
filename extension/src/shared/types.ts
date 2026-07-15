@@ -72,8 +72,7 @@ export interface FetchTranscriptResult {
 export type ExtMessage =
   | { type: "list-videos"; params: VideoListParams }
   | { type: "fetch-transcript"; videoId: string; preferredLangs: string[] }
-  | { type: "match-transcript"; params: MatchParams }
-  | { type: "index-transcript"; params: IndexTranscriptParams };
+  | { type: "match-transcript"; params: MatchParams };
 
 export interface VideoListParams {
   channel_url: string;
@@ -91,21 +90,15 @@ export interface MatchParams {
   keyword: string;
   video: VideoInfo;
   transcript: Transcript;
+  // When present, the server indexes this transcript after responding —
+  // replaces the old client-driven index-transcript round-trip (the
+  // transcript already rides in this request).
+  channel_id?: string;
+  source_url?: string;
 }
 
 export interface MatchResponse {
   match_result: SearchResult | null;
-}
-
-export interface IndexTranscriptParams {
-  channel_id: string;
-  source_url: string;
-  video: VideoInfo;
-  transcript: Transcript;
-}
-
-export interface IndexTranscriptResponse {
-  stored: number;
 }
 
 export type MessageResponse<T> =

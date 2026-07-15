@@ -37,19 +37,16 @@ describe("messaging.send — sw_timeout deadman", () => {
     vi.useRealTimers();
   });
 
-  it("fires sw_message_timeout for index-transcript at 120s and soft-fails", async () => {
-    const promise = send({
-      type: "index-transcript",
-      params: { channel_id: "c", source_url: "u", video: {}, transcript: {} } as never,
-    });
+  it("fires sw_message_timeout for match-transcript at 30s and soft-fails", async () => {
+    const promise = send({ type: "match-transcript", params: {} as never });
 
-    await vi.advanceTimersByTimeAsync(120_000);
+    await vi.advanceTimersByTimeAsync(30_000);
     const result = await promise;
 
     expect(result).toEqual({ ok: false, error: "sw_timeout" });
     expect(posthog.capture).toHaveBeenCalledWith("sw_message_timeout", {
-      message_type: "index-transcript",
-      timeout_ms: 120_000,
+      message_type: "match-transcript",
+      timeout_ms: 30_000,
     });
     // pendingCallback was never called — proving this is the deadman, not a response.
     expect(pendingCallback).toBeTypeOf("function");
@@ -62,9 +59,6 @@ describe("messaging.send — sw_timeout deadman", () => {
     ["list-videos", 15_000],
     ["fetch-transcript", 30_000],
     ["match-transcript", 30_000],
-    // index-transcript: 120s — long videos stream ~40 Turso POSTs in one SSE
-    // call; a 30s deadman dropped the keepalive mid-write (see messaging.ts).
-    ["index-transcript", 120_000],
   ])("fires %s deadman at its configured %dms", async (type, ms) => {
     const promise = send({ type, params: {} } as never);
     await vi.advanceTimersByTimeAsync(ms - 1);
@@ -78,20 +72,17 @@ describe("messaging.send — sw_timeout deadman", () => {
     });
   });
 
-  it("does not fire the deadman before the full index-transcript window elapses", async () => {
-    const promise = send({
-      type: "index-transcript",
-      params: { channel_id: "c", source_url: "u", video: {}, transcript: {} } as never,
-    });
+  it("does not fire the deadman before the window elapses", async () => {
+    const promise = send({ type: "match-transcript", params: {} as never });
 
-    await vi.advanceTimersByTimeAsync(119_999);
+    await vi.advanceTimersByTimeAsync(29_999);
     expect(posthog.capture).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(1);
     await promise;
     expect(posthog.capture).toHaveBeenCalledWith(
       "sw_message_timeout",
-      expect.objectContaining({ message_type: "index-transcript" }),
+      expect.objectContaining({ message_type: "match-transcript" }),
     );
   });
 
@@ -122,10 +113,7 @@ describe("messaging.send — sw_timeout deadman", () => {
   it("aborting via signal resolves 'aborted' WITHOUT emitting sw_message_timeout", async () => {
     const controller = new AbortController();
     const promise = send(
-      {
-        type: "index-transcript",
-        params: { channel_id: "c", source_url: "u", video: {}, transcript: {} } as never,
-      },
+      { type: "match-transcript", params: {} as never },
       { signal: controller.signal },
     );
 

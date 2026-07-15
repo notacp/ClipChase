@@ -1,4 +1,4 @@
-import type { ExtMessage, MessageResponse, VideoListResponse, MatchResponse, FetchTranscriptResult, IndexTranscriptResponse } from "./types";
+import type { ExtMessage, MessageResponse, VideoListResponse, MatchResponse, FetchTranscriptResult } from "./types";
 import posthog from "./posthog";
 
 // Deadman timeout per message type. An MV3 service worker killed mid-handler
@@ -11,20 +11,12 @@ import posthog from "./posthog";
 // (fetch-transcript fetches from YouTube; match-transcript POSTs the transcript
 // to /api/match on the backend). Both need a 30s ceiling to survive large
 // transcripts, Vercel cold starts, and concurrent worker load.
-// index-transcript is also network-bound (Turso write, up to ~40 batch POSTs
-// for a long video) — 30s matches the rest so a Turso latency blip doesn't
-// silently drop the write before it finishes.
 // Dead workers are already caught by sw_message_failed (chrome.runtime.lastError),
 // not by timeouts.
 const SEND_TIMEOUT_MS_BY_TYPE: Record<string, number> = {
   "list-videos": 15_000,
   "fetch-transcript": 30_000,
   "match-transcript": 30_000,
-  // 120s, not 30s: long videos stream ~40 Turso batch POSTs through one SSE
-  // call. A 30s deadman resolved early, the caller's keepalive dropped, and
-  // the SW was evicted mid-write ("message channel closed"). Dead workers are
-  // caught by sw_message_failed (lastError) immediately, not by this timer.
-  "index-transcript": 120_000,
 };
 const DEFAULT_SEND_TIMEOUT_MS = 30_000;
 
@@ -90,7 +82,6 @@ export function startKeepalive(): () => void {
 export function send(msg: { type: "list-videos"; params: import("./types").VideoListParams }, opts?: SendOpts): Promise<MessageResponse<VideoListResponse>>;
 export function send(msg: { type: "fetch-transcript"; videoId: string; preferredLangs: string[] }, opts?: SendOpts): Promise<MessageResponse<FetchTranscriptResult>>;
 export function send(msg: { type: "match-transcript"; params: import("./types").MatchParams }, opts?: SendOpts): Promise<MessageResponse<MatchResponse>>;
-export function send(msg: { type: "index-transcript"; params: import("./types").IndexTranscriptParams }, opts?: SendOpts): Promise<MessageResponse<IndexTranscriptResponse>>;
 export function send(msg: ExtMessage, opts?: SendOpts): Promise<MessageResponse<unknown>> {
   return new Promise((resolve) => {
     let settled = false;
