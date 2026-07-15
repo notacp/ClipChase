@@ -92,6 +92,9 @@ export function App() {
   // flood PostHog with one event per keystroke while typing.
   const suggestionFailureLoggedRef = useRef<string | null>(null);
   const suggestionEmptyLoggedRef = useRef<string | null>(null);
+  // True while submitSearch is resolving a pasted video URL via oEmbed —
+  // dedupes double-submits in the window before runSearch sets isLoading.
+  const resolvingChannelRef = useRef(false);
 
   // Channel suggestions — call backend directly (no Next.js proxy in extension).
   useEffect(() => {
@@ -353,6 +356,11 @@ export function App() {
             // that eviction was the top failure class in production
             // ("message channel closed", ~70 index_transcript_failed/3d).
             if (resolvedChannelId) {
+              // No abort signal: the transcript is already fetched, and the
+              // write helps every future search. Aborting on supersede also
+              // settled pendingIndexWrites instantly and dropped the keepalive
+              // while the SW was still mid-write — the eviction this tracking
+              // exists to prevent.
               pendingIndexWrites.push(send(
                 {
                   type: "index-transcript",
@@ -363,7 +371,6 @@ export function App() {
                     transcript,
                   },
                 },
-                { signal: controller.signal },
               ).then((res) => {
                 if (!res.ok && res.error !== "aborted") {
                   posthog.capture("index_transcript_failed", {
@@ -500,8 +507,14 @@ export function App() {
     }
   };
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Shared by form submit and the error card's retry button, so retry goes
+  // through the same video-URL resolution instead of replaying a raw video
+  // URL the API already rejected once.
+  const submitSearch = async () => {
+    // Dedupe rapid double-submits during the oEmbed round-trip below. NOT a
+    // blanket isLoading guard: resubmitting mid-search is the supersede/cancel
+    // path and must keep working.
+    if (resolvingChannelRef.current) return;
     const cleanedKeyword = keyword.trim() ? cleanKeyword(keyword) : "";
     if (!channelUrl && !cleanedKeyword) {
       setFormError("Enter a channel and a keyword to search");
@@ -528,30 +541,47 @@ export function App() {
     // via oEmbed instead of letting the API reject it.
     let searchChannel = channelUrl;
     const videoId = channelUrl.match(
-      /(?:youtube\.com\/(?:watch\?[^#\s]*v=|shorts\/|live\/)|youtu\.be\/)([\w-]{5,20})/,
+      /(?:youtube\.com\/(?:watch\?(?:[^#\s]*&)?v=|shorts\/|live\/)|youtu\.be\/)([\w-]{5,20})/,
     )?.[1];
     if (videoId) {
+      resolvingChannelRef.current = true;
       try {
         const r = await fetch(
           `https://www.youtube.com/oembed?url=${encodeURIComponent(
             `https://www.youtube.com/watch?v=${videoId}`,
           )}&format=json`,
+          // 3s cap: this await runs before any spinner exists. A stalled
+          // youtube.com must not leave the form looking dead.
+          { signal: AbortSignal.timeout(3000) },
         );
         if (r.ok) {
           const d = (await r.json()) as { author_url?: string; author_name?: string };
           if (d.author_url) {
             searchChannel = d.author_url;
             setChannelUrl(d.author_url);
-            if (d.author_name) setChannelDisplay(d.author_name);
+            if (d.author_name) {
+              // Programmatic fill, not typing: without this the suggestions
+              // effect debounces a /suggest-channels call and pops the
+              // dropdown open over the running search.
+              skipSuggestionFetchRef.current = true;
+              setChannelDisplay(d.author_name);
+            }
             posthog.capture("channel_resolved_from_video", { video_id: videoId });
           }
         }
       } catch {
         // oEmbed unreachable — search with the raw input; the API error path
         // still surfaces, same as before this fix.
+      } finally {
+        resolvingChannelRef.current = false;
       }
     }
     await runSearch(cleanedKeyword, searchChannel);
+  };
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    void submitSearch();
   };
 
   return (
@@ -606,7 +636,7 @@ export function App() {
           <p className="text-[11px] leading-relaxed text-yt-red/80">{error}</p>
           <button
             type="button"
-            onClick={() => runSearch(cleanKeyword(keyword), channelUrl)}
+            onClick={() => void submitSearch()}
             className="mt-3 text-[11px] font-semibold text-yt-red hover:text-white border border-yt-red/40 hover:border-yt-red hover:bg-yt-red px-3 py-2 rounded transition-all"
           >
             Try again
@@ -627,11 +657,19 @@ export function App() {
                 // Zero videos even entered the scan (observed in prod: French
                 // user, channel whose uploads predate the 30-day default).
                 // Saying "no mentions" here blames the keyword; the time
-                // range is the actual problem.
-                <>
-                  No videos found in this time range for this channel.<br />
-                  <span className="text-yt-tert">Try expanding the range · the All filter covers the whole catalog.</span>
-                </>
+                // range is the actual problem. Unless the range is already
+                // All — then "expand the range" is dead advice.
+                timeRange !== "all" ? (
+                  <>
+                    No videos found in this time range for this channel.<br />
+                    <span className="text-yt-tert">Try expanding the range · the All filter covers the whole catalog.</span>
+                  </>
+                ) : (
+                  <>
+                    No searchable videos found on this channel.<br />
+                    <span className="text-yt-tert">Videos without captions, and Shorts when excluded, can&rsquo;t be searched.</span>
+                  </>
+                )
               ) : lastSearch.failureReason === "no_tab" || lastSearch.failureReason === "tab_failed" ? (
                 <>
                   No mentions of <span className="text-yt-text font-medium">&ldquo;{lastSearch.keyword}&rdquo;</span> in indexed videos.<br />

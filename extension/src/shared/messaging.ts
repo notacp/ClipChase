@@ -20,7 +20,11 @@ const SEND_TIMEOUT_MS_BY_TYPE: Record<string, number> = {
   "list-videos": 15_000,
   "fetch-transcript": 30_000,
   "match-transcript": 30_000,
-  "index-transcript": 30_000,
+  // 120s, not 30s: long videos stream ~40 Turso batch POSTs through one SSE
+  // call. A 30s deadman resolved early, the caller's keepalive dropped, and
+  // the SW was evicted mid-write ("message channel closed"). Dead workers are
+  // caught by sw_message_failed (lastError) immediately, not by this timer.
+  "index-transcript": 120_000,
 };
 const DEFAULT_SEND_TIMEOUT_MS = 30_000;
 
