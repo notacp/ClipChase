@@ -104,6 +104,7 @@ export default async function MomentPage(props: {
       videoTitle={oembed?.title ?? null}
       channel={oembed?.author ?? null}
       timestampLabel={formatTimestamp(moment.t)}
+      embed={first(searchParams.embed) === "1"}
     />
   );
 }

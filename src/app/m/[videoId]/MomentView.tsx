@@ -24,6 +24,7 @@ export function MomentView({
   videoTitle,
   channel,
   timestampLabel,
+  embed = false,
 }: {
   videoId: string;
   t: number;
@@ -32,6 +33,11 @@ export function MomentView({
   videoTitle: string | null;
   channel: string | null;
   timestampLabel: string;
+  // Chromeless player-only mode for the extension's inline preview. YouTube
+  // rejects embeds from chrome-extension:// origins (error 153), so the side
+  // panel iframes THIS page instead — the nested player then gets a valid
+  // https referrer.
+  embed?: boolean;
 }) {
   const reduced = useReducedMotion();
   const [dark, setDark] = useState(false);
@@ -49,10 +55,24 @@ export function MomentView({
       video_id: videoId,
       t,
       keyword: keyword || null,
+      surface: embed ? "extension_preview" : "web",
     });
-  }, [videoId, t, keyword]);
+  }, [videoId, t, keyword, embed]);
 
   const quoteParts = useMemo(() => splitOnKeyword(quote, keyword), [quote, keyword]);
+
+  // After every hook: early returns must not change hook order between renders.
+  if (embed) {
+    return (
+      <iframe
+        src={`https://www.youtube-nocookie.com/embed/${videoId}?start=${t}&autoplay=1&cc_load_policy=1`}
+        title={videoTitle ?? "YouTube video"}
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allowFullScreen
+        style={{ position: "fixed", inset: 0, width: "100%", height: "100%", border: 0, background: "#000" }}
+      />
+    );
+  }
 
   const rise = (delay: number) =>
     reduced
