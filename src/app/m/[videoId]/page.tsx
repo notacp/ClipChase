@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { MomentView } from "./MomentView";
+import { formatTimestamp } from "../../lib";
 
 // Shareable moment page. Everything renders from URL params (t, x, k); there
 // is no backend record of shares. The quote arrives in the link itself, so a
@@ -47,12 +48,6 @@ async function fetchOEmbed(videoId: string): Promise<{ title: string; author: st
   } catch {
     return null;
   }
-}
-
-function formatTimestamp(t: number): string {
-  const mins = Math.floor(t / 60);
-  const secs = t % 60;
-  return `${mins}:${String(secs).padStart(2, "0")}`;
 }
 
 export async function generateMetadata(props: {

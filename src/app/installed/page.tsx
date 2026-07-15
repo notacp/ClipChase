@@ -71,16 +71,34 @@ function InstalledInner() {
   }, [searchParams, reported]);
 
   return (
-    <main className="min-h-screen bg-yt-black text-white flex items-center justify-center px-6">
-      <div className="max-w-md text-center">
-        <h1 className="text-3xl font-bold mb-4">You&rsquo;re all set 🎉</h1>
-        <p className="text-yt-light-gray mb-6">
+    <main
+      style={{
+        minHeight: "100vh",
+        background: "#0F0F0F",
+        color: "#fff",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "0 24px",
+      }}
+    >
+      <div style={{ maxWidth: 448, textAlign: "center" }}>
+        <h1 style={{ margin: "0 0 16px", fontSize: 30, lineHeight: 1.2, fontWeight: 700 }}>
+          You&rsquo;re all set 🎉
+        </h1>
+        <p style={{ margin: "0 0 24px", color: "#909090" }}>
           Ctrl F for YouTube is installed. Click the extension icon on any
           YouTube page to start searching.
         </p>
         <Link
           href="/"
-          className="inline-block text-yt-red hover:text-white transition-colors"
+          className="installed-home-link"
+          style={{
+            display: "inline-block",
+            color: "#E03030",
+            textDecoration: "none",
+            transition: "color 0.15s",
+          }}
         >
           ← Back to home
         </Link>

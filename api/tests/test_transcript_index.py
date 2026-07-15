@@ -76,11 +76,19 @@ class TestGetIndexedVideoIds:
     every other test, so guard it explicitly."""
 
     def test_metadata_only_video_is_not_indexed(self, service):
-        service.upsert_channel("chan1", "https://youtube.com/@chan1")
-        service.upsert_video(
-            "chan1",
-            {"id": "v1", "title": "t", "publishedAt": "2026-01-01T00:00:00Z", "thumbnail": ""},
+        # A transcript whose segments all normalize to empty text is rejected
+        # by _queue_transcript, leaving channel + video rows but no transcript
+        # row — exactly the state a failed transcript fetch leaves behind.
+        stored = service.cache_video_transcripts(
+            channel_id="chan1",
+            source_url="https://youtube.com/@chan1",
+            video={"id": "v1", "title": "t", "publishedAt": "2026-01-01T00:00:00Z", "thumbnail": ""},
+            transcripts=[
+                {"language_code": "en", "language_label": "English", "is_generated": True,
+                 "segments": [{"text": "   ", "start": 0.0, "duration": 1.0}]}
+            ],
         )
+        assert stored == 0
         # Row exists in indexed_videos but has no transcript -> must not count.
         assert service.get_indexed_video_ids("chan1", ["v1"]) == set()
 

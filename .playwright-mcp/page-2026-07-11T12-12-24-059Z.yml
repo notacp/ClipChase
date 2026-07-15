@@ -1,0 +1,47 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - link "ClipChase" [ref=e4] [cursor=pointer]:
+        - /url: /
+      - generic [ref=e5]: shared moment
+    - main [ref=e6]:
+      - blockquote [ref=e7]:
+        - text: “he got the
+        - mark [ref=e8]: hiccups
+        - text: mid sentence and kept going”
+      - paragraph [ref=e9]: "1:23 · EyZedMoments · گل یا پوچ بازی کردیم | JustChetMoments #353"
+      - iframe [ref=e11]:
+        - generic [ref=f1e1]:
+          - generic "YouTube Video Player" [ref=f1e3]
+          - generic [ref=f1e5]:
+            - generic:
+              - generic:
+                - button "Play video" [ref=f1e10] [cursor=pointer]
+                - button "Hide player controls" [ref=f1e14] [cursor=pointer]
+                - generic [ref=f1e16]:
+                  - generic [ref=f1e21]:
+                    - generic [ref=f1e22]:
+                      - 'link "گل یا پوچ بازی کردیم | JustChetMoments #353" [ref=f1e23] [cursor=pointer]':
+                        - /url: https://www.youtube.com/watch?v=X0QXLGJFxYU
+                      - link "EyZedMoments" [ref=f1e24] [cursor=pointer]:
+                        - /url: /channel/UC_f2lV5-XwCln-BPLg77Vow
+                    - generic [ref=f1e26]:
+                      - button [ref=f1e27] [cursor=pointer]:
+                        - img "thumbnail-image" [ref=f1e28]
+                      - generic [ref=f1e30]:
+                        - generic: EyZedMoments
+                        - generic: 50.9k subscribers
+                  - generic [ref=f1e31]:
+                    - button "Copy link" [ref=f1e34] [cursor=pointer]
+                    - link "Watch on YouTube" [ref=f1e45] [cursor=pointer]:
+                      - /url: https://www.youtube.com/watch?v=X0QXLGJFxYU
+                      - generic [ref=f1e46]: Watch on
+      - generic [ref=e12]:
+        - generic [ref=e13]:
+          - paragraph [ref=e14]: Found with ClipChase
+          - paragraph [ref=e15]: Search everything this creator has ever said and jump to the exact second.
+        - link "Add to Chrome · Free" [ref=e16] [cursor=pointer]:
+          - /url: https://chromewebstore.google.com/detail/ojgacfpcibnmggkenjndnogpfglmhefn?utm_source=item-share-cb?utm_source=moment_page&utm_medium=share_link&utm_campaign=organic
+    - contentinfo [ref=e19]: clipchase.xyz · Ctrl+F for YouTube
+  - button "Open Next.js Dev Tools" [ref=e25] [cursor=pointer]
+  - alert [ref=e29]

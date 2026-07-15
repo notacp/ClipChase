@@ -1,5 +1,4 @@
 import pytest
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from api.app.services import youtube as youtube_module
@@ -137,21 +136,6 @@ def test_search_in_transcript_matches_devanagari_query_against_english_caption()
 
     assert len(matches) == 1
     assert matches[0]["text"] == "We are building a startup"
-
-
-def test_select_local_transcript_prefers_query_language_then_manual_track():
-    service = YouTubeService(api_key="fake-key")
-    transcripts = [
-        SimpleNamespace(language_code="hi", is_generated=True),
-        SimpleNamespace(language_code="en", is_generated=False),
-        SimpleNamespace(language_code="hi", is_generated=False),
-    ]
-
-    selected = service._select_local_transcript(transcripts, ["hi", "en"])
-
-    assert selected.language_code == "hi"
-    assert selected.is_generated is False
-
 
 
 # ---------------------------------------------------------------------------

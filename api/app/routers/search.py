@@ -1,10 +1,9 @@
+import functools
 import json
 import logging
 import os
-import re
-import threading
 from datetime import datetime
-from typing import Any, Iterator, List, Optional, Sequence, Tuple
+from typing import Iterator, List, Optional, Sequence
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -14,29 +13,20 @@ logger = logging.getLogger(__name__)
 
 from ..services.transcript_index import TranscriptIndexService
 from ..services.youtube import (
+    DEVANAGARI_RE,
     SUPPORTED_TRANSCRIPT_LANGUAGES as SUPPORTED_SEARCH_LANGUAGES,
     YouTubeService,
     human_script_variants,
     normalize_language_code,
 )
 
-DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]")
-
 
 def detect_query_language(keyword: str) -> str:
     return "hi" if DEVANAGARI_RE.search(keyword or "") else "en"
 
 
-def transcript_language_orders(query_language: str) -> List[List[str]]:
-    preferred = [query_language] + [code for code in SUPPORTED_SEARCH_LANGUAGES if code != query_language]
-    orders: List[List[str]] = [preferred]
-
-    for language in preferred[1:]:
-        order = [language] + [code for code in preferred if code != language]
-        if order not in orders:
-            orders.append(order)
-
-    return orders
+def preferred_transcript_languages(query_language: str) -> List[str]:
+    return [query_language] + [code for code in SUPPORTED_SEARCH_LANGUAGES if code != query_language]
 
 
 router = APIRouter()
@@ -49,17 +39,12 @@ def get_yt_service():
     return YouTubeService(api_key)
 
 
-_index_service: Optional[TranscriptIndexService] = None
-_index_service_lock = threading.Lock()
-
-
+# lru_cache keeps the function object identity stable, so FastAPI
+# Depends(get_index_service) and app.dependency_overrides[get_index_service]
+# in tests keep working.
+@functools.lru_cache(maxsize=1)
 def get_index_service():
-    global _index_service
-    if _index_service is None:
-        with _index_service_lock:
-            if _index_service is None:
-                _index_service = TranscriptIndexService()
-    return _index_service
+    return TranscriptIndexService()
 
 
 class SearchResult(BaseModel):
@@ -83,23 +68,6 @@ class VideoListRequest(BaseModel):
 class VideoListResponse(BaseModel):
     channel_id: str
     videos: List[dict]
-
-
-class IndexChannelRequest(BaseModel):
-    channel_url: str
-    max_videos: int = 20
-    published_after: Optional[str] = None
-    exclude_shorts: bool = False
-    force_refresh: bool = False
-
-
-class IndexChannelResponse(BaseModel):
-    channel_id: str
-    videos_considered: int
-    videos_indexed: int
-    transcripts_indexed: int
-    videos_skipped: int
-    index_stats: dict[str, int]
 
 
 class VideoInput(BaseModel):
@@ -222,7 +190,7 @@ def _get_indexed_match(
     index_service: TranscriptIndexService,
     video: dict,
     keyword: str,
-    preferred_language_orders: Sequence[Sequence[str]],
+    preferred_languages: Sequence[str],
 ) -> Optional[SearchResult]:
     # Resolve the languages this video actually has in ONE round-trip, then
     # fetch only those. The old nested loop called get_transcript() for every
@@ -233,10 +201,8 @@ def _get_indexed_match(
     if not stored:
         return None
 
-    # preferred_language_orders[0] is already [query_lang, ...all others] in
-    # priority order; the remaining orders are redundant permutations for the
-    # indexed path. Try stored languages by that priority, each fetched once.
-    priority = [normalize_language_code(code) for code in preferred_language_orders[0]]
+    # Try stored languages by query-language priority, each fetched once.
+    priority = [normalize_language_code(code) for code in preferred_languages]
     ordered = [code for code in priority if code in stored]
     ordered += [code for code in stored if code not in ordered]
 
@@ -260,71 +226,14 @@ def _get_indexed_match(
     return None
 
 
-def _get_live_match_and_cacheable_transcripts(
-    service: YouTubeService,
-    video: dict,
-    keyword: str,
-    preferred_language_orders: Sequence[Sequence[str]],
-) -> Tuple[Optional[SearchResult], List[dict]]:
-    tried_transcript_languages = set()
-    cacheable_transcripts: List[dict] = []
-
-    for language_order in preferred_language_orders:
-        transcript_data = service.get_transcript(video["id"], preferred_languages=list(language_order))
-        if not transcript_data or not transcript_data.get("segments"):
-            continue
-
-        transcript_language = normalize_language_code(transcript_data.get("language_code"))
-        if transcript_language in tried_transcript_languages:
-            continue
-
-        tried_transcript_languages.add(transcript_language)
-        cacheable_transcripts.append(transcript_data)
-
-        match_result = _build_match_result(
-            service=service,
-            keyword=keyword,
-            video_id=video["id"],
-            title=video["title"],
-            published_at=video["publishedAt"],
-            thumbnail=video["thumbnail"],
-            transcript_data=transcript_data,
-        )
-        if match_result:
-            return match_result, cacheable_transcripts
-
-    return None, cacheable_transcripts
-
-
-def _fetch_transcripts_for_index(service: YouTubeService, video_id: str) -> List[dict]:
-    transcripts: List[dict] = []
-    seen_languages = set()
-
-    for language in SUPPORTED_SEARCH_LANGUAGES:
-        transcript_data = service.get_transcript(video_id, preferred_languages=[language])
-        if not transcript_data or not transcript_data.get("segments"):
-            continue
-
-        transcript_language = normalize_language_code(transcript_data.get("language_code"))
-        if not transcript_language or transcript_language in seen_languages:
-            continue
-
-        seen_languages.add(transcript_language)
-        transcripts.append(transcript_data)
-
-    return transcripts
-
-
 def _search_stream(
     service: YouTubeService,
     index_service: TranscriptIndexService,
-    channel_url: str,
     channel_id: str,
     keyword: str,
     max_videos: int,
     published_after: Optional[str],
     exclude_shorts: bool,
-    skip_live: bool = False,
 ) -> Iterator[str]:
     # Flush headers + arm client idle timer before YouTube/FTS calls run. Cold
     # channels can take >45s to enumerate videos, which would trip the client's
@@ -340,7 +249,7 @@ def _search_stream(
         )
 
         query_language = detect_query_language(keyword)
-        preferred_language_orders = transcript_language_orders(query_language)
+        preferred_languages = preferred_transcript_languages(query_language)
         search_terms = human_script_variants(keyword)
 
         video_ids = [video["id"] for video in videos if video.get("id")]
@@ -362,7 +271,7 @@ def _search_stream(
             "indexed_candidates": len(indexed_candidates),
             "indexed_remainder": len(indexed_remainder),
             "live": len(live_videos),
-            "skip_live": skip_live,
+            "skip_live": True,
         }
         yield f"event: meta\ndata: {json.dumps(meta_payload)}\n\n"
 
@@ -374,7 +283,7 @@ def _search_stream(
                         index_service=index_service,
                         video=video,
                         keyword=keyword,
-                        preferred_language_orders=preferred_language_orders,
+                        preferred_languages=preferred_languages,
                     )
                     if match_result:
                         yield f"data: {match_result.model_dump_json()}\n\n"
@@ -385,37 +294,10 @@ def _search_stream(
                 except Exception:
                     yield ": ping\n\n"
 
-        if skip_live:
-            # Hand un-indexed videos back to the client so it can fetch transcripts
-            # locally (e.g. an extension's service worker) and call /api/match.
-            payload = {"videos": live_videos}
-            yield f"event: unindexed_videos\ndata: {json.dumps(payload)}\n\n"
-        else:
-            for video in live_videos:
-                try:
-                    match_result, cacheable_transcripts = _get_live_match_and_cacheable_transcripts(
-                        service=service,
-                        video=video,
-                        keyword=keyword,
-                        preferred_language_orders=preferred_language_orders,
-                    )
-                    if cacheable_transcripts:
-                        try:
-                            index_service.cache_video_transcripts(
-                                channel_id=channel_id,
-                                source_url=channel_url,
-                                video=video,
-                                transcripts=cacheable_transcripts,
-                            )
-                        except Exception:
-                            pass
-
-                    if match_result:
-                        yield f"data: {match_result.model_dump_json()}\n\n"
-                    else:
-                        yield ": ping\n\n"
-                except Exception:
-                    yield ": ping\n\n"
+        # Hand un-indexed videos back to the client so it can fetch transcripts
+        # locally (e.g. an extension's service worker) and call /api/match.
+        payload = {"videos": live_videos}
+        yield f"event: unindexed_videos\ndata: {json.dumps(payload)}\n\n"
 
         yield "event: done\ndata: {}\n\n"
 
@@ -435,7 +317,9 @@ async def search(
     max_videos: int = 20,
     published_after: Optional[str] = None,
     exclude_shorts: bool = False,
-    skip_live: bool = False,
+    # Accepted for compat with clients that still send it; skip-live is now
+    # the only behavior (the extension always sent skip_live=true).
+    skip_live: bool = True,
     service: YouTubeService = Depends(get_yt_service),
     index_service: TranscriptIndexService = Depends(get_index_service),
 ):
@@ -447,13 +331,11 @@ async def search(
         _search_stream(
             service=service,
             index_service=index_service,
-            channel_url=channel_url,
             channel_id=channel_id,
             keyword=keyword,
             max_videos=max_videos,
             published_after=published_after,
             exclude_shorts=exclude_shorts,
-            skip_live=skip_live,
         ),
         media_type="text/event-stream",
         headers={
@@ -489,17 +371,6 @@ async def suggest_channels(
         return []
 
 
-@router.get("/resolve-channel")
-async def resolve_channel(
-    channel_url: str,
-    service: YouTubeService = Depends(get_yt_service),
-):
-    channel_id = service.resolve_channel_id(channel_url)
-    if not channel_id:
-        raise HTTPException(status_code=400, detail="Could not resolve channel")
-    return {"channel_id": channel_id}
-
-
 @router.post("/videos", response_model=VideoListResponse)
 async def list_videos(
     req: VideoListRequest,
@@ -517,67 +388,6 @@ async def list_videos(
         exclude_shorts=req.exclude_shorts,
     )
     return VideoListResponse(channel_id=channel_id, videos=videos)
-
-
-@router.post("/index/channel", response_model=IndexChannelResponse)
-async def index_channel(
-    req: IndexChannelRequest,
-    service: YouTubeService = Depends(get_yt_service),
-    index_service: TranscriptIndexService = Depends(get_index_service),
-):
-    channel_id = service.resolve_channel_id(req.channel_url)
-    if not channel_id:
-        raise HTTPException(status_code=400, detail="Invalid YouTube channel URL or ID")
-
-    videos = _fetch_channel_videos(
-        service=service,
-        channel_id=channel_id,
-        max_videos=req.max_videos,
-        published_after=req.published_after,
-        exclude_shorts=req.exclude_shorts,
-    )
-
-    existing_indexed_video_ids = set()
-    if not req.force_refresh:
-        existing_indexed_video_ids = index_service.get_indexed_video_ids(
-            channel_id,
-            [video["id"] for video in videos if video.get("id")],
-        )
-
-    videos_indexed = 0
-    transcripts_indexed = 0
-    videos_skipped = 0
-
-    for video in videos:
-        if not req.force_refresh and video["id"] in existing_indexed_video_ids:
-            videos_skipped += 1
-            continue
-
-        try:
-            transcripts = _fetch_transcripts_for_index(service, video["id"])
-            if not transcripts:
-                continue
-
-            stored_count = index_service.cache_video_transcripts(
-                channel_id=channel_id,
-                source_url=req.channel_url,
-                video=video,
-                transcripts=transcripts,
-            )
-            if stored_count:
-                videos_indexed += 1
-                transcripts_indexed += stored_count
-        except Exception:
-            continue
-
-    return IndexChannelResponse(
-        channel_id=channel_id,
-        videos_considered=len(videos),
-        videos_indexed=videos_indexed,
-        transcripts_indexed=transcripts_indexed,
-        videos_skipped=videos_skipped,
-        index_stats=index_service.get_channel_stats(channel_id),
-    )
 
 
 @router.post("/index/transcript")

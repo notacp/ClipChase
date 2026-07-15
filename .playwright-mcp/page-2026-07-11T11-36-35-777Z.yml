@@ -1,0 +1,491 @@
+- generic [ref=e2]:
+  - banner [ref=e4]:
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - button "Guide" [ref=e9] [cursor=pointer]
+        - generic [ref=e13]:
+          - link "YouTube Home" [ref=e14] [cursor=pointer]:
+            - /url: /
+          - generic [ref=e20]: IN
+        - button "Skip navigation" [ref=e24] [cursor=pointer]
+      - generic [ref=e28]:
+        - search [ref=e29]:
+          - generic [ref=e31]:
+            - combobox "Search" [expanded] [ref=e34]
+            - button "Search" [ref=e35] [cursor=pointer]
+        - generic [ref=e40]:
+          - button "Search with your voice" [ref=e42] [cursor=pointer]
+          - tooltip "tooltip"
+      - generic [ref=e47]:
+        - button "Settings" [ref=e52] [cursor=pointer]
+        - link "Sign in" [ref=e56] [cursor=pointer]:
+          - /url: https://accounts.google.com/ServiceLogin?service=youtube&uilel=3&passive=true&continue=https%3A%2F%2Fwww.youtube.com%2Fsignin%3Faction_handle_signin%3Dtrue%26app%3Ddesktop%26hl%3Den-GB%26next%3Dhttps%253A%252F%252Fwww.youtube.com%252Fwatch%253Fv%253DX0QXLGJFxYU&hl=en-GB&ec=65620
+  - main [ref=e61]:
+    - generic [ref=e62]:
+      - generic [ref=e64]:
+        - complementary [ref=e71]:
+          - generic "YouTube Video Player" [active] [ref=e74]:
+            - button "Play" [ref=e78] [cursor=pointer]
+            - button [ref=e81] [cursor=pointer]:
+              - img "Channel watermark" [ref=e82]
+            - generic [ref=e83]:
+              - generic [ref=e84] [cursor=pointer]:
+                - slider "Seek slider" [ref=e85]
+                - generic:
+                  - generic:
+                    - generic:
+                      - slider "Click or scroll the panel for precise seeking."
+              - generic [ref=e94]:
+                - generic [ref=e95]:
+                  - button "Pause (k)" [ref=e96] [cursor=pointer]
+                  - generic [ref=e97]:
+                    - button "Mute (m)" [ref=e99] [cursor=pointer]
+                    - slider "Volume"
+                  - button "0 Minutes 0 Seconds of 30 Minutes 52 Seconds" [ref=e103] [cursor=pointer]: 0:00 / 30:52
+                - generic [ref=e104]:
+                  - generic [ref=e105]:
+                    - button "Auto-play is on" [ref=e106] [cursor=pointer]
+                    - button "Subtitles/closed captions unavailable" [pressed] [ref=e109] [cursor=pointer]
+                    - button "Settings" [ref=e111] [cursor=pointer]
+                  - generic [ref=e112]:
+                    - button "Cinema mode (t)" [ref=e113] [cursor=pointer]
+                    - button "Full screen (f)" [ref=e114] [cursor=pointer]
+        - generic [ref=e116]:
+          - generic [ref=e118]:
+            - generic [ref=e119]:
+              - heading [level=1] [ref=e120]:
+                - 'generic "We Played Gol Ya Pooch | JustChetMoments #353" [ref=e121]':
+                  - text: We Played Gol Ya Pooch | JustChetMoments
+                  - link "#353" [ref=e122] [cursor=pointer]:
+                    - /url: /hashtag/353
+              - img "Auto-dubbed" [ref=e127]
+            - generic [ref=e130]:
+              - generic [ref=e131]:
+                - generic [ref=e132]:
+                  - link [ref=e133] [cursor=pointer]:
+                    - /url: /@EyZedMoments
+                    - img "EyZed Reacts" [ref=e135]
+                  - generic [ref=e136]:
+                    - generic "EyZed Reacts" [ref=e140]:
+                      - link "EyZed Reacts" [ref=e141] [cursor=pointer]:
+                        - /url: /@EyZedMoments
+                    - generic "50.9 thousand subscribers" [ref=e142]: 50.9k subscribers
+                - button "Subscribe to EyZed Reacts." [ref=e148] [cursor=pointer]:
+                  - generic: Subscribe
+              - generic [ref=e155]:
+                - generic [ref=e156]:
+                  - generic [ref=e160]:
+                    - button "like this video along with 163 other people" [ref=e164] [cursor=pointer]:
+                      - generic: "163"
+                    - button "Dislike this video" [ref=e171] [cursor=pointer]
+                  - button "Share" [ref=e177] [cursor=pointer]
+                - generic [ref=e181]:
+                  - generic [ref=e183]:
+                    - button "Download" [ref=e185] [cursor=pointer]
+                    - tooltip "tooltip"
+                  - button "Save to playlist" [ref=e191] [cursor=pointer]:
+                    - generic: Save
+                - button "More actions" [ref=e196] [cursor=pointer]
+            - generic [ref=e202] [cursor=pointer]:
+              - generic [ref=e203]:
+                - generic [ref=e204]: 3.6k views 3 weeks ago
+                - tooltip "tooltip"
+              - generic [ref=e206]:
+                - generic [ref=e207]:
+                  - generic [ref=e210]:
+                    - text: We Played Goals or Futility | JustChetMoments
+                    - link "#353" [ref=e212]:
+                      - /url: /hashtag/353
+                    - text: "-----------------------------------------------"
+                    - link "#amireyzed" [ref=e214]:
+                      - /url: /hashtag/amireyzed
+                    - link "#stream" [ref=e216]:
+                      - /url: /hashtag/stream
+                    - link "#stream_summary" [ref=e218]:
+                      - /url: /hashtag/stream_summary
+                    - link "#eyzedmoments" [ref=e220]:
+                      - /url: /hashtag/eyzedmoments
+                    - link "#eyzedreacts" [ref=e222]:
+                      - /url: /hashtag/eyzedreacts
+                    - link "#JustChetMoments" [ref=e224]:
+                      - /url: /hashtag/justchetmoments
+                  - generic: …
+                - button "...more" [ref=e225]
+          - text: •
+      - generic [ref=e232]:
+        - generic [ref=e234] [cursor=pointer]:
+          - link [ref=e235]:
+            - /url: /watch?v=s3goago9Vs8&pp=ugUHEgVlbi1VUw%3D%3D
+            - generic [ref=e236]: 1:10:52
+          - generic [ref=e244]:
+            - generic [ref=e245]:
+              - 'heading "Our funniest game of Mafia ever😂😂 | JustChetMoments #356" [level=3] [ref=e246]':
+                - 'link "Our funniest game of Mafia ever😂😂 | JustChetMoments #356 1 hour, 10 minutes" [ref=e247]':
+                  - /url: /watch?v=s3goago9Vs8&pp=ugUHEgVlbi1VUw%3D%3D
+                  - text: "Our funniest game of Mafia ever😂😂 | JustChetMoments #356"
+              - generic [ref=e249]:
+                - group [ref=e250]:
+                  - generic [ref=e251]: EyZedMoments
+                - group [ref=e252]:
+                  - generic [ref=e253]: 6.3k views
+                  - generic [ref=e254]: •
+                  - generic "2 weeks ago" [ref=e255]
+                - group [ref=e256]:
+                  - generic [ref=e257]: Auto-dubbed
+            - button "More actions" [ref=e264]
+        - generic [ref=e269] [cursor=pointer]:
+          - link [ref=e270]:
+            - /url: /watch?v=p0fk1dxFQr8
+            - generic [ref=e271]: 40:34
+          - generic [ref=e279]:
+            - generic [ref=e280]:
+              - heading "جام جهانی هوش و ذکاوت ۱۱ نفره با جایزه ویژه!!!" [level=3] [ref=e281]:
+                - link "جام جهانی هوش و ذکاوت ۱۱ نفره با جایزه ویژه!!! 40 minutes" [ref=e282]:
+                  - /url: /watch?v=p0fk1dxFQr8
+                  - text: جام جهانی هوش و ذکاوت ۱۱ نفره با جایزه ویژه!!!
+              - generic [ref=e284]:
+                - group [ref=e285]:
+                  - generic [ref=e286]: Kouman
+                - group [ref=e290]:
+                  - generic [ref=e291]: 677k views
+                  - generic [ref=e292]: •
+                  - generic "1 day ago" [ref=e293]
+                - group [ref=e294]:
+                  - generic [ref=e295]: New
+            - button "More actions" [ref=e301]
+        - generic [ref=e306] [cursor=pointer]:
+          - link [ref=e307]:
+            - /url: /watch?v=ARjeaLAhqFE
+            - generic [ref=e308]: 36:54
+          - generic [ref=e316]:
+            - generic [ref=e317]:
+              - heading "دوخت و دوز کردیم🙏گیمپلی ویندرنجر ساپورت با پیمان| Gameplay Windranger Pos5 via @Olagh" [level=3] [ref=e318]:
+                - link "دوخت و دوز کردیم🙏گیمپلی ویندرنجر ساپورت با پیمان| Gameplay Windranger Pos5 via @Olagh 36 minutes" [ref=e319]:
+                  - /url: /watch?v=ARjeaLAhqFE
+                  - text: دوخت و دوز کردیم🙏گیمپلی ویندرنجر ساپورت با پیمان| Gameplay Windranger Pos5 via @Olagh
+              - generic [ref=e321]:
+                - group [ref=e322]:
+                  - generic [ref=e323]: NarimanCupid
+                - group [ref=e324]:
+                  - generic [ref=e325]: 3.7k views
+                  - generic [ref=e326]: •
+                  - generic "2 weeks ago" [ref=e327]
+            - button "More actions" [ref=e330]
+        - generic [ref=e335] [cursor=pointer]:
+          - link [ref=e336]:
+            - /url: /watch?v=p3YCPpKZsv8
+            - generic [ref=e337]: 46:08
+          - generic [ref=e345]:
+            - generic [ref=e346]:
+              - heading "چالش بلوف و دروغ با ممنتو 👺💥" [level=3] [ref=e347]:
+                - link "چالش بلوف و دروغ با ممنتو 👺💥 46 minutes" [ref=e348]:
+                  - /url: /watch?v=p3YCPpKZsv8
+                  - text: چالش بلوف و دروغ با ممنتو 👺💥
+              - generic [ref=e350]:
+                - group [ref=e351]:
+                  - generic [ref=e352]: Loco
+                - group [ref=e353]:
+                  - generic [ref=e354]: 76k views
+                  - generic [ref=e355]: •
+                  - generic "4 days ago" [ref=e356]
+                - group [ref=e357]:
+                  - generic [ref=e358]: New
+            - button "More actions" [ref=e364]
+        - generic [ref=e369] [cursor=pointer]:
+          - link [ref=e370]:
+            - /url: /watch?v=jB8w__U4BMM
+            - generic [ref=e371]: 33:01
+          - generic [ref=e379]:
+            - generic [ref=e380]:
+              - heading "تو چی ادعا داری با سهیل سلبا😂" [level=3] [ref=e381]:
+                - link "تو چی ادعا داری با سهیل سلبا😂 33 minutes" [ref=e382]:
+                  - /url: /watch?v=jB8w__U4BMM
+                  - text: تو چی ادعا داری با سهیل سلبا😂
+              - generic [ref=e384]:
+                - group [ref=e385]:
+                  - generic [ref=e386]: Miladfazeli72 ( faazi )
+                - group [ref=e387]:
+                  - generic [ref=e388]: 189k views
+                  - generic [ref=e389]: •
+                  - generic "3 weeks ago" [ref=e390]
+            - button "More actions" [ref=e393]
+        - generic [ref=e398] [cursor=pointer]:
+          - link [ref=e399]:
+            - /url: /watch?v=FQNbd-08hZY
+            - generic [ref=e400]: 19:39
+          - generic [ref=e408]:
+            - generic [ref=e409]:
+              - heading "بهترین گل‌های اسپانیا توی جام‌جهانی رو بازسازی کردم 🔥" [level=3] [ref=e410]:
+                - link "بهترین گل‌های اسپانیا توی جام‌جهانی رو بازسازی کردم 🔥 19 minutes" [ref=e411]:
+                  - /url: /watch?v=FQNbd-08hZY
+                  - text: بهترین گل‌های اسپانیا توی جام‌جهانی رو بازسازی کردم 🔥
+              - generic [ref=e413]:
+                - group [ref=e414]:
+                  - generic [ref=e415]: Amir Movafagh
+                - group [ref=e419]:
+                  - generic [ref=e420]: 19k views
+                  - generic [ref=e421]: •
+                  - generic "2 days ago" [ref=e422]
+                - group [ref=e423]:
+                  - generic [ref=e424]: New
+            - button "More actions" [ref=e430]
+        - generic [ref=e435] [cursor=pointer]:
+          - link [ref=e436]:
+            - /url: /watch?v=l_qOHmzSoy8&pp=0gcJCU8LAYcqIYzv
+            - generic [ref=e437]: 23:25
+          - generic [ref=e445]:
+            - generic [ref=e446]:
+              - heading "Who's better at finding the spy?!" [level=3] [ref=e447]:
+                - link "Who's better at finding the spy?! 23 minutes" [ref=e448]:
+                  - /url: /watch?v=l_qOHmzSoy8&pp=0gcJCU8LAYcqIYzv
+                  - text: Who's better at finding the spy?!
+              - generic [ref=e450]:
+                - group [ref=e451]:
+                  - generic [ref=e452]: FASTERIS
+                - group [ref=e453]:
+                  - generic [ref=e454]: 74k views
+                  - generic [ref=e455]: •
+                  - generic "3 weeks ago" [ref=e456]
+            - button "More actions" [ref=e459]
+        - generic [ref=e464] [cursor=pointer]:
+          - link [ref=e465]:
+            - /url: /watch?v=KBcUB0DLprk
+            - generic [ref=e466]: 38:39
+          - generic [ref=e474]:
+            - generic [ref=e475]:
+              - heading "۲۸ ژوئن ۲۰۲۶" [level=3] [ref=e476]:
+                - link "۲۸ ژوئن ۲۰۲۶ 38 minutes" [ref=e477]:
+                  - /url: /watch?v=KBcUB0DLprk
+                  - text: ۲۸ ژوئن ۲۰۲۶
+              - generic [ref=e479]:
+                - group [ref=e480]:
+                  - generic [ref=e481]: ariya abkar
+                - group [ref=e482]:
+                  - generic [ref=e483]: 8 views
+                  - generic [ref=e484]: •
+                  - generic "12 days ago" [ref=e485]
+            - button "More actions" [ref=e488]
+        - generic [ref=e493] [cursor=pointer]:
+          - link [ref=e494]:
+            - /url: /watch?v=m7mZQP8CeC0
+            - generic [ref=e495]: 22:31
+          - generic [ref=e503]:
+            - generic [ref=e504]:
+              - heading "نسخه ایرانی رستوران های معروف خارجی 🍕p2" [level=3] [ref=e505]:
+                - link "نسخه ایرانی رستوران های معروف خارجی 🍕p2 22 minutes" [ref=e506]:
+                  - /url: /watch?v=m7mZQP8CeC0
+                  - text: نسخه ایرانی رستوران های معروف خارجی 🍕p2
+              - generic [ref=e508]:
+                - group [ref=e509]:
+                  - generic [ref=e510]: Ayeene23
+                - group [ref=e511]:
+                  - generic [ref=e512]: 17k views
+                  - generic [ref=e513]: •
+                  - generic "1 day ago" [ref=e514]
+                - group [ref=e515]:
+                  - generic [ref=e516]: New
+            - button "More actions" [ref=e522]
+        - generic [ref=e527] [cursor=pointer]:
+          - link [ref=e528]:
+            - /url: /watch?v=n-E65W-s6VI
+            - generic [ref=e529]: 26:45
+          - generic [ref=e537]:
+            - generic [ref=e538]:
+              - heading "عاشق این بازی شدیم 🤣 ft Parsalip,Icy,Farshad,Steffan,Momo" [level=3] [ref=e539]:
+                - link "عاشق این بازی شدیم 🤣 ft Parsalip,Icy,Farshad,Steffan,Momo 26 minutes" [ref=e540]:
+                  - /url: /watch?v=n-E65W-s6VI
+                  - text: عاشق این بازی شدیم 🤣 ft Parsalip,Icy,Farshad,Steffan,Momo
+              - generic [ref=e542]:
+                - group [ref=e543]:
+                  - generic [ref=e544]: KEOXER GAMING
+                - group [ref=e548]:
+                  - generic [ref=e549]: 160k views
+                  - generic [ref=e550]: •
+                  - generic "1 month ago" [ref=e551]
+            - button "More actions" [ref=e554]
+        - generic [ref=e559] [cursor=pointer]:
+          - link [ref=e560]:
+            - /url: /watch?v=28km65P4LTY
+            - generic [ref=e561]: 26:42
+          - generic [ref=e569]:
+            - generic [ref=e570]:
+              - 'heading "از بسکتبال بازی کردن سهیل سلبا تا کشتی گرفتن سهیل پرنک! | JustChetMoments #351" [level=3] [ref=e571]':
+                - 'link "از بسکتبال بازی کردن سهیل سلبا تا کشتی گرفتن سهیل پرنک! | JustChetMoments #351 26 minutes" [ref=e572]':
+                  - /url: /watch?v=28km65P4LTY
+                  - text: "از بسکتبال بازی کردن سهیل سلبا تا کشتی گرفتن سهیل پرنک! | JustChetMoments #351"
+              - generic [ref=e574]:
+                - group [ref=e575]:
+                  - generic [ref=e576]: EyZedMoments
+                - group [ref=e577]:
+                  - generic [ref=e578]: 8.6k views
+                  - generic [ref=e579]: •
+                  - generic "3 weeks ago" [ref=e580]
+            - button "More actions" [ref=e583]
+        - generic [ref=e588] [cursor=pointer]:
+          - link [ref=e589]:
+            - /url: /watch?v=Wr78wTD_LU8
+            - generic [ref=e590]: 19:00
+          - generic [ref=e598]:
+            - generic [ref=e599]:
+              - heading "واقعا چیت میزنم ؟ 😂" [level=3] [ref=e600]:
+                - link "واقعا چیت میزنم ؟ 😂 19 minutes" [ref=e601]:
+                  - /url: /watch?v=Wr78wTD_LU8
+                  - text: واقعا چیت میزنم ؟ 😂
+              - generic [ref=e603]:
+                - group [ref=e604]:
+                  - generic [ref=e605]: DARK HELL92
+                - group [ref=e606]:
+                  - generic [ref=e607]: 36k views
+                  - generic [ref=e608]: •
+                  - generic "3 weeks ago" [ref=e609]
+            - button "More actions" [ref=e612]
+        - generic [ref=e617] [cursor=pointer]:
+          - link [ref=e618]:
+            - /url: /watch?v=Gu0jdP3-0BE
+            - generic [ref=e619]: 33:55
+          - generic [ref=e627]:
+            - generic [ref=e628]:
+              - heading "کی میتونه بنیامین رو پیدا کنه 😂" [level=3] [ref=e629]:
+                - link "کی میتونه بنیامین رو پیدا کنه 😂 33 minutes" [ref=e630]:
+                  - /url: /watch?v=Gu0jdP3-0BE
+                  - text: کی میتونه بنیامین رو پیدا کنه 😂
+              - generic [ref=e632]:
+                - group [ref=e633]:
+                  - generic [ref=e634]: The Beniamin
+                - group [ref=e638]:
+                  - generic [ref=e639]: 962k views
+                  - generic [ref=e640]: •
+                  - generic "3 weeks ago" [ref=e641]
+            - button "More actions" [ref=e644]
+        - generic [ref=e649] [cursor=pointer]:
+          - link [ref=e650]:
+            - /url: /watch?v=rRr7J1t6r3c&pp=ugUHEgVlbi1VUw%3D%3D
+            - generic [ref=e651]: 39:15
+          - generic [ref=e659]:
+            - generic [ref=e660]:
+              - 'heading "We messed up in Mafia! | JustChetMoments #361" [level=3] [ref=e661]':
+                - 'link "We messed up in Mafia! | JustChetMoments #361 39 minutes" [ref=e662]':
+                  - /url: /watch?v=rRr7J1t6r3c&pp=ugUHEgVlbi1VUw%3D%3D
+                  - text: "We messed up in Mafia! | JustChetMoments #361"
+              - generic [ref=e664]:
+                - group [ref=e665]:
+                  - generic [ref=e666]: EyZedMoments
+                - group [ref=e667]:
+                  - generic [ref=e668]: 2.6k views
+                  - generic [ref=e669]: •
+                  - generic "9 days ago" [ref=e670]
+                - group [ref=e671]:
+                  - generic [ref=e672]: Auto-dubbed
+            - button "More actions" [ref=e679]
+        - generic [ref=e684] [cursor=pointer]:
+          - link [ref=e685]:
+            - /url: /watch?v=T4ykBMH-6q4
+            - generic [ref=e686]: 22:22
+          - generic [ref=e694]:
+            - generic [ref=e695]:
+              - heading "دارت به هر کشوری بخوره ، غذاشو میخوریم 🎯( از رستوران اخراج شدیم🤣 )" [level=3] [ref=e696]:
+                - link "دارت به هر کشوری بخوره ، غذاشو میخوریم 🎯( از رستوران اخراج شدیم🤣 ) 22 minutes" [ref=e697]:
+                  - /url: /watch?v=T4ykBMH-6q4
+                  - text: دارت به هر کشوری بخوره ، غذاشو میخوریم 🎯( از رستوران اخراج شدیم🤣 )
+              - generic [ref=e699]:
+                - group [ref=e700]:
+                  - generic [ref=e701]: Hadi Hyrox
+                - group [ref=e705]:
+                  - generic [ref=e706]: 76k views
+                  - generic [ref=e707]: •
+                  - generic "4 days ago" [ref=e708]
+                - group [ref=e709]:
+                  - generic [ref=e710]: New
+            - button "More actions" [ref=e716]
+        - generic [ref=e721] [cursor=pointer]:
+          - link [ref=e722]:
+            - /url: /watch?v=1VOgbbnaRo4
+            - generic [ref=e723]: 35:55
+          - generic [ref=e731]:
+            - generic [ref=e732]:
+              - heading "Gameplay Enigma Offlane| ما واسه بلک هول بازی نمیکنیم 🖐️گیمپلی انیگما آفلین" [level=3] [ref=e733]:
+                - link "Gameplay Enigma Offlane| ما واسه بلک هول بازی نمیکنیم 🖐️گیمپلی انیگما آفلین 35 minutes" [ref=e734]:
+                  - /url: /watch?v=1VOgbbnaRo4
+                  - text: Gameplay Enigma Offlane| ما واسه بلک هول بازی نمیکنیم 🖐️گیمپلی انیگما آفلین
+              - generic [ref=e736]:
+                - group [ref=e737]:
+                  - generic [ref=e738]: NarimanCupid
+                - group [ref=e739]:
+                  - generic [ref=e740]: 4.2k views
+                  - generic [ref=e741]: •
+                  - generic "3 weeks ago" [ref=e742]
+            - button "More actions" [ref=e745]
+        - generic [ref=e750] [cursor=pointer]:
+          - link [ref=e751]:
+            - /url: /watch?v=PWv9Lvz6Aos
+            - generic [ref=e752]: 16:42
+          - generic [ref=e760]:
+            - generic [ref=e761]:
+              - heading "استتار در پولدارترین💵 شهر دنیا با بودجه زیر خط فقر📉🧘‍♀️" [level=3] [ref=e762]:
+                - link "استتار در پولدارترین💵 شهر دنیا با بودجه زیر خط فقر📉🧘‍♀️ 16 minutes" [ref=e763]:
+                  - /url: /watch?v=PWv9Lvz6Aos
+                  - text: استتار در پولدارترین💵 شهر دنیا با بودجه زیر خط فقر📉🧘‍♀️
+              - generic [ref=e765]:
+                - group [ref=e766]:
+                  - generic [ref=e767]: Tiam Aj
+                - group [ref=e768]:
+                  - generic [ref=e769]: 9.8k views
+                  - generic [ref=e770]: •
+                  - generic "1 hour ago" [ref=e771]
+                - group [ref=e772]:
+                  - generic [ref=e773]: New
+            - button "More actions" [ref=e779]
+        - generic [ref=e784] [cursor=pointer]:
+          - link [ref=e785]:
+            - /url: /watch?v=ZN04OYi27lk
+            - generic [ref=e786]: 18:02
+          - generic [ref=e794]:
+            - generic [ref=e795]:
+              - heading "بهترین گل‌های جام‌جهانی رو بازسازی کردیم 🏆🔥" [level=3] [ref=e796]:
+                - link "بهترین گل‌های جام‌جهانی رو بازسازی کردیم 🏆🔥 18 minutes" [ref=e797]:
+                  - /url: /watch?v=ZN04OYi27lk
+                  - text: بهترین گل‌های جام‌جهانی رو بازسازی کردیم 🏆🔥
+              - generic [ref=e799]:
+                - group [ref=e800]:
+                  - generic [ref=e801]: Amir Movafagh
+                - group [ref=e805]:
+                  - generic [ref=e806]: 93k views
+                  - generic [ref=e807]: •
+                  - generic "2 weeks ago" [ref=e808]
+            - button "More actions" [ref=e811]
+        - generic [ref=e816] [cursor=pointer]:
+          - link [ref=e817]:
+            - /url: /watch?v=Iw1j5twj7cE
+            - generic [ref=e818]: 22:16
+          - generic [ref=e826]:
+            - generic [ref=e827]:
+              - heading "با یوتوبرا نونوایی زدیم 🥖" [level=3] [ref=e828]:
+                - link "با یوتوبرا نونوایی زدیم 🥖 22 minutes" [ref=e829]:
+                  - /url: /watch?v=Iw1j5twj7cE
+                  - text: با یوتوبرا نونوایی زدیم 🥖
+              - generic [ref=e831]:
+                - group [ref=e832]:
+                  - generic [ref=e833]: Babak o Arian
+                - group [ref=e834]:
+                  - generic [ref=e835]: 246k views
+                  - generic [ref=e836]: •
+                  - generic "3 weeks ago" [ref=e837]
+            - button "More actions" [ref=e840]
+        - generic [ref=e845] [cursor=pointer]:
+          - link [ref=e846]:
+            - /url: /watch?v=C4ds3lEOYag
+            - generic [ref=e847]: 21:08
+          - generic [ref=e855]:
+            - generic [ref=e856]:
+              - heading "ریسک ولی با موده قلعه😂" [level=3] [ref=e857]:
+                - link "ریسک ولی با موده قلعه😂 21 minutes" [ref=e858]:
+                  - /url: /watch?v=C4ds3lEOYag
+                  - text: ریسک ولی با موده قلعه😂
+              - generic [ref=e860]:
+                - group [ref=e861]:
+                  - generic [ref=e862]: MahanEvil
+                - group [ref=e863]:
+                  - generic [ref=e864]: 15k views
+                  - generic [ref=e865]: •
+                  - generic "2 weeks ago" [ref=e866]
+            - button "More actions" [ref=e869]

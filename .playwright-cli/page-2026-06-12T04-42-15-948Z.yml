@@ -1,0 +1,126 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - navigation [ref=e3]:
+      - generic [ref=e4]:
+        - img [ref=e6]
+        - generic [ref=e9]: ClipChase
+      - generic [ref=e10]:
+        - button "Switch to dark mode" [ref=e11] [cursor=pointer]:
+          - img [ref=e12]
+        - link "Add to Chrome" [ref=e14] [cursor=pointer]:
+          - /url: https://chromewebstore.google.com/detail/ojgacfpcibnmggkenjndnogpfglmhefn?utm_source=item-share-cb?utm_source=landing&utm_medium=header&utm_campaign=organic
+          - text: Add to Chrome
+          - img [ref=e16]
+    - generic [ref=e18]:
+      - generic [ref=e19]:
+        - generic [ref=e22]: Free · No account needed
+        - heading "Ctrl+F for YouTube" [level=1] [ref=e23]
+        - paragraph [ref=e24]: Search any public channel by phrase. Every video that mentions it, every timestamp you can jump to.
+        - link "Add to Chrome · Free" [ref=e25] [cursor=pointer]:
+          - /url: https://chromewebstore.google.com/detail/ojgacfpcibnmggkenjndnogpfglmhefn?utm_source=item-share-cb?utm_source=landing&utm_medium=hero&utm_campaign=organic
+          - text: Add to Chrome · Free
+          - img [ref=e27]
+      - generic [ref=e29]:
+        - paragraph [ref=e30]: Enter a channel URL or name · type a phrase · click any timestamp
+        - generic [ref=e31]:
+          - generic [ref=e32]:
+            - img [ref=e34]
+            - generic [ref=e37]: ClipChase
+          - generic [ref=e38]:
+            - generic [ref=e39]: Y Combinator
+            - generic [ref=e40]:
+              - textbox "Search phrase" [ref=e41]:
+                - /placeholder: Search phrase...
+                - text: Cursor
+              - button "Search" [ref=e43] [cursor=pointer]
+            - generic [ref=e44]:
+              - button "Filter by 1 day" [ref=e45] [cursor=pointer]: 1d
+              - button "Filter by 7 days" [ref=e46] [cursor=pointer]: 7d
+              - button "Filter by 1 month" [pressed] [ref=e47] [cursor=pointer]: 1mo
+              - button "Filter by 6 months" [ref=e48] [cursor=pointer]: 6mo
+              - button "Filter by all time" [ref=e49] [cursor=pointer]: All
+          - generic [ref=e51]:
+            - generic [ref=e52]: 3 mentions
+            - text: — 4 videos — 1 month
+          - generic [ref=e53]:
+            - generic [ref=e54]:
+              - generic [ref=e55] [cursor=pointer]:
+                - img [ref=e57]
+                - generic [ref=e59]: How Cursor is Changing the Way We Code
+                - generic [ref=e60]:
+                  - generic [ref=e61]: "14"
+                  - img [ref=e63]
+              - generic [ref=e66]:
+                - generic [ref=e67]:
+                  - generic [ref=e68]: 1:23
+                  - generic [ref=e69]:
+                    - text: I've been using
+                    - strong [ref=e70]: Cursor
+                    - text: for three months and it genuinely transformed how I write code every day.
+                - generic [ref=e71]:
+                  - generic [ref=e72]: 8:47
+                  - generic [ref=e73]:
+                    - text: The way
+                    - strong [ref=e74]: Cursor
+                    - text: handles context is different from Copilot — it reads your whole codebase, not just the open file.
+                - generic [ref=e75]:
+                  - generic [ref=e76]: 14:02
+                  - generic [ref=e77]:
+                    - text: If you haven't tried
+                    - strong [ref=e78]: Cursor
+                    - text: yet, you're missing the biggest shift in developer tooling we've seen in years.
+            - generic [ref=e80] [cursor=pointer]:
+              - img [ref=e82]
+              - generic [ref=e84]: YC W24 Demo Day — AI Tools Roundup
+              - generic [ref=e85]:
+                - generic [ref=e86]: "9"
+                - img [ref=e88]
+            - generic [ref=e91] [cursor=pointer]:
+              - img [ref=e93]
+              - generic [ref=e95]: The Future of Software Development
+              - generic [ref=e96]:
+                - generic [ref=e97]: "6"
+                - img [ref=e99]
+            - generic [ref=e102] [cursor=pointer]:
+              - img [ref=e104]
+              - generic [ref=e106]: Startup Tools We Actually Use in 2024
+              - generic [ref=e107]:
+                - generic [ref=e108]: "3"
+                - img [ref=e110]
+        - paragraph [ref=e112]: "Try: “ai” · “funding” · “pivot” · “launch”"
+    - generic [ref=e113]:
+      - paragraph [ref=e114]: Capabilities
+      - generic [ref=e115]:
+        - generic [ref=e116]:
+          - generic [ref=e117]: Full transcript search
+          - generic [ref=e118]: Every word of every video indexed — not just titles.
+        - generic [ref=e119]:
+          - generic [ref=e120]: Clickable timestamps
+          - generic [ref=e121]: Each result links directly to that second in the video. No manual seeking.
+        - generic [ref=e122]:
+          - generic [ref=e123]: Any public channel
+          - generic [ref=e124]: Paste a channel URL or name. No API key or account required.
+        - generic [ref=e125]:
+          - generic [ref=e126]: Private by default
+          - generic [ref=e127]: Runs entirely in your browser. Searches never leave your device.
+        - generic [ref=e128]:
+          - generic [ref=e129]: Ranked by frequency
+          - generic [ref=e130]: Videos sorted by how many times the phrase appears.
+        - generic [ref=e131]:
+          - generic [ref=e132]: Time-range filter
+          - generic [ref=e133]: Narrow results to 1 day, 7 days, 1 month, 6 months, or all time.
+    - contentinfo [ref=e134]:
+      - generic [ref=e135]:
+        - img [ref=e137]
+        - generic [ref=e140]: ClipChase
+        - generic [ref=e141]: · © 2026
+      - generic [ref=e142]:
+        - link "Privacy" [ref=e143] [cursor=pointer]:
+          - /url: /privacy
+        - link "Feedback ↗" [ref=e144] [cursor=pointer]:
+          - /url: https://tally.so/r/7RJQZA?source=landing_footer
+        - link "Install" [ref=e145] [cursor=pointer]:
+          - /url: https://chromewebstore.google.com/detail/ojgacfpcibnmggkenjndnogpfglmhefn?utm_source=item-share-cb?utm_source=landing&utm_medium=footer_links&utm_campaign=organic
+  - button "Open Next.js Dev Tools" [ref=e151] [cursor=pointer]:
+    - img [ref=e152]
+  - alert [ref=e155]

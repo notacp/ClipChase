@@ -56,9 +56,6 @@ export type FailureReason =
   | "pot_blocked"
   | "parse_empty"
   | "sw_threw"
-  | "no_tab"
-  | "tab_threw"
-  | "tab_failed"
   | "budget_exceeded"
   | "unknown";
 

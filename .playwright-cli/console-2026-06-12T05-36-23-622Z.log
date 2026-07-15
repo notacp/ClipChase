@@ -1,0 +1,21 @@
+[     120ms] [LOG] [PostHog.js] set_config {config: Object, oldConfig: Object, newConfig: Object} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[     120ms] [LOG] [PostHog.js] Persistence loaded localStorage+cookie {} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[     120ms] [LOG] [PostHog.js] Persistence loaded sessionStorage {} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[     121ms] [LOG] [PostHog.js] Initializing extensions synchronously @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[     121ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[     122ms] [LOG] [PostHog.js] History API monitoring enabled, starting... @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[     122ms] [LOG] [PostHog.js] Starting in debug mode {this: qn, config: Object, thisC: Object, p: Object, s: Object} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[     139ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[     190ms] [LOG] [HMR] connected @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[     907ms] [LOG] [PostHog.js] Persistence loaded sessionStorage {$sdk_debug_extensions_init_method: synchronous, $sdk_debug_extensions_init_time_ms: 1} @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[     908ms] [LOG] [PostHog.js] set_config {config: Object, oldConfig: Object, newConfig: Object} @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[     908ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[     910ms] [LOG] [PostHog.js] [SessionRecording] starting @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[     910ms] [LOG] [PostHog.js] [Surveys] flags response received, isSurveysEnabled: false @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[     911ms] [LOG] [PostHog.js] [Heatmaps] starting... @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[     912ms] [LOG] [PostHog.js] [Web Vitals] enabled, starting... @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[     912ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[     916ms] [LOG] [PostHog.js] [WebExperiments] Refusing to render web experiment since the viewer is a likely bot [] @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[    1858ms] [LOG] [PostHog.js] [Surveys] Surveys loaded successfully @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[    1864ms] [LOG] [PostHog.js] [SessionId] new session ID generated {sessionId: 019eba54-e18d-7ace-9ebb-e70e3d13aaa6, windowId: 019eba54-e18d-7ace-9ebb-e70f5ddfe273, changeReason: Object} @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[    1870ms] [LOG] [PostHog.js] [Dead Clicks] starting... @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436

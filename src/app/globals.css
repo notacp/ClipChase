@@ -1,11 +1,31 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Minimal reset (replaces Tailwind preflight for what this site relies on). */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
 
 html,
 body {
   font-family: var(--font-sans), system-ui, sans-serif;
   overflow-x: clip;
+}
+
+body {
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.footer-link {
+  text-decoration: none;
+}
+.footer-link:hover {
+  text-decoration: underline;
+}
+
+.installed-home-link:hover {
+  color: #fff;
 }
 
 ::-webkit-scrollbar {

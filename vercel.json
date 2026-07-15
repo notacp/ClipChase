@@ -2,7 +2,6 @@
     "$schema": "https://openapi.vercel.sh/vercel.json",
     "fluid": true,
     "buildCommand": "npm install --include=dev && npm run build",
-    "outputDirectory": ".next",
     "rewrites": [
         { "source": "/api/(.*)", "destination": "/api/index" }
     ],

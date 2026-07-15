@@ -177,28 +177,8 @@ class _TursoHTTPConnection:
         return "pre"
 
     def commit(self) -> None:
-        if not self._write_queue:
-            return
-        queue, self._write_queue = self._write_queue, []
-
-        # Single pass partition into the three ordered phases.
-        pre: List[dict] = []
-        segments: List[dict] = []
-        post: List[dict] = []
-        bucket = {"segments": segments, "post": post}
-        for req in queue:
-            bucket.get(self._phase(req), pre).append(req)
-
-        # Phase 1 — channel/video upserts + the DELETEs clearing old segments
-        # and the old marker. Must arrive before segment inserts.
-        self._send_sequential(pre)
-        # Phase 2 — segment inserts, sent sequentially to avoid write-lock
-        # contention (Turso is single-writer; concurrent POSTs cause 500s).
-        self._send_sequential(segments)
-        # Phase 3 — the indexed_transcripts marker, LAST. Reached only if
-        # Phase 2 didn't raise, so a failed index leaves no marker and the
-        # video falls through to the live path instead of returning zero matches.
-        self._send_sequential(post)
+        for _ in self.commit_with_progress():
+            pass
 
     def commit_with_progress(self):
         """Generator variant of commit() that yields after each phase.
@@ -211,6 +191,14 @@ class _TursoHTTPConnection:
             return
         queue, self._write_queue = self._write_queue, []
 
+        # Single pass partition into the three ordered phases:
+        # 1. 'pre'      — channel/video upserts + the DELETEs clearing old
+        #                 segments and the old marker; must land first.
+        # 2. 'segments' — segment inserts, sent sequentially to avoid
+        #                 write-lock contention (Turso is single-writer).
+        # 3. 'post'     — the indexed_transcripts marker, LAST. Reached only
+        #                 if phase 2 didn't raise, so a failed index leaves no
+        #                 marker and the video falls through to the live path.
         pre: List[dict] = []
         segments: List[dict] = []
         post: List[dict] = []
@@ -531,32 +519,6 @@ class TranscriptIndexService:
             )
         return True
 
-    def upsert_channel(self, channel_id: str, source_url: str) -> None:
-        conn = self._connect()
-        try:
-            self._queue_channel(conn, channel_id, source_url)
-            conn.commit()
-        finally:
-            conn.close()
-
-    def upsert_video(self, channel_id: str, video: Dict[str, Any]) -> None:
-        conn = self._connect()
-        try:
-            self._queue_video(conn, channel_id, video)
-            conn.commit()
-        finally:
-            conn.close()
-
-    def upsert_transcript(self, video_id: str, transcript: Dict[str, Any]) -> bool:
-        conn = self._connect()
-        try:
-            ok = self._queue_transcript(conn, video_id, transcript)
-            if ok:
-                conn.commit()
-            return ok
-        finally:
-            conn.close()
-
     def cache_video_transcripts(
         self,
         channel_id: str,
@@ -564,31 +526,16 @@ class TranscriptIndexService:
         video: Dict[str, Any],
         transcripts: Sequence[Dict[str, Any]],
     ) -> int:
-        if not transcripts:
-            return 0
-
-        # One connection (one reused HTTP client) and one chunked commit for the
-        # whole video — channel, video, and every transcript. Previously each
-        # upsert_* opened its own connection, multiplying Turso round-trips.
-        conn = self._connect()
-        try:
-            self._queue_channel(conn, channel_id, source_url)
-            self._queue_video(conn, channel_id, video)
-
-            stored = 0
-            seen_languages = set()
-            for transcript in transcripts:
-                language_code = normalize_language_code(transcript.get("language_code"))
-                if not language_code or language_code in seen_languages:
-                    continue
-                seen_languages.add(language_code)
-                if self._queue_transcript(conn, video["id"], transcript):
-                    stored += 1
-
-            conn.commit()
-            return stored
-        finally:
-            conn.close()
+        stored = 0
+        for item in self.cache_video_transcripts_with_progress(
+            channel_id=channel_id,
+            source_url=source_url,
+            video=video,
+            transcripts=transcripts,
+        ):
+            if isinstance(item, int):
+                stored = item
+        return stored
 
     def cache_video_transcripts_with_progress(
         self,
@@ -598,8 +545,11 @@ class TranscriptIndexService:
         transcripts: Sequence[Dict[str, Any]],
     ):
         """Generator variant of cache_video_transcripts that yields after each
-        Turso write phase. Enables SSE heartbeats during index-transcript so the
-        SW's 30s deadman timer stays alive."""
+        Turso write phase and finally the stored count. Enables SSE heartbeats
+        during index-transcript so the SW's 30s deadman timer stays alive.
+
+        One connection (one reused HTTP client) and one chunked commit for the
+        whole video — channel, video, and every transcript."""
         if not transcripts:
             return
 
@@ -618,7 +568,10 @@ class TranscriptIndexService:
                 if self._queue_transcript(conn, video["id"], transcript):
                     stored += 1
 
-            yield from conn.commit_with_progress()
+            if hasattr(conn, "commit_with_progress"):
+                yield from conn.commit_with_progress()
+            else:
+                conn.commit()  # local sqlite3 path
             yield stored
         finally:
             conn.close()
@@ -645,17 +598,6 @@ class TranscriptIndexService:
                 [channel_id, *video_ids],
             ).fetchall()
             return {row["video_id"] for row in rows}
-        finally:
-            conn.close()
-
-    def has_any_indexed_videos(self, channel_id: str) -> bool:
-        conn = self._connect()
-        try:
-            row = conn.execute(
-                "SELECT 1 FROM indexed_videos WHERE channel_id = ? LIMIT 1",
-                (channel_id,),
-            ).fetchone()
-            return row is not None
         finally:
             conn.close()
 
@@ -758,28 +700,5 @@ class TranscriptIndexService:
                 if survivors:
                     candidates |= survivors
             return candidates
-        finally:
-            conn.close()
-
-    def get_channel_stats(self, channel_id: str) -> Dict[str, int]:
-        conn = self._connect()
-        try:
-            video_count = conn.execute(
-                "SELECT COUNT(*) AS count FROM indexed_videos WHERE channel_id = ?",
-                (channel_id,),
-            ).fetchone()["count"]
-            transcript_count = conn.execute(
-                """
-                SELECT COUNT(*) AS count
-                FROM indexed_transcripts t
-                JOIN indexed_videos v ON v.video_id = t.video_id
-                WHERE v.channel_id = ?
-                """,
-                (channel_id,),
-            ).fetchone()["count"]
-            return {
-                "videos": int(video_count or 0),
-                "transcripts": int(transcript_count or 0),
-            }
         finally:
             conn.close()

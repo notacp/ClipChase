@@ -646,11 +646,6 @@ export function App() {
                     <span className="text-yt-tert">Videos without captions, and Shorts when excluded, can&rsquo;t be searched.</span>
                   </>
                 )
-              ) : lastSearch.failureReason === "no_tab" || lastSearch.failureReason === "tab_failed" ? (
-                <>
-                  No mentions of <span className="text-yt-text font-medium">&ldquo;{lastSearch.keyword}&rdquo;</span> in indexed videos.<br />
-                  <span className="text-yt-tert">Some videos couldn&rsquo;t be checked — YouTube tab not accessible.</span>
-                </>
               ) : lastSearch.failureReason === "pot_blocked" &&
                 (lastSearch.failureCounts?.pot_blocked ?? 0) / (lastSearch.videosScanned || 1) > 0.3 ? (
                 <>

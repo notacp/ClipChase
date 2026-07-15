@@ -4,86 +4,17 @@ import { useEffect, useMemo, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 import posthog from "posthog-js";
+import {
+  ACCENT,
+  ACCENT_HOVER,
+  MONO,
+  buildInstallUrl,
+  makeTheme,
+  splitOnKeyword,
+} from "../../lib";
+import { handleCtaClick } from "../../shared";
 
-const ACCENT = "#FF4500";
-const ACCENT_HOVER = "#E03A00";
-const MONO = "var(--font-mono), 'JetBrains Mono', monospace";
 const EASE_OUT = [0.16, 1, 0.3, 1] as const;
-
-const CHROME_STORE_BASE =
-  process.env.NEXT_PUBLIC_CHROME_STORE_URL ??
-  "https://chromewebstore.google.com/detail/ojgacfpcibnmggkenjndnogpfglmhefn";
-
-// Mirrors the landing page's CTA flow exactly: same localStorage handoff the
-// /installed page reads for install attribution, same cta_clicked event. The
-// moment page is a first-class entry to the same funnel.
-function buildInstallUrl(): string {
-  const params = new URLSearchParams({
-    utm_source: "moment_page",
-    utm_medium: "share_link",
-    utm_campaign: "organic",
-  });
-  return `${CHROME_STORE_BASE}?${params.toString()}`;
-}
-
-function handleCtaClick() {
-  try {
-    localStorage.setItem(
-      "ts_pre_install_source",
-      JSON.stringify({
-        location: "moment_page",
-        clicked_at: Date.now(),
-        referrer: document.referrer || null,
-        landing_distinct_id: posthog.get_distinct_id(),
-      }),
-    );
-  } catch {
-    // localStorage failures are non-fatal
-  }
-  posthog.capture("cta_clicked", {
-    location: "moment_page",
-    referrer: document.referrer || null,
-  });
-}
-
-type T = {
-  bg: string;
-  surface: string;
-  border: string;
-  text: string;
-  sub: string;
-};
-
-// Same palette as the landing page's makeTheme, minus the popup/input tokens
-// this page doesn't use. No toggle: a share page is a one-shot visit, so it
-// follows the system preference.
-function makeTheme(dark: boolean): T {
-  return dark
-    ? { bg: "#0e0e0e", surface: "#161616", border: "#272727", text: "#ebebeb", sub: "#888" }
-    : { bg: "#fafaf9", surface: "#f4f3f1", border: "#e2e0db", text: "#141412", sub: "#5a5754" };
-}
-
-// Splits the quote so every case-insensitive keyword occurrence renders in the
-// same highlight the extension uses. The shared link shows the recipient
-// exactly what the sender's search result looked like.
-function splitOnKeyword(quote: string, keyword: string): { text: string; hit: boolean }[] {
-  if (!keyword) return [{ text: quote, hit: false }];
-  const parts: { text: string; hit: boolean }[] = [];
-  const lower = quote.toLowerCase();
-  const key = keyword.toLowerCase();
-  let i = 0;
-  while (i < quote.length) {
-    const at = lower.indexOf(key, i);
-    if (at === -1) {
-      parts.push({ text: quote.slice(i), hit: false });
-      break;
-    }
-    if (at > i) parts.push({ text: quote.slice(i, at), hit: false });
-    parts.push({ text: quote.slice(at, at + key.length), hit: true });
-    i = at + key.length;
-  }
-  return parts.filter((p) => p.text.length > 0);
-}
 
 export function MomentView({
   videoId,
@@ -282,8 +213,8 @@ export function MomentView({
             </p>
           </div>
           <motion.a
-            href={buildInstallUrl()}
-            onClick={handleCtaClick}
+            href={buildInstallUrl("share_link", "moment_page")}
+            onClick={() => handleCtaClick("moment_page")}
             whileHover={reduced ? undefined : { backgroundColor: ACCENT_HOVER }}
             whileTap={reduced ? undefined : { scale: 0.97 }}
             transition={{ duration: 0.15 }}

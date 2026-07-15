@@ -1,0 +1,220 @@
+[     190ms] [LOG] [PostHog.js] set_config {config: Object, oldConfig: Object, newConfig: Object} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[     192ms] [LOG] [PostHog.js] Persistence loaded localStorage+cookie {} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[     193ms] [LOG] [PostHog.js] Persistence loaded sessionStorage {} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[     196ms] [LOG] [PostHog.js] Initializing extensions synchronously @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[     197ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[     199ms] [LOG] [PostHog.js] History API monitoring enabled, starting... @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[     200ms] [LOG] [PostHog.js] Starting in debug mode {this: qn, config: Object, thisC: Object, p: Object, s: Object} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[     202ms] [LOG] [Client Instrumentation Hook] Slow execution detected: 24ms (Note: Code download overhead is not included in this measurement) @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:1644
+[     222ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[     310ms] [LOG] [HMR] connected @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[     426ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[     461ms] [LOG] [Fast Refresh] done in 136ms @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[    1278ms] [LOG] [PostHog.js] Persistence loaded sessionStorage {$sdk_debug_extensions_init_method: synchronous, $sdk_debug_extensions_init_time_ms: 4} @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[    1279ms] [LOG] [PostHog.js] set_config {config: Object, oldConfig: Object, newConfig: Object} @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[    1279ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[    1280ms] [LOG] [PostHog.js] [SessionRecording] starting @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[    1280ms] [LOG] [PostHog.js] [Surveys] flags response received, isSurveysEnabled: false @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[    1281ms] [LOG] [PostHog.js] [Heatmaps] starting... @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[    1281ms] [LOG] [PostHog.js] [Web Vitals] enabled, starting... @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[    1281ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[    1336ms] [LOG] [PostHog.js] [WebExperiments] Refusing to render web experiment since the viewer is a likely bot [] @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[    2404ms] [LOG] [PostHog.js] [Dead Clicks] starting... @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[    2544ms] [LOG] [PostHog.js] [Surveys] Surveys loaded successfully @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[    2595ms] [LOG] [PostHog.js] [SessionId] new session ID generated {sessionId: 019eba22-bbde-71c0-bc96-879f83b32dfe, windowId: 019eba22-bbde-71c0-bc96-87a071d12b36, changeReason: Object} @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[   39405ms] [LOG] [PostHog.js] set_config {config: Object, oldConfig: Object, newConfig: Object} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[   39405ms] [LOG] [PostHog.js] Persistence loaded localStorage+cookie {$device_id: 019eba22-b283-7857-923d-eefa7bd428e6, distinct_id: 019eba22-b283-7857-923d-eefa7bd428e6, $sesid: Array(3), $epp: true, $user_state: anonymous} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[   39406ms] [LOG] [PostHog.js] Persistence loaded sessionStorage {$sdk_debug_extensions_init_method: synchronous, $sdk_debug_extensions_init_time_ms: 4, $sdk_debug_replay_remote_trigger_matching_config: null, $sdk_debug_replay_event_trigger_status: trigger_disabled, $sdk_debug_replay_url_trigger_status: trigger_disabled} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[   39406ms] [LOG] [PostHog.js] Initializing extensions synchronously @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[   39406ms] [LOG] [PostHog.js] [Web Vitals] enabled, starting... @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[   39407ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[   39407ms] [LOG] [PostHog.js] History API monitoring enabled, starting... @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[   39408ms] [LOG] [PostHog.js] [SessionRecording] starting @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[   39408ms] [LOG] [PostHog.js] [Heatmaps] starting... @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[   39408ms] [LOG] [PostHog.js] Starting in debug mode {this: qn, config: Object, thisC: Object, p: Object, s: Object} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[   39410ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[   39427ms] [LOG] [PostHog.js] [Dead Clicks] starting... @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[   39427ms] [LOG] [PostHog.js] Persistence loaded sessionStorage {$sdk_debug_extensions_init_method: synchronous, $sdk_debug_extensions_init_time_ms: 2, $sdk_debug_replay_remote_trigger_matching_config: null, $sdk_debug_replay_event_trigger_status: trigger_disabled, $sdk_debug_replay_url_trigger_status: trigger_disabled} @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[   39427ms] [LOG] [PostHog.js] set_config {config: Object, oldConfig: Object, newConfig: Object} @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[   39427ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[   39428ms] [LOG] [PostHog.js] [Surveys] flags response received, isSurveysEnabled: false @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[   39428ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[   39436ms] [LOG] [PostHog.js] [Surveys] Surveys loaded successfully @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[   39439ms] [LOG] [HMR] connected @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[   40482ms] [LOG] [PostHog.js] [WebExperiments] Refusing to render web experiment since the viewer is a likely bot [] @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[   69895ms] [LOG] [PostHog.js] set_config {config: Object, oldConfig: Object, newConfig: Object} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[   69896ms] [LOG] [PostHog.js] Persistence loaded localStorage+cookie {$device_id: 019eba22-b283-7857-923d-eefa7bd428e6, distinct_id: 019eba22-b283-7857-923d-eefa7bd428e6, $sesid: Array(3), $epp: true, $user_state: anonymous} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[   69896ms] [LOG] [PostHog.js] Persistence loaded sessionStorage {$sdk_debug_extensions_init_method: synchronous, $sdk_debug_extensions_init_time_ms: 2, $sdk_debug_replay_remote_trigger_matching_config: null, $sdk_debug_replay_event_trigger_status: trigger_disabled, $sdk_debug_replay_url_trigger_status: trigger_disabled} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[   69897ms] [LOG] [PostHog.js] Initializing extensions synchronously @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[   69897ms] [LOG] [PostHog.js] [Web Vitals] enabled, starting... @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[   69897ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[   69897ms] [LOG] [PostHog.js] History API monitoring enabled, starting... @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[   69898ms] [LOG] [PostHog.js] [SessionRecording] starting @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[   69898ms] [LOG] [PostHog.js] [Heatmaps] starting... @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[   69898ms] [LOG] [PostHog.js] Starting in debug mode {this: qn, config: Object, thisC: Object, p: Object, s: Object} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[   69899ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[   69913ms] [LOG] [PostHog.js] [Dead Clicks] starting... @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[   69913ms] [LOG] [PostHog.js] Persistence loaded sessionStorage {$sdk_debug_extensions_init_method: synchronous, $sdk_debug_extensions_init_time_ms: 1, $sdk_debug_replay_remote_trigger_matching_config: null, $sdk_debug_replay_event_trigger_status: trigger_disabled, $sdk_debug_replay_url_trigger_status: trigger_disabled} @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[   69913ms] [LOG] [PostHog.js] set_config {config: Object, oldConfig: Object, newConfig: Object} @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[   69913ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[   69914ms] [LOG] [PostHog.js] [Surveys] flags response received, isSurveysEnabled: false @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[   69914ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[   69920ms] [LOG] [PostHog.js] [Surveys] Surveys loaded successfully @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[   69923ms] [LOG] [HMR] connected @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[   70671ms] [LOG] [PostHog.js] [WebExperiments] Refusing to render web experiment since the viewer is a likely bot [] @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  170451ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  171370ms] [LOG] [Fast Refresh] done in 1002ms @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  177728ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  178036ms] [LOG] [Fast Refresh] done in 386ms @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  266954ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=ysOEtAjfruAyeyjEG57Cl' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:13298
+[  268103ms] [LOG] [HMR] connected @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  268418ms] [LOG] [PostHog.js] set_config {config: Object, oldConfig: Object, newConfig: Object} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  268418ms] [LOG] [PostHog.js] Persistence loaded localStorage+cookie {$device_id: 019eba22-b283-7857-923d-eefa7bd428e6, distinct_id: 019eba22-b283-7857-923d-eefa7bd428e6, $sesid: Array(3), $epp: true, $user_state: anonymous} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  268420ms] [LOG] [PostHog.js] Persistence loaded sessionStorage {$sdk_debug_extensions_init_method: synchronous, $sdk_debug_extensions_init_time_ms: 1, $sdk_debug_replay_remote_trigger_matching_config: null, $sdk_debug_replay_event_trigger_status: trigger_disabled, $sdk_debug_replay_url_trigger_status: trigger_disabled} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  268420ms] [LOG] [PostHog.js] Initializing extensions synchronously @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  268420ms] [LOG] [PostHog.js] [Web Vitals] enabled, starting... @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  268420ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  268421ms] [LOG] [PostHog.js] History API monitoring enabled, starting... @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  268421ms] [LOG] [PostHog.js] [SessionRecording] starting @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  268421ms] [LOG] [PostHog.js] [Heatmaps] starting... @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  268421ms] [LOG] [PostHog.js] Starting in debug mode {this: qn, config: Object, thisC: Object, p: Object, s: Object} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  268424ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  268438ms] [LOG] [PostHog.js] [Dead Clicks] starting... @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  268439ms] [LOG] [PostHog.js] Persistence loaded sessionStorage {$sdk_debug_extensions_init_method: synchronous, $sdk_debug_extensions_init_time_ms: 1, $sdk_debug_replay_remote_trigger_matching_config: null, $sdk_debug_replay_event_trigger_status: trigger_disabled, $sdk_debug_replay_url_trigger_status: trigger_disabled} @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  268439ms] [LOG] [PostHog.js] set_config {config: Object, oldConfig: Object, newConfig: Object} @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  268439ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  268439ms] [LOG] [PostHog.js] [Surveys] flags response received, isSurveysEnabled: false @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  268439ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  268447ms] [LOG] [PostHog.js] [Surveys] Surveys loaded successfully @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  268451ms] [LOG] [HMR] connected @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  269163ms] [LOG] [PostHog.js] [WebExperiments] Refusing to render web experiment since the viewer is a likely bot [] @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  327813ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  328565ms] [LOG] [Fast Refresh] done in 811ms @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  328631ms] ReferenceError: pingFiredRef is not defined
+    at ExtensionPreview[useEffect()] (http://localhost:3000/_next/static/chunks/src_app_page_tsx_0u-7s7d._.js?id=%255Bproject%255D%252Fsrc%252Fapp%252Fpage.tsx+%255Bapp-client%255D+%2528ecmascript%2529:1591:17)
+    at Object.react_stack_bottom_frame (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:15087:22)
+    at runWithFiberInDEV (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:965:74)
+    at commitHookEffectListMount (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:7255:167)
+    at commitHookPassiveMountEffects (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:7290:60)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8689:33)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8750:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8750:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8688:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8750:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8688:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8750:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8688:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8688:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8688:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8750:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8750:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8688:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8693:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8688:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8693:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8688:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8688:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8688:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8693:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8688:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8688:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8750:17)
+[  338452ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  338742ms] [WARNING] [Fast Refresh] performing full reload because your application had an unrecoverable error @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  338830ms] [LOG] [Fast Refresh] done in 388ms @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  338972ms] [LOG] [PostHog.js] set_config {config: Object, oldConfig: Object, newConfig: Object} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  338972ms] [LOG] [PostHog.js] Persistence loaded localStorage+cookie {$device_id: 019eba22-b283-7857-923d-eefa7bd428e6, distinct_id: 019eba22-b283-7857-923d-eefa7bd428e6, $sesid: Array(3), $epp: true, $user_state: anonymous} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  338973ms] [LOG] [PostHog.js] Persistence loaded sessionStorage {$sdk_debug_extensions_init_method: synchronous, $sdk_debug_extensions_init_time_ms: 1, $sdk_debug_replay_remote_trigger_matching_config: null, $sdk_debug_replay_event_trigger_status: trigger_disabled, $sdk_debug_replay_url_trigger_status: trigger_disabled} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  338974ms] [LOG] [PostHog.js] Initializing extensions synchronously @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  338974ms] [LOG] [PostHog.js] [Web Vitals] enabled, starting... @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  338974ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  338974ms] [LOG] [PostHog.js] History API monitoring enabled, starting... @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  338975ms] [LOG] [PostHog.js] [SessionRecording] starting @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  338975ms] [LOG] [PostHog.js] [Heatmaps] starting... @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  338975ms] [LOG] [PostHog.js] Starting in debug mode {this: qn, config: Object, thisC: Object, p: Object, s: Object} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  338977ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  338993ms] [LOG] [PostHog.js] [Dead Clicks] starting... @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  339002ms] [LOG] [HMR] connected @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  339132ms] [LOG] [PostHog.js] Persistence loaded sessionStorage {$sdk_debug_extensions_init_method: synchronous, $sdk_debug_extensions_init_time_ms: 1, $sdk_debug_replay_remote_trigger_matching_config: null, $sdk_debug_replay_event_trigger_status: trigger_disabled, $sdk_debug_replay_url_trigger_status: trigger_disabled} @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  339132ms] [LOG] [PostHog.js] set_config {config: Object, oldConfig: Object, newConfig: Object} @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  339132ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  339132ms] [LOG] [PostHog.js] [Surveys] flags response received, isSurveysEnabled: false @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  339133ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  339135ms] [LOG] [PostHog.js] [Surveys] Surveys loaded successfully @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  339720ms] [LOG] [PostHog.js] [WebExperiments] Refusing to render web experiment since the viewer is a likely bot [] @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  390248ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=iv11sEQxfj5d8YID7B8_g' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:13298
+[  391255ms] [LOG] [HMR] connected @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  392181ms] [LOG] [PostHog.js] set_config {config: Object, oldConfig: Object, newConfig: Object} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  392181ms] [LOG] [PostHog.js] Persistence loaded localStorage+cookie {$device_id: 019eba22-b283-7857-923d-eefa7bd428e6, distinct_id: 019eba22-b283-7857-923d-eefa7bd428e6, $sesid: Array(3), $epp: true, $user_state: anonymous} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  392182ms] [LOG] [PostHog.js] Persistence loaded sessionStorage {$sdk_debug_extensions_init_method: synchronous, $sdk_debug_extensions_init_time_ms: 1, $sdk_debug_replay_remote_trigger_matching_config: null, $sdk_debug_replay_event_trigger_status: trigger_disabled, $sdk_debug_replay_url_trigger_status: trigger_disabled} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  392182ms] [LOG] [PostHog.js] Initializing extensions synchronously @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  392182ms] [LOG] [PostHog.js] [Web Vitals] enabled, starting... @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  392182ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  392183ms] [LOG] [PostHog.js] History API monitoring enabled, starting... @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  392183ms] [LOG] [PostHog.js] [SessionRecording] starting @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  392183ms] [LOG] [PostHog.js] [Heatmaps] starting... @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  392183ms] [LOG] [PostHog.js] Starting in debug mode {this: qn, config: Object, thisC: Object, p: Object, s: Object} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  392185ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  392199ms] [LOG] [PostHog.js] [Dead Clicks] starting... @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  392200ms] [LOG] [PostHog.js] Persistence loaded sessionStorage {$sdk_debug_extensions_init_method: synchronous, $sdk_debug_extensions_init_time_ms: 1, $sdk_debug_replay_remote_trigger_matching_config: null, $sdk_debug_replay_event_trigger_status: trigger_disabled, $sdk_debug_replay_url_trigger_status: trigger_disabled} @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  392200ms] [LOG] [PostHog.js] set_config {config: Object, oldConfig: Object, newConfig: Object} @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  392200ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  392201ms] [LOG] [PostHog.js] [Surveys] flags response received, isSurveysEnabled: false @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  392201ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  392207ms] [LOG] [PostHog.js] [Surveys] Surveys loaded successfully @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  392209ms] [LOG] [HMR] connected @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  392982ms] [LOG] [PostHog.js] [WebExperiments] Refusing to render web experiment since the viewer is a likely bot [] @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  411457ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=bvJbcgJXfi7lC0WNX5TvB' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:13298
+[  412459ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=bvJbcgJXfi7lC0WNX5TvB' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:13298
+[  413462ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=bvJbcgJXfi7lC0WNX5TvB' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:13298
+[  414466ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=bvJbcgJXfi7lC0WNX5TvB' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:13298
+[  415470ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=bvJbcgJXfi7lC0WNX5TvB' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:13298
+[  420474ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=bvJbcgJXfi7lC0WNX5TvB' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:13298
+[  425479ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=bvJbcgJXfi7lC0WNX5TvB' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:13298
+[  430483ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=bvJbcgJXfi7lC0WNX5TvB' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:13298
+[  435487ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=bvJbcgJXfi7lC0WNX5TvB' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:13298
+[  440492ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=bvJbcgJXfi7lC0WNX5TvB' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:13298
+[  445497ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=bvJbcgJXfi7lC0WNX5TvB' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:13298
+[  450499ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=bvJbcgJXfi7lC0WNX5TvB' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:13298
+[  847025ms] [LOG] [PostHog.js] set_config {config: Object, oldConfig: Object, newConfig: Object} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  847026ms] [LOG] [PostHog.js] Persistence loaded localStorage+cookie {$device_id: 019eba22-b283-7857-923d-eefa7bd428e6, distinct_id: 019eba22-b283-7857-923d-eefa7bd428e6, $sesid: Array(3), $epp: true, $user_state: anonymous} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  847027ms] [LOG] [PostHog.js] Persistence loaded sessionStorage {$sdk_debug_extensions_init_method: synchronous, $sdk_debug_extensions_init_time_ms: 1, $sdk_debug_replay_remote_trigger_matching_config: null, $sdk_debug_replay_event_trigger_status: trigger_disabled, $sdk_debug_replay_url_trigger_status: trigger_disabled} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  847027ms] [LOG] [PostHog.js] Initializing extensions synchronously @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  847027ms] [LOG] [PostHog.js] [Web Vitals] enabled, starting... @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  847028ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  847028ms] [LOG] [PostHog.js] History API monitoring enabled, starting... @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  847028ms] [LOG] [PostHog.js] [SessionRecording] starting @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  847029ms] [LOG] [PostHog.js] [Heatmaps] starting... @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  847029ms] [LOG] [PostHog.js] Starting in debug mode {this: qn, config: Object, thisC: Object, p: Object, s: Object} @ http://localhost:3000/_next/static/chunks/node_modules_posthog-js_dist_module_0p1-w_7.js:1019
+[  847046ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  847095ms] [LOG] [PostHog.js] [Dead Clicks] starting... @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  847110ms] [LOG] [HMR] connected @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  847761ms] [LOG] [PostHog.js] Persistence loaded sessionStorage {$sdk_debug_extensions_init_method: synchronous, $sdk_debug_extensions_init_time_ms: 2, $sdk_debug_replay_remote_trigger_matching_config: null, $sdk_debug_replay_event_trigger_status: trigger_disabled, $sdk_debug_replay_url_trigger_status: trigger_disabled} @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  847762ms] [LOG] [PostHog.js] set_config {config: Object, oldConfig: Object, newConfig: Object} @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  847762ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  847764ms] [LOG] [PostHog.js] [Surveys] flags response received, isSurveysEnabled: false @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  847764ms] [LOG] [PostHog.js] [ExceptionAutocapture] enabled @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  847770ms] [LOG] [PostHog.js] [Surveys] Surveys loaded successfully @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436
+[  847802ms] [LOG] [PostHog.js] [WebExperiments] Refusing to render web experiment since the viewer is a likely bot [] @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2436

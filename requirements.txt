@@ -1,16 +1,9 @@
-# FastAPI
+# Runtime deps for Vercel — keep in sync with [project] dependencies in
+# pyproject.toml (pyproject is the source of truth; uv manages the local env,
+# with pytest in the dev dependency-group).
 fastapi==0.109.2
 uvicorn==0.27.1
 python-dotenv==1.0.1
 pydantic==2.6.1
-
-# YouTube
 google-api-python-client==2.118.0
-youtube-transcript-api==1.2.4
-
-# Vercel
-# (Vercel installs these automatically or via this file)
-
-# Testing
-pytest==8.0.0
 httpx==0.27.0

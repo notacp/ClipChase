@@ -3,6 +3,7 @@ import { listVideos, matchTranscript } from "./api-client";
 import { captureSW, captureExceptionSW } from "./posthog-sw";
 import { classifyFailure, extractPlayerResponse, extractVisitorData } from "./transcript-fetcher";
 import { PREFERRED_TRANSCRIPT_LANGS } from "../shared/constants";
+import { getOrCreateStableId } from "../shared/stable-id";
 import type { FetchTranscriptResult, MessageResponse, Transcript } from "../shared/types";
 
 // Global SW error capture. posthog-js can't run here; use the REST helper.
@@ -143,16 +144,9 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   });
 
   // Post-install attribution: only on fresh install, not update/reload.
-  // Stable-ID logic is duplicated from extension/src/shared/posthog.ts because
-  // the SW can't import Vite/React-side modules cleanly.
   if (details.reason === "install") {
     try {
-      const stored = await chrome.storage.local.get("clipchase_stable_id");
-      let stableId = stored.clipchase_stable_id as string | undefined;
-      if (!stableId) {
-        stableId = `cc_${crypto.randomUUID()}`;
-        await chrome.storage.local.set({ clipchase_stable_id: stableId });
-      }
+      const stableId = await getOrCreateStableId();
       // Chrome rejects tabs.create while the user is dragging a tab
       // ("Tabs cannot be edited right now"). Retry a few times before giving
       // up — without await the rejection escapes to unhandledrejection and

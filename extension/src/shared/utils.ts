@@ -1,12 +1,6 @@
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
 import type { FailureReason } from "./types";
 import { TimeRange } from "./types";
 import { SHARE_BASE } from "./constants";
-
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 export function formatTime(seconds: number) {
   const mins = Math.floor(seconds / 60);

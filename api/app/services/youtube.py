@@ -4,7 +4,6 @@ import unicodedata
 from typing import Any, Dict, List, Optional
 
 from googleapiclient.discovery import build
-from youtube_transcript_api import NoTranscriptFound, TranscriptsDisabled, YouTubeTranscriptApi
 
 YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
@@ -47,17 +46,6 @@ def normalize_language_code(language_code: Optional[str]) -> str:
     if not code:
         return ""
     return code.split("-", 1)[0]
-
-
-def language_label_for_code(language_code: str, fallback: Optional[str] = None) -> str:
-    labels = {
-        "en": "English",
-        "hi": "Hindi",
-        "fr": "French",
-        "es": "Spanish",
-        "pt": "Portuguese",
-    }
-    return labels.get(language_code, fallback or language_code.upper() or "Unknown")
 
 
 def _normalize_text(text: str) -> str:
@@ -345,14 +333,6 @@ def _keyword_matches(text: str, keyword: str, language_code: str) -> bool:
     return False
 
 
-def _segment_to_raw_data(segments: Any) -> List[Dict[str, Any]]:
-    if hasattr(segments, "to_raw_data"):
-        return segments.to_raw_data()
-    if isinstance(segments, list):
-        return segments
-    return list(segments)
-
-
 class YouTubeService:
     def __init__(self, api_key: str):
         self.api_key = api_key
@@ -517,72 +497,6 @@ class YouTubeService:
         # default False keeps videos whose IDs weren't returned by the API
         filtered = [v for v in videos if not video_meta.get(v["id"], False)]
         return filtered
-
-    def get_transcript(self, video_id: str, preferred_languages: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
-        languages = self._normalize_preferred_languages(preferred_languages)
-        return self._get_transcript_from_api(video_id, languages)
-
-    def _normalize_preferred_languages(self, preferred_languages: Optional[List[str]]) -> List[str]:
-        languages = [normalize_language_code(code) for code in (preferred_languages or [])]
-        languages = [code for code in languages if code in SUPPORTED_TRANSCRIPT_LANGUAGES]
-        for code in SUPPORTED_TRANSCRIPT_LANGUAGES:
-            if code not in languages:
-                languages.append(code)
-        return languages
-
-    def _get_transcript_from_api(self, video_id: str, preferred_languages: List[str]) -> Optional[Dict[str, Any]]:
-        try:
-            ytt_api = YouTubeTranscriptApi()
-            transcript_list = self._list_transcripts(ytt_api, video_id)
-            transcript = self._select_local_transcript(transcript_list, preferred_languages)
-            if not transcript:
-                return None
-            segments = _segment_to_raw_data(transcript.fetch())
-            language_code = normalize_language_code(getattr(transcript, "language_code", ""))
-            return {
-                "language_code": language_code,
-                "language_label": language_label_for_code(language_code, getattr(transcript, "language", None)),
-                "is_generated": bool(getattr(transcript, "is_generated", False)),
-                "segments": segments,
-            }
-        except (TranscriptsDisabled, NoTranscriptFound):
-            return None
-        except Exception:
-            raise
-
-    def _list_transcripts(self, ytt_api: Any, video_id: str) -> Any:
-        if hasattr(ytt_api, "list"):
-            return ytt_api.list(video_id)
-        if hasattr(ytt_api, "list_transcripts"):
-            return ytt_api.list_transcripts(video_id)
-        if hasattr(YouTubeTranscriptApi, "list_transcripts"):
-            return YouTubeTranscriptApi.list_transcripts(video_id)
-        raise RuntimeError("youtube-transcript-api does not support listing transcripts in this environment")
-
-    def _select_local_transcript(self, transcript_list: Any, preferred_languages: List[str]) -> Optional[Any]:
-        transcripts = list(transcript_list)
-        for language in preferred_languages:
-            manual = next(
-                (
-                    transcript for transcript in transcripts
-                    if normalize_language_code(getattr(transcript, "language_code", "")) == language
-                    and not bool(getattr(transcript, "is_generated", False))
-                ),
-                None,
-            )
-            if manual:
-                return manual
-
-            generated = next(
-                (
-                    transcript for transcript in transcripts
-                    if normalize_language_code(getattr(transcript, "language_code", "")) == language
-                ),
-                None,
-            )
-            if generated:
-                return generated
-        return None
 
     def expand_search_terms_for_transcript(
         self,

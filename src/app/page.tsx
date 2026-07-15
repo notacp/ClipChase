@@ -9,103 +9,21 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Sun, Moon, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import posthog from "posthog-js";
 import Link from "next/link";
+import {
+  ACCENT,
+  ACCENT_HOVER,
+  MONO,
+  buildInstallUrl,
+  makeTheme,
+  splitOnKeyword,
+  type Theme,
+} from "./lib";
+import { Logo, ThemeToggle, handleCtaClick } from "./shared";
 
-const ACCENT = "#FF4500";
-const ACCENT_HOVER = "#E03A00";
-const MONO = "var(--font-mono), 'JetBrains Mono', monospace";
 const EASE_OUT: [number, number, number, number] = [0.16, 1, 0.3, 1];
-
-const CHROME_STORE_BASE =
-  process.env.NEXT_PUBLIC_CHROME_STORE_URL ??
-  "https://chromewebstore.google.com/detail/ojgacfpcibnmggkenjndnogpfglmhefn";
-
-function buildInstallUrl(location: string): string {
-  const params = new URLSearchParams({
-    utm_source: "landing",
-    utm_medium: location,
-    utm_campaign: "organic",
-  });
-  return `${CHROME_STORE_BASE}?${params.toString()}`;
-}
-
-function handleCtaClick(location: string) {
-  try {
-    localStorage.setItem(
-      "ts_pre_install_source",
-      JSON.stringify({
-        location,
-        clicked_at: Date.now(),
-        referrer: document.referrer || null,
-        landing_distinct_id: posthog.get_distinct_id(),
-      })
-    );
-  } catch {
-    // localStorage failures are non-fatal
-  }
-  posthog.capture("cta_clicked", {
-    location,
-    referrer: document.referrer || null,
-  });
-}
-
-type Theme = {
-  bg: string;
-  surface: string;
-  surface2: string;
-  border: string;
-  text: string;
-  sub: string;
-  muted: string;
-  popupBg: string;
-  popupBorder: string;
-  popupSurface: string;
-  popupText: string;
-  popupSub: string;
-  inputBg: string;
-  inputBorder: string;
-  thumbBg: string;
-};
-
-function makeTheme(dark: boolean): Theme {
-  return dark
-    ? {
-        bg: "#0e0e0e",
-        surface: "#161616",
-        surface2: "#1e1e1e",
-        border: "#272727",
-        text: "#ebebeb",
-        sub: "#888",
-        muted: "#444",
-        popupBg: "#141414",
-        popupBorder: "#2a2a2a",
-        popupSurface: "#1c1c1c",
-        popupText: "#e8e8e8",
-        popupSub: "#888",
-        inputBg: "#1c1c1c",
-        inputBorder: "#2a2a2a",
-        thumbBg: "#1c1c1c",
-      }
-    : {
-        bg: "#fafaf9",
-        surface: "#f4f3f1",
-        surface2: "#eeede9",
-        border: "#e2e0db",
-        text: "#141412",
-        sub: "#5a5754",
-        muted: "#aaa9a3",
-        popupBg: "#ffffff",
-        popupBorder: "#e2e0db",
-        popupSurface: "#f7f6f4",
-        popupText: "#141412",
-        popupSub: "#6b6860",
-        inputBg: "#f4f3f1",
-        inputBorder: "#e2e0db",
-        thumbBg: "#e8e6e2",
-      };
-}
 
 export default function Landing() {
   const [dark, setDark] = useState(false);
@@ -152,74 +70,6 @@ export default function Landing() {
         <SiteFooter T={T} />
       </div>
       <StickyCta T={T} dark={dark} visible={pastHero && !footerInView} />
-    </div>
-  );
-}
-
-// ── Theme toggle ──────────────────────────────────────────────────────────────
-
-function ThemeToggle({
-  dark,
-  onToggle,
-  T,
-}: {
-  dark: boolean;
-  onToggle: () => void;
-  T: Theme;
-}) {
-  return (
-    <motion.button
-      onClick={onToggle}
-      title={dark ? "Switch to light mode" : "Switch to dark mode"}
-      whileHover={{ background: T.surface2 }}
-      whileTap={{ scale: 0.9 }}
-      transition={{ duration: 0.12 }}
-      style={{
-        width: 36,
-        height: 36,
-        borderRadius: 7,
-        border: `1px solid ${T.border}`,
-        background: T.surface,
-        cursor: "pointer",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        color: T.sub,
-        flexShrink: 0,
-        transition: "background 0.2s, border-color 0.2s",
-      }}
-    >
-      {dark ? <Sun size={14} /> : <Moon size={14} />}
-    </motion.button>
-  );
-}
-
-// ── Logo ──────────────────────────────────────────────────────────────────────
-
-function Logo({ size = 24 }: { size?: number }) {
-  const inner = Math.round(size * 0.54);
-  return (
-    <div
-      style={{
-        width: size,
-        height: size,
-        borderRadius: Math.round(size * 0.21),
-        background: ACCENT,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexShrink: 0,
-      }}
-    >
-      <svg width={inner} height={inner} viewBox="0 0 12 12" fill="none">
-        <circle cx="5" cy="5" r="3.2" stroke="white" strokeWidth="1.4" />
-        <path
-          d="M7.2 7.2L10.2 10.2"
-          stroke="white"
-          strokeWidth="1.4"
-          strokeLinecap="round"
-        />
-      </svg>
     </div>
   );
 }
@@ -677,29 +527,6 @@ const DEMO_FALLBACK: DemoData = {
     },
   ],
 };
-
-function highlightText(text: string, query: string): React.ReactNode {
-  if (!query.trim()) return text;
-  const escaped = query.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(`(${escaped})`, "gi");
-  const parts = text.split(regex);
-  // Odd indices are captured match groups from the split — no regex.test()
-  // needed (avoids the stateful /g lastIndex bug that makes every other
-  // match render unhighlighted).
-  return (
-    <>
-      {parts.map((part, i) =>
-        i % 2 === 1 ? (
-          <strong key={i} style={{ color: ACCENT, fontWeight: 700 }}>
-            {part}
-          </strong>
-        ) : (
-          part
-        ),
-      )}
-    </>
-  );
-}
 
 function ExtensionPreview({ T, dark }: { T: Theme; dark: boolean }) {
   const shadow = dark
@@ -1163,7 +990,15 @@ function ExtensionPreview({ T, dark }: { T: Theme; dark: boolean }) {
                                 lineHeight: 1.5,
                               }}
                             >
-                              {highlightText(s.text, activeQuery)}
+                              {splitOnKeyword(s.text, activeQuery).map((p, pi) =>
+                                p.hit ? (
+                                  <strong key={pi} style={{ color: ACCENT, fontWeight: 700 }}>
+                                    {p.text}
+                                  </strong>
+                                ) : (
+                                  p.text
+                                ),
+                              )}
                             </span>
                           </div>
                         ))}
@@ -1382,9 +1217,8 @@ function SiteFooter({ T }: { T: Theme }) {
       <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
         <Link
           href="/privacy"
-          style={{ fontSize: 12, color: T.muted, textDecoration: "none", textUnderlineOffset: 2 }}
-          onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")}
-          onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}
+          className="footer-link"
+          style={{ fontSize: 12, color: T.muted, textUnderlineOffset: 2 }}
         >
           Privacy
         </Link>
@@ -1395,18 +1229,16 @@ function SiteFooter({ T }: { T: Theme }) {
           onClick={() =>
             posthog.capture("feedback_link_clicked", { trigger: "footer" })
           }
-          style={{ fontSize: 12, color: T.muted, textDecoration: "none", textUnderlineOffset: 2 }}
-          onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")}
-          onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}
+          className="footer-link"
+          style={{ fontSize: 12, color: T.muted, textUnderlineOffset: 2 }}
         >
           Feedback ↗
         </a>
         <a
           href={buildInstallUrl("footer_links")}
           onClick={() => handleCtaClick("footer_links")}
-          style={{ fontSize: 12, color: T.muted, textDecoration: "none", textUnderlineOffset: 2 }}
-          onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")}
-          onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}
+          className="footer-link"
+          style={{ fontSize: 12, color: T.muted, textUnderlineOffset: 2 }}
         >
           Install
         </a>

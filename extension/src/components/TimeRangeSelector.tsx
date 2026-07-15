@@ -1,5 +1,4 @@
 import { motion } from "framer-motion";
-import { cn } from "../shared/utils";
 import { TimeRange } from "../shared/types";
 
 interface TimeRangeSelectorProps {
@@ -30,12 +29,11 @@ export function TimeRangeSelector({ timeRange, setTimeRange }: TimeRangeSelector
             key={range.value}
             type="button"
             onClick={() => setTimeRange(range.value)}
-            className={cn(
-              "px-2.5 py-[3px] rounded text-[11px] font-medium transition-all border",
+            className={`px-2.5 py-[3px] rounded text-[11px] font-medium transition-all border ${
               active
                 ? "border-yt-red bg-yt-red/[0.09] text-yt-red"
                 : "border-yt-dark-gray bg-transparent text-yt-light-gray hover:border-yt-hover/60"
-            )}
+            }`}
           >
             {range.label}
           </button>

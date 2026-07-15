@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
 import type { NextRequest } from "next/server";
+import { formatTimestamp } from "../../lib";
 
 export const runtime = "edge";
 
@@ -7,12 +8,6 @@ export const runtime = "edge";
 // unfurl does the product's job before anyone clicks. Lives at /m/og (static
 // segment, so it never collides with /m/[videoId] — "og" also fails the video
 // id length check).
-
-function formatTimestamp(t: number): string {
-  const mins = Math.floor(t / 60);
-  const secs = t % 60;
-  return `${mins}:${String(secs).padStart(2, "0")}`;
-}
 
 // Plus Jakarta Sans 800 ships as a committed TTF next to this route (Satori
 // can't parse woff2, and scraping Google's CSS at request time both added
