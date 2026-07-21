@@ -2,6 +2,7 @@ import functools
 import json
 import logging
 import os
+import threading
 import time
 from datetime import datetime
 from typing import Iterator, List, Optional, Sequence
@@ -53,10 +54,26 @@ def _index_service_singleton():
     return TranscriptIndexService()
 
 
+# lru_cache doesn't lock during the call, so two concurrent cold-start
+# requests could construct twice (leaking a shared httpx client).
+_singleton_lock = threading.Lock()
+
+
+def _index_service_singleton_locked():
+    with _singleton_lock:
+        return _index_service_singleton()
+
+
 # Function identity stays stable, so FastAPI Depends(get_index_service) and
 # app.dependency_overrides[get_index_service] in tests keep working.
 async def get_index_service():
-    return _index_service_singleton()
+    # First construction runs ensure_schema() — sync Turso write POSTs with a
+    # 120s httpx timeout. On the event loop that freezes every request on the
+    # instance (the post-bulkhead cold-start timeout burst, 2026-07-21). Build
+    # it in a worker thread once; the cached fast path never leaves the loop.
+    if _index_service_singleton.cache_info().currsize:
+        return _index_service_singleton()
+    return await anyio.to_thread.run_sync(_index_service_singleton_locked)
 
 
 class SearchResult(BaseModel):
