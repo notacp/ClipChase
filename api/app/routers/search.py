@@ -6,6 +6,8 @@ import time
 from datetime import datetime
 from typing import Iterator, List, Optional, Sequence
 
+import anyio
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -33,19 +35,28 @@ def preferred_transcript_languages(query_language: str) -> List[str]:
 router = APIRouter()
 
 
-def get_yt_service():
+# Both dependencies are async so FastAPI resolves them on the event loop
+# instead of renting an anyio threadpool token per request. Plain `def` deps
+# queue behind the default 40-token pool, which match-side index writes can
+# saturate — the 1.3.2 match-transcript sw_message_timeout root cause.
+async def get_yt_service():
     api_key = os.getenv("YT_API_KEY")
     if not api_key:
         raise HTTPException(status_code=500, detail="YouTube API key not configured")
     return YouTubeService(api_key)
 
 
-# lru_cache keeps the function object identity stable, so FastAPI
-# Depends(get_index_service) and app.dependency_overrides[get_index_service]
-# in tests keep working.
+# lru_cache keeps the singleton; it lives on a sync helper because lru_cache
+# on an async def would cache a one-shot coroutine object.
 @functools.lru_cache(maxsize=1)
-def get_index_service():
+def _index_service_singleton():
     return TranscriptIndexService()
+
+
+# Function identity stays stable, so FastAPI Depends(get_index_service) and
+# app.dependency_overrides[get_index_service] in tests keep working.
+async def get_index_service():
+    return _index_service_singleton()
 
 
 class SearchResult(BaseModel):
@@ -439,7 +450,45 @@ def index_transcript(
     )
 
 
-def _index_after_match(
+# Bulkhead for match-side index writes: an explicit limiter makes
+# anyio.to_thread.run_sync draw from its own token pool instead of the default
+# 40-token pool that also serves sync deps and SSE generator iteration. Index
+# writes hold threads for minutes under Turso pressure; on the shared pool
+# they starved every /match and /search on the instance.
+# ponytail: 4 concurrent writes — Turso serializes write POSTs behind
+# _global_write_lock anyway, so more tokens buy queueing, not throughput.
+_INDEX_WRITE_LIMITER: Optional[anyio.CapacityLimiter] = None
+
+
+def _index_write_limiter() -> anyio.CapacityLimiter:
+    # Lazy: CapacityLimiter must be created while an event loop is running.
+    global _INDEX_WRITE_LIMITER
+    if _INDEX_WRITE_LIMITER is None:
+        _INDEX_WRITE_LIMITER = anyio.CapacityLimiter(4)
+    return _INDEX_WRITE_LIMITER
+
+
+async def _index_after_match(
+    index_service: TranscriptIndexService,
+    channel_id: str,
+    source_url: str,
+    video: dict,
+    transcript_data: dict,
+) -> None:
+    await anyio.to_thread.run_sync(
+        functools.partial(
+            _index_after_match_sync,
+            index_service,
+            channel_id,
+            source_url,
+            video,
+            transcript_data,
+        ),
+        limiter=_index_write_limiter(),
+    )
+
+
+def _index_after_match_sync(
     index_service: TranscriptIndexService,
     channel_id: str,
     source_url: str,
