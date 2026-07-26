@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 os.environ["YT_API_KEY"] = "mock_api_key"
 
 from api.app.main import app
+from api.app.routers.search import get_index_service
 from api.app.services.transcript_index import TranscriptIndexService
 
 client = TestClient(app)
@@ -133,6 +134,35 @@ def test_search_router_sanitizes_500_errors(mock_yt_service_class):
     assert error.get("status") == 500
     assert "An internal server error occurred" in error.get("detail", "")
     assert "SENSITIVE" not in error.get("detail", "")
+
+
+@patch("api.app.routers.search.YouTubeService")
+def test_search_fails_open_when_index_reads_blocked(mock_yt_service_class):
+    """Index unavailable (e.g. Turso read quota exhausted) must not kill
+    search — all videos fall through to the live/unindexed path."""
+    mock_service = MagicMock()
+    mock_yt_service_class.return_value = mock_service
+    mock_service.resolve_channel_id.return_value = "UC123"
+    mock_service.fetch_uploads_playlist_id.return_value = "PL123"
+    mock_service.fetch_videos.return_value = [
+        {"id": "v1", "title": "Video 1", "publishedAt": "2024-06-01T00:00:00Z", "thumbnail": "t1"},
+    ]
+
+    broken_index = MagicMock(spec=TranscriptIndexService)
+    broken_index.get_indexed_video_ids.side_effect = Exception(
+        "SQL read operations are forbidden (reads are blocked)"
+    )
+    app.dependency_overrides[get_index_service] = lambda: broken_index
+    try:
+        response = client.get("/api/search?channel_url=fake&keyword=mock")
+    finally:
+        app.dependency_overrides.pop(get_index_service, None)
+
+    assert response.status_code == 200
+    assert parse_sse_error(response) == {}
+    lines = response.text.splitlines()
+    unindexed = json.loads(lines[lines.index("event: unindexed_videos") + 1][6:])
+    assert [v["id"] for v in unindexed["videos"]] == ["v1"]
 
 
 # ── /api/index/transcript ────────────────────────────────────────────────────

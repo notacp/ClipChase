@@ -282,8 +282,16 @@ def _search_stream(
         search_terms = human_script_variants(keyword)
 
         video_ids = [video["id"] for video in videos if video.get("id")]
-        indexed_video_ids = index_service.get_indexed_video_ids(channel_id, video_ids)
-        candidate_indexed_video_ids = index_service.find_candidate_video_ids(list(indexed_video_ids), search_terms)
+        try:
+            indexed_video_ids = index_service.get_indexed_video_ids(channel_id, video_ids)
+            candidate_indexed_video_ids = index_service.find_candidate_video_ids(list(indexed_video_ids), search_terms)
+        except Exception:
+            # Fail open: index down must not kill search — fall through to live path.
+            logger.exception(
+                "index read failed, falling back to live path channel_id=%s", channel_id
+            )
+            indexed_video_ids = set()
+            candidate_indexed_video_ids = set()
 
         indexed_candidates = [video for video in videos if video["id"] in candidate_indexed_video_ids]
         indexed_remainder = [
