@@ -513,6 +513,18 @@ def _index_after_match_sync(
     # returns (Python's waitUntil). Best-effort by design: a lost write only
     # means the next search of this channel refetches and re-indexes.
     #
+    # Skip if this video+language is already indexed. Overlapping searches
+    # send the same match concurrently; interleaved delete/insert phases from
+    # duplicate rewrites can orphan segments and drop the marker (recoverable,
+    # but a wasted re-index). One tiny read here beats a full rewrite. Fails
+    # open: if the read errors (e.g. Turso reads blocked), attempt the write.
+    try:
+        language = normalize_language_code(transcript_data.get("language_code"))
+        if language and language in index_service.get_indexed_languages(video.get("id", "")):
+            return
+    except Exception:
+        pass
+
     # No retry: this is cache-fill, and the invocation stays alive (occupying
     # instance concurrency) until it returns. The old retry-with-5s-sleep
     # doubled the write tail during Turso slow spells; invocations piled up

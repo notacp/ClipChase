@@ -77,6 +77,32 @@ def test_match_with_malformed_channel_id_does_not_index():
     index.cache_video_transcripts.assert_not_called()
 
 
+def test_already_indexed_video_skips_the_rewrite():
+    index = MagicMock()
+    index.get_indexed_languages.return_value = {"en"}
+    client = _client(index, _yt_stub())
+    resp = client.post(
+        "/api/match",
+        json=_match_payload(channel_id="UC" + "x" * 22, source_url="s"),
+    )
+    assert resp.status_code == 200
+    # Overlapping searches send the same match concurrently; a duplicate
+    # rewrite's interleaved delete/insert phases can orphan the marker.
+    index.cache_video_transcripts.assert_not_called()
+
+
+def test_indexed_check_failure_falls_through_to_write():
+    index = MagicMock()
+    index.get_indexed_languages.side_effect = RuntimeError("reads blocked")
+    client = _client(index, _yt_stub())
+    resp = client.post(
+        "/api/match",
+        json=_match_payload(channel_id="UC" + "x" * 22, source_url="s"),
+    )
+    assert resp.status_code == 200
+    index.cache_video_transcripts.assert_called_once()
+
+
 def test_index_failure_is_dropped_and_never_breaks_the_match_response():
     index = MagicMock()
     index.cache_video_transcripts.side_effect = RuntimeError("turso down")
