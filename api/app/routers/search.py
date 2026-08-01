@@ -279,57 +279,46 @@ def _search_stream(
 
         query_language = detect_query_language(keyword)
         preferred_languages = preferred_transcript_languages(query_language)
-        search_terms = human_script_variants(keyword)
 
         video_ids = [video["id"] for video in videos if video.get("id")]
         try:
             indexed_video_ids = index_service.get_indexed_video_ids(channel_id, video_ids)
-            candidate_indexed_video_ids = index_service.find_candidate_video_ids(list(indexed_video_ids), search_terms)
         except Exception:
             # Fail open: index down must not kill search — fall through to live path.
             logger.exception(
                 "index read failed, falling back to live path channel_id=%s", channel_id
             )
             indexed_video_ids = set()
-            candidate_indexed_video_ids = set()
 
-        indexed_candidates = [video for video in videos if video["id"] in candidate_indexed_video_ids]
-        indexed_remainder = [
-            video
-            for video in videos
-            if video["id"] in indexed_video_ids and video["id"] not in candidate_indexed_video_ids
-        ]
+        indexed_videos = [video for video in videos if video["id"] in indexed_video_ids]
         live_videos = [video for video in videos if video["id"] not in indexed_video_ids]
 
         meta_payload = {
             "channel_id": channel_id,
             "total": len(videos),
             "indexed": len(indexed_video_ids),
-            "indexed_candidates": len(indexed_candidates),
-            "indexed_remainder": len(indexed_remainder),
             "live": len(live_videos),
             "skip_live": True,
         }
         yield f"event: meta\ndata: {json.dumps(meta_payload)}\n\n"
 
-        for batch in (indexed_candidates, indexed_remainder):
-            for video in batch:
-                try:
-                    match_result = _get_indexed_match(
-                        service=service,
-                        index_service=index_service,
-                        video=video,
-                        keyword=keyword,
-                        preferred_languages=preferred_languages,
-                    )
-                    if match_result:
-                        yield f"data: {match_result.model_dump_json()}\n\n"
-                    else:
-                        # No-match videos emit no data; without a heartbeat the
-                        # client's SSE idle timer trips on long no-match runs.
-                        yield ": ping\n\n"
-                except Exception:
+        for video in indexed_videos:
+            try:
+                match_result = _get_indexed_match(
+                    service=service,
+                    index_service=index_service,
+                    video=video,
+                    keyword=keyword,
+                    preferred_languages=preferred_languages,
+                )
+                if match_result:
+                    yield f"data: {match_result.model_dump_json()}\n\n"
+                else:
+                    # No-match videos emit no data; without a heartbeat the
+                    # client's SSE idle timer trips on long no-match runs.
                     yield ": ping\n\n"
+            except Exception:
+                yield ": ping\n\n"
 
         # Hand un-indexed videos back to the client so it can fetch transcripts
         # locally (e.g. an extension's service worker) and call /api/match.
