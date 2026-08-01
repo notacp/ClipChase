@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import threading
-import time
 from datetime import datetime
 from typing import Iterator, List, Optional, Sequence
 
@@ -514,33 +513,25 @@ def _index_after_match_sync(
     # returns (Python's waitUntil). Best-effort by design: a lost write only
     # means the next search of this channel refetches and re-indexes.
     #
-    # Retry once: production showed Turso batch POSTs hitting httpx
-    # ReadTimeout under cold-wake/concurrent-write pressure, and the write is
-    # idempotent per video (single delete+insert commit), so a whole-video
-    # retry is safe.
-    for attempt in (1, 2):
-        try:
-            index_service.cache_video_transcripts(
-                channel_id=channel_id,
-                source_url=source_url,
-                video=video,
-                transcripts=[transcript_data],
-            )
-            return
-        except Exception:
-            if attempt == 2:
-                logger.exception(
-                    "match-side indexing failed twice channel=%s video=%s",
-                    channel_id,
-                    video.get("id"),
-                )
-            else:
-                logger.warning(
-                    "match-side indexing retrying channel=%s video=%s",
-                    channel_id,
-                    video.get("id"),
-                )
-                time.sleep(5)
+    # No retry: this is cache-fill, and the invocation stays alive (occupying
+    # instance concurrency) until it returns. The old retry-with-5s-sleep
+    # doubled the write tail during Turso slow spells; invocations piled up
+    # until fresh /api/match requests queued past the extension's 30s deadman
+    # (the Jul-2026 sw_message_timeout bursts). A timed-out best-effort write
+    # is dropped, not retried — the next search self-heals it.
+    try:
+        index_service.cache_video_transcripts(
+            channel_id=channel_id,
+            source_url=source_url,
+            video=video,
+            transcripts=[transcript_data],
+        )
+    except Exception:
+        logger.exception(
+            "match-side indexing failed channel=%s video=%s",
+            channel_id,
+            video.get("id"),
+        )
 
 
 @router.post("/match", response_model=MatchResponse)

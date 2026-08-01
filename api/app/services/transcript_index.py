@@ -33,6 +33,14 @@ def _is_remote() -> bool:
     return bool(os.getenv("TURSO_DATABASE_URL"))
 
 
+# Timeout budget: every Turso HTTP call must resolve well inside the
+# extension's 30s per-message deadman. Reads gate live responses; writes are
+# best-effort cache-fill whose invocation lifetime occupies instance
+# concurrency — at the old 120s a Turso slow spell held /api/match
+# invocations open for minutes and queued fresh requests past the deadman.
+_HTTP_TIMEOUT = 20.0
+
+
 # ---------------------------------------------------------------------------
 # Turso HTTP API v2 adapter
 # Reads execute immediately; writes are batched and sent on commit().
@@ -105,7 +113,7 @@ class _TursoHTTPConnection:
         # Fallback: own client for local-dev / tests where no shared client is injected.
         if self._client is None:
             import httpx  # deferred — not needed in local-dev path
-            self._client = httpx.Client(timeout=120.0)
+            self._client = httpx.Client(timeout=_HTTP_TIMEOUT)
         return self._client
 
     def _send(self, requests: List[dict]) -> List[dict]:
@@ -292,7 +300,7 @@ class TranscriptIndexService:
         self._shared_http_client = None
         if self._remote:
             import httpx
-            self._shared_http_client = httpx.Client(timeout=120.0)
+            self._shared_http_client = httpx.Client(timeout=_HTTP_TIMEOUT)
         try:
             self.ensure_schema()
         except Exception:

@@ -77,10 +77,7 @@ def test_match_with_malformed_channel_id_does_not_index():
     index.cache_video_transcripts.assert_not_called()
 
 
-def test_index_failure_retries_once_and_never_breaks_the_match_response(monkeypatch):
-    import api.app.routers.search as search_mod
-
-    monkeypatch.setattr(search_mod.time, "sleep", lambda _s: None)
+def test_index_failure_is_dropped_and_never_breaks_the_match_response():
     index = MagicMock()
     index.cache_video_transcripts.side_effect = RuntimeError("turso down")
     client = _client(index, _yt_stub())
@@ -90,20 +87,7 @@ def test_index_failure_retries_once_and_never_breaks_the_match_response(monkeypa
     )
     assert resp.status_code == 200
     assert resp.json()["match_result"] is not None
-    # Whole-video write is idempotent, so a Turso timeout gets one retry.
-    assert index.cache_video_transcripts.call_count == 2
-
-
-def test_index_retry_succeeds_after_transient_failure(monkeypatch):
-    import api.app.routers.search as search_mod
-
-    monkeypatch.setattr(search_mod.time, "sleep", lambda _s: None)
-    index = MagicMock()
-    index.cache_video_transcripts.side_effect = [RuntimeError("cold turso"), 1]
-    client = _client(index, _yt_stub())
-    resp = client.post(
-        "/api/match",
-        json=_match_payload(channel_id="UC" + "x" * 22, source_url="s"),
-    )
-    assert resp.status_code == 200
-    assert index.cache_video_transcripts.call_count == 2
+    # Cache-fill is fail-fast: no retry — a retry doubles the invocation tail
+    # during Turso slow spells (the Jul-2026 match-timeout pileup). The next
+    # search of this channel self-heals the missing write.
+    assert index.cache_video_transcripts.call_count == 1
