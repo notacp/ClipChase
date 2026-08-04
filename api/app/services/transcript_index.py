@@ -2,6 +2,7 @@ import os
 import re
 import sqlite3
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set
@@ -116,9 +117,13 @@ class _TursoHTTPConnection:
             self._client = httpx.Client(timeout=_HTTP_TIMEOUT)
         return self._client
 
-    def _send(self, requests: List[dict]) -> List[dict]:
+    def _send(self, requests: List[dict], timeout: Optional[float] = None) -> List[dict]:
+        # timeout overrides the client's default _HTTP_TIMEOUT (20s) with
+        # whatever's left of the caller's deadline, so a single slow POST
+        # can't itself blow the budget the way a fixed 20s ceiling could.
+        kwargs = {"timeout": timeout} if timeout is not None else {}
         response = self._http_client().post(
-            self._url, headers=self._headers, json={"requests": requests}
+            self._url, headers=self._headers, json={"requests": requests}, **kwargs
         )
         if response.status_code >= 400:
             # Surface Turso's actual error body. raise_for_status() drops it,
@@ -133,11 +138,11 @@ class _TursoHTTPConnection:
                 raise Exception(r.get("error", {}).get("message", "Turso error"))
         return [r for r in results if r.get("response", {}).get("type") == "execute"]
 
-    def execute(self, sql: str, params=()) -> _TursoCursor:
+    def execute(self, sql: str, params=(), timeout: Optional[float] = None) -> _TursoCursor:
         stripped = sql.strip().upper()
         stmt = {"sql": sql.strip(), "args": [_encode_value(p) for p in params]}
         if stripped.startswith(("SELECT", "PRAGMA", "WITH")):
-            results = self._send([{"type": "execute", "stmt": stmt}, {"type": "close"}])
+            results = self._send([{"type": "execute", "stmt": stmt}, {"type": "close"}], timeout=timeout)
             raw = results[0]["response"]["result"] if results else {"cols": [], "rows": []}
             return _TursoCursor(raw)
         self._write_queue.append({"type": "execute", "stmt": stmt})
@@ -184,11 +189,11 @@ class _TursoHTTPConnection:
             return "post"
         return "pre"
 
-    def commit(self) -> None:
-        for _ in self.commit_with_progress():
+    def commit(self, deadline: Optional[float] = None) -> None:
+        for _ in self.commit_with_progress(deadline):
             pass
 
-    def commit_with_progress(self):
+    def commit_with_progress(self, deadline: Optional[float] = None):
         """Generator variant of commit() that yields after each phase.
 
         Enables SSE heartbeats during index-transcript writes: the caller
@@ -214,22 +219,48 @@ class _TursoHTTPConnection:
         for req in queue:
             bucket.get(self._phase(req), pre).append(req)
 
-        self._send_sequential(pre)
+        self._send_sequential(pre, deadline)
         yield
 
-        self._send_sequential(segments)
+        self._send_sequential(segments, deadline)
         yield
 
-        self._send_sequential(post)
+        self._send_sequential(post, deadline)
         yield
 
-    def _send_sequential(self, requests: List[dict]) -> None:
+    def _send_sequential(self, requests: List[dict], deadline: Optional[float] = None) -> None:
         for start in range(0, len(requests), self._BATCH_SIZE):
             # Hold the global write lock for each individual POST so concurrent
             # commits (e.g. two simultaneous Vercel invocations) never send
             # overlapping write requests to Turso.
-            with self._global_write_lock:
-                self._send(requests[start:start + self._BATCH_SIZE] + [{"type": "close"}])
+            #
+            # deadline (time.monotonic() value) is the load-shedding hook for
+            # best-effort writes: checked before each batch AND bounds the lock
+            # wait, so a caller never blocks behind a slow spell longer than
+            # its budget. Expiry raises TimeoutError; the marker is written
+            # last, so an abandoned write leaves the video unindexed and the
+            # next search self-heals it.
+            if deadline is None:
+                self._global_write_lock.acquire()
+                post_timeout = None
+            else:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not self._global_write_lock.acquire(timeout=remaining):
+                    raise TimeoutError("index write budget exhausted")
+                # Re-check after the (possibly blocking) acquire: the wait
+                # itself can eat the whole budget. Whatever's left bounds the
+                # POST itself too, so this call can't overrun the deadline.
+                post_timeout = deadline - time.monotonic()
+                if post_timeout <= 0:
+                    self._global_write_lock.release()
+                    raise TimeoutError("index write budget exhausted")
+            try:
+                self._send(
+                    requests[start:start + self._BATCH_SIZE] + [{"type": "close"}],
+                    timeout=post_timeout,
+                )
+            finally:
+                self._global_write_lock.release()
 
     def close(self) -> None:
         self._write_queue.clear()
@@ -500,6 +531,7 @@ class TranscriptIndexService:
         source_url: str,
         video: Dict[str, Any],
         transcripts: Sequence[Dict[str, Any]],
+        deadline: Optional[float] = None,
     ) -> int:
         stored = 0
         for item in self.cache_video_transcripts_with_progress(
@@ -507,6 +539,7 @@ class TranscriptIndexService:
             source_url=source_url,
             video=video,
             transcripts=transcripts,
+            deadline=deadline,
         ):
             if isinstance(item, int):
                 stored = item
@@ -518,6 +551,7 @@ class TranscriptIndexService:
         source_url: str,
         video: Dict[str, Any],
         transcripts: Sequence[Dict[str, Any]],
+        deadline: Optional[float] = None,
     ):
         """Generator variant of cache_video_transcripts that yields after each
         Turso write phase and finally the stored count. Enables SSE heartbeats
@@ -544,9 +578,9 @@ class TranscriptIndexService:
                     stored += 1
 
             if hasattr(conn, "commit_with_progress"):
-                yield from conn.commit_with_progress()
+                yield from conn.commit_with_progress(deadline)
             else:
-                conn.commit()  # local sqlite3 path
+                conn.commit()  # local sqlite3 path — no deadline; commits are instant
             yield stored
         finally:
             conn.close()
@@ -620,7 +654,7 @@ class TranscriptIndexService:
         finally:
             conn.close()
 
-    def get_indexed_languages(self, video_id: str) -> Set[str]:
+    def get_indexed_languages(self, video_id: str, deadline: Optional[float] = None) -> Set[str]:
         """Languages actually stored for a video, in ONE round-trip.
 
         _get_indexed_match used to brute-force get_transcript() across every
@@ -632,9 +666,21 @@ class TranscriptIndexService:
             return set()
         conn = self._connect()
         try:
+            kwargs = {}
+            # Only the remote connection understands `timeout` (a plain
+            # sqlite3.Connection.execute doesn't accept it). Callers on a
+            # shared budget (e.g. the match-side pre-check) pass `deadline` so
+            # this read can't itself eat the whole budget before the write
+            # even starts — see _MATCH_INDEX_BUDGET_S in routers/search.py.
+            if deadline is not None and hasattr(conn, "_send"):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("index read budget exhausted")
+                kwargs["timeout"] = remaining
             rows = conn.execute(
                 "SELECT DISTINCT language_code FROM indexed_transcripts WHERE video_id = ?",
                 (video_id,),
+                **kwargs,
             ).fetchall()
             return {row["language_code"] for row in rows}
         finally:

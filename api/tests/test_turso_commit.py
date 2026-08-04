@@ -126,7 +126,7 @@ class FakeTursoHTTP:
             for req in requests
         )
 
-    def post(self, url, headers=None, json=None):  # noqa: A002 - mirror httpx
+    def post(self, url, headers=None, json=None, timeout=None):  # noqa: A002 - mirror httpx
         requests = json["requests"]
         is_segment = self._is_segment_batch(requests)
         if is_segment and self.fail_on_segment:
@@ -498,7 +498,7 @@ class _ErrTursoHTTP:
     def __init__(self, status_code=400, text='invalid type: string "0.0", expected f64'):
         self._resp = _ErrResp(status_code, text)
 
-    def post(self, url, headers=None, json=None):  # noqa: A002
+    def post(self, url, headers=None, json=None, timeout=None):  # noqa: A002
         return self._resp
 
 
@@ -537,3 +537,49 @@ class TestSharedHttpClient:
         assert c2._http_client() is fake
         # No private per-connection client was lazily created.
         assert c1._client is None and c2._client is None
+
+
+class TestWriteDeadline:
+    """Match-side writes carry a wall-clock deadline (load shedding). An
+    expired deadline must abandon the commit BEFORE the marker phase, so a
+    shed write leaves the video unindexed (self-heals on next search) rather
+    than marked-but-partial."""
+
+    @staticmethod
+    def _marker_batches(fake: FakeTursoHTTP) -> list:
+        return [
+            b for b in fake.received_batches
+            if any(
+                req.get("type") == "execute"
+                and "indexed_transcripts" in req["stmt"]["sql"]
+                and req["stmt"]["sql"].strip().upper().startswith("INSERT")
+                for req in b
+            )
+        ]
+
+    def test_already_expired_deadline_sends_nothing(self):
+        fake = FakeTursoHTTP()
+        conn = _remote_conn(fake)
+        _queue_index(conn, "vshed", 100)
+        with pytest.raises(TimeoutError):
+            conn.commit(deadline=time.monotonic() - 1)
+        assert fake.received_batches == []
+
+    def test_mid_write_expiry_abandons_before_marker(self):
+        # 4000 segments = 8 segment batches at 20ms each; budget only covers
+        # the first couple, so the commit must abort mid-flight and the
+        # indexed_transcripts marker (written last) must never be sent.
+        fake = FakeTursoHTTP()
+        conn = _remote_conn(fake)
+        _queue_index(conn, "vbig", 4000)
+        with pytest.raises(TimeoutError):
+            conn.commit(deadline=time.monotonic() + FakeTursoHTTP.LATENCY_S * 2)
+        assert 0 < len(fake.received_batches) < 9
+        assert self._marker_batches(fake) == []
+
+    def test_no_deadline_still_writes_marker(self):
+        fake = FakeTursoHTTP()
+        conn = _remote_conn(fake)
+        _queue_index(conn, "vok", 100)
+        conn.commit()
+        assert len(self._marker_batches(fake)) == 1

@@ -3,12 +3,13 @@ import json
 import logging
 import os
 import threading
+import time
 from datetime import datetime
 from typing import Iterator, List, Optional, Sequence
 
 import anyio
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -501,6 +502,19 @@ async def _index_after_match(
     )
 
 
+# Wall-clock budget for the match-side index write. Python on Vercel has no
+# waitUntil (that's @vercel/functions, Node-only), and Starlette background
+# tasks pin the invocation alive until they finish — one wave of 6 matches
+# doing multi-batch Turso writes held instances for minutes and queued fresh
+# /api/match requests past the extension's 30s deadman (Jul-2026 timeout
+# bursts). So the write now runs BEFORE the response under this budget and is
+# shed on expiry (load shedding: this is cache-fill whose loss costs nothing —
+# the next search self-heals). 5s covers a typical one-batch video (~500
+# segments) against a healthy Turso; slow spells and multi-batch giants get
+# dropped instead of pinning the invocation.
+_MATCH_INDEX_BUDGET_S = 5.0
+
+
 def _index_after_match_sync(
     index_service: TranscriptIndexService,
     channel_id: str,
@@ -508,35 +522,45 @@ def _index_after_match_sync(
     video: dict,
     transcript_data: dict,
 ) -> None:
-    # Runs as a Starlette background task: after the response is sent, before
-    # the ASGI request completes — Vercel keeps the invocation alive until it
-    # returns (Python's waitUntil). Best-effort by design: a lost write only
-    # means the next search of this channel refetches and re-indexes.
+    # One deadline covers the pre-check read AND the write: the read has its
+    # own 20s ceiling (_HTTP_TIMEOUT) that isn't otherwise bounded, and a slow
+    # read followed by a budget-capped write can still stack close to the
+    # extension's 30s deadman. Sharing one clock caps the WHOLE sequence.
+    deadline = time.monotonic() + _MATCH_INDEX_BUDGET_S
+
+    # Best-effort by design: a lost write only means the next search of this
+    # channel refetches and re-indexes.
     #
     # Skip if this video+language is already indexed. Overlapping searches
     # send the same match concurrently; interleaved delete/insert phases from
     # duplicate rewrites can orphan segments and drop the marker (recoverable,
     # but a wasted re-index). One tiny read here beats a full rewrite. Fails
-    # open: if the read errors (e.g. Turso reads blocked), attempt the write.
+    # open: if the read errors (e.g. Turso reads blocked) or the budget is
+    # already gone, attempt the write anyway.
     try:
         language = normalize_language_code(transcript_data.get("language_code"))
-        if language and language in index_service.get_indexed_languages(video.get("id", "")):
+        if language and language in index_service.get_indexed_languages(video.get("id", ""), deadline=deadline):
             return
     except Exception:
         pass
 
-    # No retry: this is cache-fill, and the invocation stays alive (occupying
-    # instance concurrency) until it returns. The old retry-with-5s-sleep
-    # doubled the write tail during Turso slow spells; invocations piled up
-    # until fresh /api/match requests queued past the extension's 30s deadman
-    # (the Jul-2026 sw_message_timeout bursts). A timed-out best-effort write
-    # is dropped, not retried — the next search self-heals it.
+    # No retry, and a hard deadline: the deadline bounds both lock waits and
+    # per-batch sends, so a Turso slow spell (or a queue of concurrent match
+    # writes) sheds this write instead of stretching the response.
     try:
         index_service.cache_video_transcripts(
             channel_id=channel_id,
             source_url=source_url,
             video=video,
             transcripts=[transcript_data],
+            deadline=deadline,
+        )
+    except TimeoutError:
+        logger.info(
+            "match-side index write shed after %.0fs budget channel=%s video=%s",
+            _MATCH_INDEX_BUDGET_S,
+            channel_id,
+            video.get("id"),
         )
     except Exception:
         logger.exception(
@@ -549,7 +573,6 @@ def _index_after_match_sync(
 @router.post("/match", response_model=MatchResponse)
 async def match_transcript(
     req: MatchRequest,
-    background_tasks: BackgroundTasks,
     service: YouTubeService = Depends(get_yt_service),
     index_service: TranscriptIndexService = Depends(get_index_service),
 ):
@@ -570,10 +593,12 @@ async def match_transcript(
         transcript_data=transcript_data,
     )
 
-    # Same channel_id validation as /index/transcript.
+    # Same channel_id validation as /index/transcript. Awaited pre-response
+    # (adds at most ~_MATCH_INDEX_BUDGET_S to /match, well inside the client's
+    # 30s deadman) so the invocation ends when the response does — no
+    # post-response work, which Vercel's Python runtime doesn't support.
     if req.channel_id and req.channel_id.startswith("UC") and len(req.channel_id) == 24:
-        background_tasks.add_task(
-            _index_after_match,
+        await _index_after_match(
             index_service,
             req.channel_id,
             req.source_url or "",
