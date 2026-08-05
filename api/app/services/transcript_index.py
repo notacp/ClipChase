@@ -30,8 +30,20 @@ from .youtube import (
 )
 
 
+def _remote_backend() -> Optional[str]:
+    # D1 takes priority: it's the active migration target (see the D1
+    # adapter's docstring for why). Checking D1 first means setting its vars
+    # in Vercel cuts over immediately without having to also unset Turso's —
+    # useful during rollout, not meant as a permanent dual-backend.
+    if os.getenv("CF_ACCOUNT_ID") and os.getenv("CF_D1_DATABASE_ID") and os.getenv("CF_API_TOKEN"):
+        return "d1"
+    if os.getenv("TURSO_DATABASE_URL"):
+        return "turso"
+    return None
+
+
 def _is_remote() -> bool:
-    return bool(os.getenv("TURSO_DATABASE_URL"))
+    return _remote_backend() is not None
 
 
 # Timeout budget: every Turso HTTP call must resolve well inside the
@@ -270,6 +282,156 @@ class _TursoHTTPConnection:
         # _shared_client is owned by TranscriptIndexService — not closed here.
 
 
+# ---------------------------------------------------------------------------
+# Cloudflare D1 HTTP API adapter
+# Migrated off Turso Aug 2026: Turso's free tier blocks the WHOLE account
+# (reads AND writes) the instant its rolling-30-day rows-read quota is
+# breached, and a month of pre-fix FTS-era searches (~7-10M rows each) was
+# enough alone to exhaust it — a single bad week haunts the account for
+# weeks after the code that caused it is long fixed. D1's free tier resets
+# DAILY instead, so a bad day can't do that.
+#
+# D1's REST API is plain JSON (no Turso-style typed-cell wrapping) and
+# supports atomic multi-statement batches natively, so this adapter is
+# simpler than the Turso one it replaces. It keeps the same pre/segments/post
+# phase ordering (write-order correctness: marker written last) and the
+# deadline-based load-shedding, but DROPS Turso's global write lock — D1 has
+# no single-writer constraint (verified: 6 concurrent writes to a fresh
+# database all succeeded in true parallel, no lock errors), so forcing
+# serialization here would only add latency for no reason.
+# ---------------------------------------------------------------------------
+
+class _D1Cursor:
+    def __init__(self, rows: List[dict]):
+        self._rows = rows
+
+    def fetchall(self) -> List[dict]:
+        return self._rows
+
+    def fetchone(self) -> Optional[dict]:
+        return self._rows[0] if self._rows else None
+
+
+class _D1HTTPConnection:
+    """Minimal sqlite3-compatible wrapper using the Cloudflare D1 REST API."""
+
+    def __init__(self, account_id: str, database_id: str, token: str, shared_client=None):
+        self._url = (
+            f"https://api.cloudflare.com/client/v4/accounts/{account_id}"
+            f"/d1/database/{database_id}/query"
+        )
+        self._headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+        self._write_queue: List[dict] = []
+        self._shared_client = shared_client
+        self._client = None
+
+    def _http_client(self):
+        if self._shared_client is not None:
+            return self._shared_client
+        if self._client is None:
+            import httpx  # deferred — not needed in local-dev path
+            self._client = httpx.Client(timeout=_HTTP_TIMEOUT)
+        return self._client
+
+    def _send(self, requests: List[dict], timeout: Optional[float] = None) -> List[dict]:
+        # timeout overrides the client's default _HTTP_TIMEOUT (20s) with
+        # whatever's left of the caller's deadline, so a single slow POST
+        # can't itself blow the budget the way a fixed 20s ceiling could.
+        kwargs = {"timeout": timeout} if timeout is not None else {}
+        response = self._http_client().post(
+            self._url,
+            headers=self._headers,
+            json={"batch": [{"sql": r["sql"], "params": r["params"]} for r in requests]},
+            **kwargs,
+        )
+        if response.status_code >= 400:
+            raise Exception(
+                f"D1 {response.status_code} on {len(requests)} reqs: {response.text[:1000]}"
+            )
+        body = response.json()
+        if not body.get("success", True):
+            raise Exception(f"D1 error on {len(requests)} reqs: {body.get('errors')}")
+        results = body.get("result") or []
+        for r in results:
+            if not r.get("success", True):
+                raise Exception(f"D1 statement error: {r.get('error') or r}")
+        return results
+
+    def execute(self, sql: str, params=(), timeout: Optional[float] = None) -> _D1Cursor:
+        stripped = sql.strip().upper()
+        req = {"sql": sql.strip(), "params": list(params)}
+        if stripped.startswith(("SELECT", "PRAGMA", "WITH")):
+            results = self._send([req], timeout=timeout)
+            rows = results[0]["results"] if results else []
+            return _D1Cursor(rows)
+        self._write_queue.append(req)
+        return _D1Cursor([])
+
+    # Keeps individual POSTs small regardless of transcript size — no
+    # single-writer constraint to work around here (verified: 6 concurrent
+    # writes to a fresh D1 database all succeeded in true parallel, no lock
+    # errors — unlike Turso/libsql, D1 doesn't serialize writes).
+    _BATCH_SIZE = 500
+
+    @staticmethod
+    def _phase(req: dict) -> str:
+        sql = req["sql"]
+        if _SEGMENT_INSERT_RE.match(sql):
+            return "segments"
+        if _META_INSERT_RE.match(sql):
+            return "post"
+        return "pre"
+
+    def commit(self, deadline: Optional[float] = None) -> None:
+        for _ in self.commit_with_progress(deadline):
+            pass
+
+    def commit_with_progress(self, deadline: Optional[float] = None):
+        """Same three-phase ordering as _TursoHTTPConnection.commit_with_progress:
+        pre (channel/video upserts + DELETEs) -> segments -> post (marker,
+        last, so a failed index never leaves a marker with zero segments)."""
+        if not self._write_queue:
+            return
+        queue, self._write_queue = self._write_queue, []
+
+        pre: List[dict] = []
+        segments: List[dict] = []
+        post: List[dict] = []
+        bucket = {"segments": segments, "post": post}
+        for req in queue:
+            bucket.get(self._phase(req), pre).append(req)
+
+        self._send_sequential(pre, deadline)
+        yield
+
+        self._send_sequential(segments, deadline)
+        yield
+
+        self._send_sequential(post, deadline)
+        yield
+
+    def _send_sequential(self, requests: List[dict], deadline: Optional[float] = None) -> None:
+        # No lock here (see _BATCH_SIZE's comment) — just the deadline as a
+        # load-shedding bound on each batch's own send.
+        for start in range(0, len(requests), self._BATCH_SIZE):
+            timeout = None
+            if deadline is not None:
+                timeout = deadline - time.monotonic()
+                if timeout <= 0:
+                    raise TimeoutError("index write budget exhausted")
+            self._send(requests[start:start + self._BATCH_SIZE], timeout=timeout)
+
+    def close(self) -> None:
+        self._write_queue.clear()
+        if self._client is not None:
+            self._client.close()
+            self._client = None
+        # _shared_client is owned by TranscriptIndexService — not closed here.
+
+
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -319,11 +481,12 @@ def _build_search_text(text: str) -> str:
 class TranscriptIndexService:
     def __init__(self, db_path: Optional[str] = None):
         # Explicit db_path always uses local SQLite regardless of env vars.
-        self._remote = db_path is None and _is_remote()
+        self._backend = None if db_path is not None else _remote_backend()
+        self._remote = self._backend is not None
         self.db_path = Path(db_path).expanduser() if db_path else _default_db_path()
         if not self._remote:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        # Single persistent HTTP client shared across all _TursoHTTPConnection
+        # Single persistent HTTP client shared across all remote-connection
         # instances for this service. Sequential index_transcript calls from the
         # same warm Vercel instance reuse the TLS session instead of paying the
         # handshake cost on every request — the root cause of the Jun-5 timeout
@@ -341,7 +504,14 @@ class TranscriptIndexService:
             raise
 
     def _connect(self):
-        if self._remote:
+        if self._backend == "d1":
+            return _D1HTTPConnection(
+                account_id=os.environ["CF_ACCOUNT_ID"],
+                database_id=os.environ["CF_D1_DATABASE_ID"],
+                token=os.environ["CF_API_TOKEN"],
+                shared_client=self._shared_http_client,
+            )
+        if self._backend == "turso":
             return _TursoHTTPConnection(
                 url=os.environ["TURSO_DATABASE_URL"],
                 token=os.getenv("TURSO_AUTH_TOKEN", ""),
