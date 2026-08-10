@@ -549,3 +549,66 @@ def test_resolve_channel_id_strips_channel_id_url_without_api_call(resolver_serv
     assert result == "UC1234567890123456789012"
     channels_resource.list.assert_not_called()
     search_resource.list.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _keyword_matches — punctuation/quote-insensitive phrase matching
+# (Aug 2026 release-health finding: pasted quotes missed on curly apostrophes,
+# mid-phrase punctuation. Stored/index text must stay untouched.)
+# ---------------------------------------------------------------------------
+
+def test_phrase_matches_across_curly_apostrophe():
+    assert youtube_module._keyword_matches(
+        "i can’t believe you are here", "I can't believe you are here", "en"
+    ) is True
+
+
+def test_phrase_matches_despite_caption_punctuation():
+    assert youtube_module._keyword_matches(
+        "Thank you, for having me.", "Thank you for having me", "en"
+    ) is True
+
+
+def test_punctuated_keyword_matches_clean_caption():
+    assert youtube_module._keyword_matches(
+        "thank you for having me", "Thank you for having me!", "en"
+    ) is True
+
+
+def test_word_boundary_still_rejects_partial_words():
+    assert youtube_module._keyword_matches("this is incredible", "cred", "en") is False
+
+
+# ---------------------------------------------------------------------------
+# End-to-end through search_in_transcript — replays of the real Aug-2026
+# zero-result queries from PostHog, as YouTube-style 2-5 word segments.
+# ---------------------------------------------------------------------------
+
+def test_e2e_pasted_quote_with_curly_apostrophe_spanning_segments():
+    # Manual captions with curly ’, phrase spans two segments
+    transcript = [
+        {"start": 0.0, "text": "so anyway"},
+        {"start": 2.0, "text": "I can’t believe"},
+        {"start": 4.0, "text": "you are here today"},
+        {"start": 6.0, "text": "with us"},
+    ]
+    service = YouTubeService(api_key="fake-key")
+    matches = service.search_in_transcript(
+        transcript, ["I can't believe you are here"], transcript_language="en"
+    )
+    assert len(matches) == 1
+    assert matches[0]["start"] == 2.0  # anchor = segment holding phrase head
+
+
+def test_e2e_pasted_quote_with_caption_punctuation():
+    transcript = [
+        {"start": 0.0, "text": "Thank you,"},
+        {"start": 1.5, "text": "for having me."},
+        {"start": 3.0, "text": "It's great to be here"},
+    ]
+    service = YouTubeService(api_key="fake-key")
+    matches = service.search_in_transcript(
+        transcript, ["Thank you for having me"], transcript_language="en"
+    )
+    assert len(matches) == 1
+    assert matches[0]["start"] == 0.0

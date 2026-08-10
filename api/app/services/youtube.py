@@ -55,6 +55,18 @@ def _normalize_text(text: str) -> str:
     return normalized
 
 
+# NFKC does NOT fold curly quotes to ASCII, so manual captions with ’ never
+# match straight-apostrophe queries. Unify quotes and drop sentence punctuation
+# on BOTH sides of a match (match-time only — never applied to stored text).
+_QUOTE_TRANS = str.maketrans({"’": "'", "‘": "'", "´": "'", "`": "'"})
+_MATCH_PUNCT_RE = re.compile(r"[,.!?;:\"“”«»…()]")
+
+
+def _match_normalize(text: str) -> str:
+    cleaned = _MATCH_PUNCT_RE.sub(" ", _normalize_text(text).translate(_QUOTE_TRANS))
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
 def _strip_diacritics(text: str) -> str:
     # Decompose then drop combining marks so "M\u00e9xico" -> "Mexico", "caf\u00e9" ->
     # "cafe". Applied only to latin-script matching paths; Devanagari uses
@@ -293,8 +305,8 @@ def _extract_devanagari_tokens(transcript: List[Dict[str, Any]]) -> List[str]:
 
 
 def _keyword_matches(text: str, keyword: str, language_code: str) -> bool:
-    normalized_text = _normalize_text(text)
-    normalized_keyword = _normalize_text(keyword)
+    normalized_text = _match_normalize(text)
+    normalized_keyword = _match_normalize(keyword)
     if not normalized_text or not normalized_keyword:
         return False
 
