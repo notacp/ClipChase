@@ -61,9 +61,32 @@ def _normalize_text(text: str) -> str:
 _QUOTE_TRANS = str.maketrans({"’": "'", "‘": "'", "´": "'", "`": "'"})
 _MATCH_PUNCT_RE = re.compile(r"[,.!?;:\"“”«»…()]")
 
+# ASR captions and pasted quotes disagree on contractions ("you're" vs
+# "you are"), which kills whole-phrase matching. Canonicalize both sides to
+# the expanded form. "'s" is ambiguous (is/possessive) — left alone.
+_IRREGULAR_CONTRACTIONS_RE = re.compile(r"\b(can't|cannot|won't|shan't)\b", re.IGNORECASE)
+_IRREGULAR_EXPANSIONS = {"can't": "can not", "cannot": "can not", "won't": "will not", "shan't": "shall not"}
+_CONTRACTION_SUFFIXES = [
+    (re.compile(r"(\w)n't\b", re.IGNORECASE), r"\1 not"),
+    (re.compile(r"(\w)'re\b", re.IGNORECASE), r"\1 are"),
+    (re.compile(r"(\w)'ll\b", re.IGNORECASE), r"\1 will"),
+    (re.compile(r"(\w)'ve\b", re.IGNORECASE), r"\1 have"),
+    (re.compile(r"\b(i)'m\b", re.IGNORECASE), r"\1 am"),
+]
+
+
+def _expand_contractions(text: str) -> str:
+    expanded = _IRREGULAR_CONTRACTIONS_RE.sub(
+        lambda m: _IRREGULAR_EXPANSIONS[m.group(0).lower()], text
+    )
+    for pattern, replacement in _CONTRACTION_SUFFIXES:
+        expanded = pattern.sub(replacement, expanded)
+    return expanded
+
 
 def _match_normalize(text: str) -> str:
-    cleaned = _MATCH_PUNCT_RE.sub(" ", _normalize_text(text).translate(_QUOTE_TRANS))
+    cleaned = _expand_contractions(_normalize_text(text).translate(_QUOTE_TRANS))
+    cleaned = _MATCH_PUNCT_RE.sub(" ", cleaned)
     return re.sub(r"\s+", " ", cleaned).strip()
 
 

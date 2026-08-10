@@ -755,28 +755,41 @@ class TranscriptIndexService:
         finally:
             conn.close()
 
-    def get_indexed_video_ids(self, channel_id: str, video_ids: Sequence[str]) -> Set[str]:
-        if not channel_id or not video_ids:
-            return set()
+    # The JOIN on indexed_transcripts is load-bearing (fix 1773b5a): a
+    # metadata-only row in indexed_videos (from a failed transcript fetch
+    # during a prior index run) must NOT be classified "indexed", or it never
+    # falls through to the live path and produces zero matches even though
+    # the video is perfectly searchable via a fresh fetch.
+    # ponytail: LIMIT 500 bounds worst-case scan latency (each matched video
+    # costs 2+ D1 round-trips downstream); raise or paginate when a real
+    # channel exceeds it.
+    def get_channel_videos(self, channel_id: str, limit: int = 500) -> List[Dict[str, Any]]:
+        """Every searchable (transcript-backed) indexed video for a channel, newest first."""
+        if not channel_id:
+            return []
 
-        # Only return videos that ALSO have at least one transcript row. A
-        # metadata-only row in indexed_videos (from a failed transcript fetch
-        # during a prior index run) would otherwise be classified as "indexed"
-        # and never fall through to the live path, producing zero matches even
-        # though the videos are perfectly searchable via a fresh fetch.
-        placeholders = ",".join("?" for _ in video_ids)
         conn = self._connect()
         try:
             rows = conn.execute(
-                f"""
-                SELECT DISTINCT v.video_id
+                """
+                SELECT DISTINCT v.video_id, v.title, v.published_at, v.thumbnail
                 FROM indexed_videos v
                 JOIN indexed_transcripts t ON t.video_id = v.video_id
-                WHERE v.channel_id = ? AND v.video_id IN ({placeholders})
+                WHERE v.channel_id = ?
+                ORDER BY v.published_at DESC
+                LIMIT ?
                 """,
-                [channel_id, *video_ids],
+                (channel_id, limit),
             ).fetchall()
-            return {row["video_id"] for row in rows}
+            return [
+                {
+                    "id": row["video_id"],
+                    "title": row["title"],
+                    "publishedAt": row["published_at"],
+                    "thumbnail": row["thumbnail"],
+                }
+                for row in rows
+            ]
         finally:
             conn.close()
 

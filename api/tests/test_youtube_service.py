@@ -612,3 +612,16 @@ def test_e2e_pasted_quote_with_caption_punctuation():
     )
     assert len(matches) == 1
     assert matches[0]["start"] == 0.0
+
+
+def test_contraction_drift_between_query_and_asr_caption():
+    # The literal Aug-2026 PostHog miss: ASR wrote "you're", user pasted "you are"
+    assert youtube_module._keyword_matches(
+        "i can't believe you're here", "I can't believe you are here", "en"
+    ) is True
+
+
+def test_cannot_matches_cant():
+    assert youtube_module._keyword_matches(
+        "we cannot stop now", "we can't stop now", "en"
+    ) is True

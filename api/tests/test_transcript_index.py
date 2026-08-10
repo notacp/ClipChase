@@ -27,8 +27,8 @@ def _index_video(service, video_id: str, segment_texts: list[str]) -> None:
     )
 
 
-class TestGetIndexedVideoIds:
-    """Locks fix 1773b5a (the orphan JOIN). get_indexed_video_ids must JOIN
+class TestGetChannelVideos:
+    """Locks fix 1773b5a (the orphan JOIN). get_channel_videos must JOIN
     indexed_transcripts so a metadata-only video row (left behind by a failed
     transcript fetch in a prior index run) is NOT classified 'indexed' — else it
     never falls through to the live path and the channel returns zero matches
@@ -50,11 +50,11 @@ class TestGetIndexedVideoIds:
         )
         assert stored == 0
         # Row exists in indexed_videos but has no transcript -> must not count.
-        assert service.get_indexed_video_ids("chan1", ["v1"]) == set()
+        assert service.get_channel_videos("chan1") == []
 
     def test_video_with_transcript_is_indexed(self, service):
         _index_video(service, "v1", ["machine learning content"])
-        assert service.get_indexed_video_ids("chan1", ["v1"]) == {"v1"}
+        assert [v["id"] for v in service.get_channel_videos("chan1")] == ["v1"]
 
 
 class TestGetIndexedLanguages:

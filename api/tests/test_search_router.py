@@ -149,7 +149,7 @@ def test_search_fails_open_when_index_reads_blocked(mock_yt_service_class):
     ]
 
     broken_index = MagicMock(spec=TranscriptIndexService)
-    broken_index.get_indexed_video_ids.side_effect = Exception(
+    broken_index.get_channel_videos.side_effect = Exception(
         "SQL read operations are forbidden (reads are blocked)"
     )
     app.dependency_overrides[get_index_service] = lambda: broken_index
@@ -315,3 +315,55 @@ def test_cache_video_transcripts_uses_single_connection(tmp_path):
     got = svc.get_transcript("vid1", "en")
     assert got is not None
     assert got["segments"][0]["text"] == "hello world"
+
+
+@patch("api.app.routers.search.YouTubeService")
+def test_search_stream_scans_indexed_catalog_beyond_enumeration_window(_):
+    """Fix 3: an already-indexed video OLDER than the max_videos enumeration
+    window must still be scanned (catalog comes from the index, not from the
+    YouTube enumeration), while un-indexed videos stay capped at max_videos."""
+    from api.app.routers.search import _search_stream
+
+    service = MagicMock()
+    service.fetch_uploads_playlist_id.return_value = "PL1"
+    service.fetch_videos.return_value = [
+        {"id": "new1", "title": "New", "publishedAt": "2026-08-01T00:00:00Z", "thumbnail": ""},
+    ]
+    service.expand_search_terms_for_transcript.side_effect = (
+        lambda terms, segments, lang: terms
+    )
+    service.search_in_transcript.return_value = [
+        {"start": 1.0, "text": "hit", "context_before": "", "context_after": ""}
+    ]
+
+    index = MagicMock(spec=TranscriptIndexService)
+    index.get_channel_videos.return_value = [
+        {"id": "old900", "title": "Old", "publishedAt": "2020-01-01T00:00:00Z", "thumbnail": ""},
+    ]
+    index.get_indexed_languages.return_value = {"en"}
+    index.get_transcript.return_value = {
+        "language_code": "en",
+        "language_label": "English",
+        "is_generated": True,
+        "segments": [{"start": 1.0, "duration": 2.0, "text": "hit"}],
+    }
+
+    output = "".join(
+        _search_stream(
+            service=service,
+            index_service=index,
+            channel_id="UC1",
+            keyword="hit",
+            max_videos=20,
+            published_after=None,
+            exclude_shorts=False,
+        )
+    )
+
+    assert '"old900"' in output  # old indexed video matched
+    meta = json.loads(
+        [l for l in output.splitlines() if l.startswith("data: {\"channel_id\"")][0][6:]
+    )
+    assert meta == {"channel_id": "UC1", "total": 2, "indexed": 1, "live": 1, "skip_live": True}
+    unindexed_line = output.splitlines()[output.splitlines().index("event: unindexed_videos") + 1]
+    assert [v["id"] for v in json.loads(unindexed_line[6:])["videos"]] == ["new1"]

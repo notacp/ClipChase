@@ -280,22 +280,41 @@ def _search_stream(
         query_language = detect_query_language(keyword)
         preferred_languages = preferred_transcript_languages(query_language)
 
-        video_ids = [video["id"] for video in videos if video.get("id")]
         try:
-            indexed_video_ids = index_service.get_indexed_video_ids(channel_id, video_ids)
+            # Scan the channel's ENTIRE indexed catalog, not just the newest
+            # max_videos — a quote from an old, already-indexed video should
+            # never miss because of the enumeration window. max_videos still
+            # bounds the live (un-indexed) handoff below.
+            indexed_videos = index_service.get_channel_videos(channel_id)
         except Exception:
             # Fail open: index down must not kill search — fall through to live path.
             logger.exception(
                 "index read failed, falling back to live path channel_id=%s", channel_id
             )
-            indexed_video_ids = set()
+            indexed_videos = []
 
-        indexed_videos = [video for video in videos if video["id"] in indexed_video_ids]
+        if published_after:
+            try:
+                cutoff = datetime.fromisoformat(published_after.replace("Z", "+00:00"))
+                indexed_videos = [
+                    v for v in indexed_videos
+                    if datetime.fromisoformat(v["publishedAt"].replace("Z", "+00:00")) >= cutoff
+                ]
+            except ValueError:
+                pass
+        if exclude_shorts:
+            # Catalog rows carry no duration, so shorts can't be filtered from
+            # the index — restrict to the enumerated (already shorts-filtered)
+            # window, i.e. the old behavior.
+            enumerated_ids = {video["id"] for video in videos if video.get("id")}
+            indexed_videos = [v for v in indexed_videos if v["id"] in enumerated_ids]
+
+        indexed_video_ids = {v["id"] for v in indexed_videos}
         live_videos = [video for video in videos if video["id"] not in indexed_video_ids]
 
         meta_payload = {
             "channel_id": channel_id,
-            "total": len(videos),
+            "total": len(indexed_videos) + len(live_videos),
             "indexed": len(indexed_video_ids),
             "live": len(live_videos),
             "skip_live": True,
