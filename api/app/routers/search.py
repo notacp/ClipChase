@@ -372,7 +372,11 @@ async def search(
     try:
         channel_id = service.resolve_channel_id(channel_url)
     except ChannelResolveUnavailable:
-        raise HTTPException(status_code=503, detail="Channel lookup temporarily unavailable — try again shortly")
+        raise HTTPException(
+            status_code=503,
+            detail="Channel lookup temporarily unavailable — try again shortly",
+            headers={"Retry-After": "30"},
+        )
     if not channel_id:
         raise HTTPException(status_code=400, detail="Invalid YouTube channel URL or ID")
 
@@ -428,7 +432,11 @@ async def list_videos(
     try:
         channel_id = service.resolve_channel_id(req.channel_url)
     except ChannelResolveUnavailable:
-        raise HTTPException(status_code=503, detail="Channel lookup temporarily unavailable — try again shortly")
+        raise HTTPException(
+            status_code=503,
+            detail="Channel lookup temporarily unavailable — try again shortly",
+            headers={"Retry-After": "30"},
+        )
     if not channel_id:
         raise HTTPException(status_code=400, detail="Invalid YouTube channel URL or ID")
 
