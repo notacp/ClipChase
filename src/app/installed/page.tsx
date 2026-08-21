@@ -84,12 +84,34 @@ function InstalledInner() {
     >
       <div style={{ maxWidth: 448, textAlign: "center" }}>
         <h1 style={{ margin: "0 0 16px", fontSize: 30, lineHeight: 1.2, fontWeight: 700 }}>
-          You&rsquo;re all set 🎉
+          ClipChase is installed 🎉
         </h1>
-        <p style={{ margin: "0 0 24px", color: "#909090" }}>
-          Ctrl F for YouTube is installed. Click the extension icon on any
-          YouTube page to start searching.
-        </p>
+        <ol
+          style={{
+            margin: "0 0 24px",
+            padding: 0,
+            listStyle: "none",
+            color: "#909090",
+            textAlign: "left",
+            display: "grid",
+            gap: 12,
+          }}
+        >
+          <li>
+            <strong style={{ color: "#fff" }}>1. Pin it</strong> — click the
+            puzzle piece 🧩 in your toolbar, then the pin 📌 next to{" "}
+            <strong style={{ color: "#fff" }}>ClipChase</strong>.
+          </li>
+          <li>
+            <strong style={{ color: "#fff" }}>2. Open it</strong> — click the
+            ClipChase icon. The side panel works on any tab.
+          </li>
+          <li>
+            <strong style={{ color: "#fff" }}>3. Search</strong> — pick a
+            YouTube channel, type a phrase they said, and jump to the exact
+            second.
+          </li>
+        </ol>
         <Link
           href="/"
           className="installed-home-link"
