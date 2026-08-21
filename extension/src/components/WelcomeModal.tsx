@@ -4,6 +4,9 @@ import { Search } from "lucide-react";
 
 interface WelcomeModalProps {
   note: string;
+  /** Channel prefilled from the active tab — turns the CTA into a concrete
+      first action ("Search <channel>") instead of a passive dismiss. */
+  channelName?: string;
   onDismiss: (useCase?: string) => void;
 }
 
@@ -44,7 +47,7 @@ const itemVariants = {
   },
 };
 
-export function WelcomeModal({ note, onDismiss }: WelcomeModalProps) {
+export function WelcomeModal({ note, channelName, onDismiss }: WelcomeModalProps) {
   const [selected, setSelected] = useState<string | null>(null);
 
   return (
@@ -146,7 +149,13 @@ export function WelcomeModal({ note, onDismiss }: WelcomeModalProps) {
             onClick={() => onDismiss(selected ?? undefined)}
             className="w-full rounded py-2.5 text-[12px] font-semibold text-white flex items-center justify-center gap-1.5 bg-yt-red"
           >
-            Let&apos;s search
+            {channelName ? (
+              <>
+                Search <span className="max-w-[160px] truncate">{channelName}</span>
+              </>
+            ) : (
+              "Let's search"
+            )}
             <span className="text-white/70 font-normal">→</span>
           </motion.button>
 

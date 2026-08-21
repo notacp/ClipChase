@@ -605,7 +605,14 @@ export function App() {
   return (
     <main className="min-h-screen bg-yt-black text-yt-text selection:bg-yt-red/30 px-4 pt-5 pb-20">
       <AnimatePresence>
-        {showWelcome && <WelcomeModal key="welcome" note={BUILDER_NOTE} onDismiss={handleDismissWelcome} />}
+        {showWelcome && (
+          <WelcomeModal
+            key="welcome"
+            note={BUILDER_NOTE}
+            channelName={channelDisplay || undefined}
+            onDismiss={handleDismissWelcome}
+          />
+        )}
       </AnimatePresence>
       <div className="mb-4 flex items-center gap-2 pb-3 border-b border-yt-dark-gray">
         <div className="w-[22px] h-[22px] rounded-[5px] bg-yt-red flex items-center justify-center shrink-0">
