@@ -100,6 +100,18 @@ export function WelcomeModal({ note, onDismiss }: WelcomeModalProps) {
             </p>
           </motion.div>
 
+          {/* How it works — first paint must teach the one action */}
+          <motion.div variants={itemVariants} className="mb-4">
+            <p className="text-yt-tert text-[10px] mb-2 tracking-[0.08em] uppercase font-mono font-semibold">
+              How it works
+            </p>
+            <ol className="text-[11.5px] text-yt-light-gray leading-[1.7] list-decimal list-inside">
+              <li>Pick a YouTube channel</li>
+              <li>Type a phrase they said</li>
+              <li>Jump to the exact second it was spoken</li>
+            </ol>
+          </motion.div>
+
           {/* Use-case selector */}
           <motion.div variants={itemVariants} className="mb-4">
             <p className="text-yt-tert text-[10px] mb-2 tracking-[0.08em] uppercase font-mono font-semibold">

@@ -154,11 +154,13 @@ export function SearchForm({
             className={inputCls(kwFocused)}
           />
         </div>
+        {/* 0.38 opacity read as "broken button" to new users — keep it
+            clearly a button, just visibly waiting on input. */}
         <button
           type="submit"
           disabled={isLoading}
           className="bg-yt-red text-white px-3.5 py-2 rounded text-[12px] font-semibold transition-opacity disabled:cursor-not-allowed flex items-center justify-center min-w-[64px]"
-          style={{ opacity: isLoading ? 1 : canSubmit ? 1 : 0.38 }}
+          style={{ opacity: isLoading ? 1 : canSubmit ? 1 : 0.6 }}
         >
           {isLoading ? (
             <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />

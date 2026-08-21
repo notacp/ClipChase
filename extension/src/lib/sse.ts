@@ -51,7 +51,12 @@ export async function consumeSSE(url: string, handlers: SSEHandlers): Promise<vo
       if (idleController.signal.aborted) throw new Error("SSE idle timeout");
       throw e;
     }
-    if (!res.ok || !res.body) throw new Error(`SSE ${res.status}`);
+    if (!res.ok || !res.body) {
+      // Surface the server's detail (e.g. FastAPI {"detail": ...}) — a bare
+      // status code made quota outages indistinguishable from bad input.
+      const body = await res.text().catch(() => "");
+      throw new Error(`SSE ${res.status}${body ? `: ${body.slice(0, 200)}` : ""}`);
+    }
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();

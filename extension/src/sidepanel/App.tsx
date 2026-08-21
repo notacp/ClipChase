@@ -163,6 +163,48 @@ export function App() {
     if (showReviewPrompt) posthog.capture("review_prompt_shown");
   }, [showReviewPrompt]);
 
+  // Prefill the channel from the tab the panel was opened on — recalling and
+  // typing a channel name cold is the biggest first-search hurdle (PostHog:
+  // ~8 of 53 popup-openers never searched). Functional setters keep anything
+  // the user typed while the tab query / oEmbed round-trip was in flight.
+  useEffect(() => {
+    const apply = (url: string, display: string, kind: string) => {
+      skipSuggestionFetchRef.current = true;
+      setChannelUrl((cur) => cur || url);
+      setChannelDisplay((cur) => cur || display);
+      posthog.capture("channel_prefilled_from_tab", { kind });
+    };
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const url = tabs[0]?.url ?? "";
+      const channelPath = url.match(
+        /youtube\.com\/(@[\w.-]+|channel\/UC[\w-]{22}|(?:c|user)\/[\w.-]+)/,
+      )?.[1];
+      if (channelPath) {
+        apply(
+          `https://www.youtube.com/${channelPath}`,
+          channelPath.replace(/^(?:channel|c|user)\//, ""),
+          "channel_page",
+        );
+        return;
+      }
+      const videoId = url.match(
+        /(?:youtube\.com\/(?:watch\?(?:[^#\s]*&)?v=|shorts\/|live\/)|youtu\.be\/)([\w-]{5,20})/,
+      )?.[1];
+      if (!videoId) return;
+      fetch(
+        `https://www.youtube.com/oembed?url=${encodeURIComponent(
+          `https://www.youtube.com/watch?v=${videoId}`,
+        )}&format=json`,
+        { signal: AbortSignal.timeout(3000) },
+      )
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d: { author_url?: string; author_name?: string } | null) => {
+          if (d?.author_url) apply(d.author_url, d.author_name ?? d.author_url, "video_page");
+        })
+        .catch(() => {});
+    });
+  }, []);
+
   const handleDismissWelcome = (useCase?: string) => {
     localStorage.setItem("hasSeenWelcome", "1");
     posthog.capture("welcome_dismissed", { use_case: useCase ?? null });
