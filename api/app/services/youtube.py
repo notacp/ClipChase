@@ -8,6 +8,11 @@ from googleapiclient.discovery import build
 YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
 
+
+class ChannelResolveUnavailable(Exception):
+    """All Data API resolve strategies errored — quota exhaustion or outage,
+    not a bad channel input. Routers map this to 503, never 400."""
+
 # Caches resolved channel IDs to keep YT API quota down when the same handle
 # is hit repeatedly (e.g. /api/index/transcript per-video on a fresh channel).
 _RESOLVE_NAME_CACHE: Dict[str, str] = {}
@@ -399,6 +404,11 @@ class YouTubeService:
         if cached is not None:
             return cached
 
+        # Every strategy raising (vs. responding with no items) means the
+        # Data API itself is failing — quota exhaustion or outage. That must
+        # not masquerade as "invalid channel": callers turn it into a 503.
+        errors = 0
+
         # Strategy 1: official handle lookup (channels.list?forHandle=...).
         # Costs 1 quota unit and resolves stylized handles deterministically,
         # unlike search() which ranks by relevance and misses niche channels
@@ -412,7 +422,7 @@ class YouTubeService:
                 _RESOLVE_NAME_CACHE[name_or_handle] = channel_id
                 return channel_id
         except Exception:
-            pass
+            errors += 1
 
         # Strategy 2: legacy username lookup (pre-2013 channels). Cheap (1 unit),
         # works for accounts that still have a vanity username set.
@@ -424,7 +434,7 @@ class YouTubeService:
                 _RESOLVE_NAME_CACHE[name_or_handle] = channel_id
                 return channel_id
         except Exception:
-            pass
+            errors += 1
 
         # Strategy 3: relevance search. Last resort — 100 quota units, ranks by
         # search relevance so unreliable for niche names. Kept as safety net.
@@ -442,7 +452,13 @@ class YouTubeService:
                 return channel_id
             return None
         except Exception:
-            return None
+            errors += 1
+
+        if errors == 3:
+            raise ChannelResolveUnavailable(
+                "YouTube channel lookup failed (API quota or outage)"
+            )
+        return None
 
     def fetch_uploads_playlist_id(self, channel_id: str) -> str:
         response = self.youtube.channels().list(

@@ -526,6 +526,18 @@ def test_resolve_channel_id_swallows_api_exceptions_and_continues(resolver_servi
     search_resource.list.assert_not_called()
 
 
+def test_resolve_channel_id_raises_unavailable_when_all_strategies_error(resolver_service):
+    service, channels_resource, search_resource = resolver_service
+
+    err_call = MagicMock()
+    err_call.execute.side_effect = RuntimeError("quota exceeded")
+    channels_resource.list.return_value = err_call
+    _search_list_mock(search_resource, [], raises=RuntimeError("quota exceeded"))
+
+    with pytest.raises(youtube_module.ChannelResolveUnavailable):
+        service.resolve_channel_id("@anyhandle")
+
+
 def test_resolve_channel_id_caches_resolved_handle(resolver_service):
     service, channels_resource, _ = resolver_service
     _channels_list_mock(channels_resource, [{"id": "UCcachedcachedcachedcach"}])

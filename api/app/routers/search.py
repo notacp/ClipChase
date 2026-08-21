@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 from ..services.transcript_index import TranscriptIndexService
 from ..services.youtube import (
+    ChannelResolveUnavailable,
     DEVANAGARI_RE,
     SUPPORTED_TRANSCRIPT_LANGUAGES as SUPPORTED_SEARCH_LANGUAGES,
     YouTubeService,
@@ -368,7 +369,10 @@ async def search(
     service: YouTubeService = Depends(get_yt_service),
     index_service: TranscriptIndexService = Depends(get_index_service),
 ):
-    channel_id = service.resolve_channel_id(channel_url)
+    try:
+        channel_id = service.resolve_channel_id(channel_url)
+    except ChannelResolveUnavailable:
+        raise HTTPException(status_code=503, detail="Channel lookup temporarily unavailable — try again shortly")
     if not channel_id:
         raise HTTPException(status_code=400, detail="Invalid YouTube channel URL or ID")
 
@@ -421,7 +425,10 @@ async def list_videos(
     req: VideoListRequest,
     service: YouTubeService = Depends(get_yt_service),
 ):
-    channel_id = service.resolve_channel_id(req.channel_url)
+    try:
+        channel_id = service.resolve_channel_id(req.channel_url)
+    except ChannelResolveUnavailable:
+        raise HTTPException(status_code=503, detail="Channel lookup temporarily unavailable — try again shortly")
     if not channel_id:
         raise HTTPException(status_code=400, detail="Invalid YouTube channel URL or ID")
 
