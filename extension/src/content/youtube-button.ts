@@ -76,6 +76,73 @@ function report(name: string, props: Record<string, unknown>): void {
   }
 }
 
+const STYLE_ID = "clipchase-entry-style";
+
+// One stylesheet, scoped to our own id, injected once. Inline styles can't
+// express :hover / :active / :focus-visible, and a JS mouseenter pair can't
+// express keyboard focus at all. An id-scoped rule can't collide with
+// YouTube's cascade, which was the only reason to avoid a stylesheet.
+//
+// Every metric below is measured from YouTube's own controls rather than
+// guessed: Subscribe and the watch-page action pills are both 40px tall,
+// radius 20px, padding 0 16px, Roboto 14px/500. Matching them exactly is what
+// makes an injected button read as belonging to the page; colour alone then
+// carries the fact that it isn't YouTube's.
+//
+// Colour: ink on accent, not white on accent. White on #FF4500 is 3.44:1,
+// which fails the 4.5:1 that PRODUCT.md commits to for 14px/500 text.
+// #141412 on #FF4500 is 5.36:1. Hover lifts lighter (5.91:1) and active
+// presses deeper (4.91:1) so both states stay above the line — note this
+// inverts DESIGN.md's accent-hover (#E03A00), which darkens for white text
+// and would drop dark ink to 4.19:1.
+const STYLES = `
+#${BUTTON_ID} {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 16px;
+  margin-left: 8px;
+  border: 0;
+  border-radius: 20px;
+  background: #FF4500;
+  color: #141412;
+  font-family: "Roboto", "Arial", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: normal;
+  white-space: nowrap;
+  cursor: pointer;
+  vertical-align: middle;
+  transition: background-color 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+#${BUTTON_ID}:hover { background: #FF5A1F; }
+#${BUTTON_ID}:active { background: #F53F00; }
+#${BUTTON_ID}:focus-visible {
+  outline: 2px solid #FF4500;
+  outline-offset: 3px;
+}
+#${BUTTON_ID} .cc-key {
+  font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+@media (prefers-reduced-motion: reduce) {
+  #${BUTTON_ID} { transition: none; }
+}
+`;
+
+function ensureStyles(): void {
+  if (document.getElementById(STYLE_ID)) return;
+  const style = document.createElement("style");
+  style.id = STYLE_ID;
+  style.textContent = STYLES;
+  (document.head ?? document.documentElement).appendChild(style);
+}
+
 function buildButton(surface: Surface): HTMLButtonElement {
   const btn = document.createElement("button");
   btn.id = BUTTON_ID;
@@ -83,52 +150,19 @@ function buildButton(surface: Surface): HTMLButtonElement {
   btn.title = TOOLTIP;
   btn.setAttribute("aria-label", `${LABEL}. ${TOOLTIP}`);
 
-  // Inline styles rather than an injected stylesheet: no cascade to collide
-  // with YouTube's, and nothing left behind if the node is torn out.
-  btn.style.cssText = [
-    "display:inline-flex",
-    "align-items:center",
-    "gap:6px",
-    "height:36px",
-    "padding:0 14px",
-    "margin-left:8px",
-    "border:0",
-    "border-radius:18px",
-    "background:#FF4500",
-    "color:#fff",
-    "font-family:'Roboto','Arial',sans-serif",
-    "font-size:14px",
-    "font-weight:600",
-    "line-height:36px",
-    "cursor:pointer",
-    "white-space:nowrap",
-    "vertical-align:middle",
-  ].join(";");
-
+  // The shortcut is set in mono and left unboxed. A translucent keycap here
+  // inherited the button's line-height and rendered 38px tall inside a 36px
+  // button, reading as a divider rather than a key; the monospace itself is
+  // what says "keyboard", and DESIGN.md already uses mono to mean "exact".
   const key = document.createElement("span");
+  key.className = "cc-key";
   key.textContent = SHORTCUT;
-  key.style.cssText = [
-    "font-family:ui-monospace,'JetBrains Mono',Menlo,Consolas,monospace",
-    "font-weight:700",
-    "font-size:12px",
-    "background:rgba(255,255,255,.22)",
-    "border-radius:3px",
-    "padding:1px 5px",
-  ].join(";");
 
   const rest = document.createElement("span");
   rest.textContent = "this channel";
 
   btn.appendChild(key);
   btn.appendChild(rest);
-
-  btn.addEventListener("mouseenter", () => {
-    btn.style.background = "#E63E00";
-  });
-  btn.addEventListener("mouseleave", () => {
-    btn.style.background = "#FF4500";
-  });
-
   btn.addEventListener("click", (event) => onClick(event, surface));
   return btn;
 }
@@ -180,6 +214,7 @@ function ensureButton(): void {
   }
 
   consecutiveMisses = 0;
+  ensureStyles();
   anchor.appendChild(buildButton(surface));
   report("entry_button_shown", { surface });
 }
