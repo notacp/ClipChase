@@ -23,6 +23,13 @@
     "service_worker": "src/background/service-worker.ts",
     "type": "module"
   },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["src/content/youtube-button.ts"],
+      "run_at": "document_idle"
+    }
+  ],
   "icons": {
     "16": "icons/16.png",
     "48": "icons/48.png",

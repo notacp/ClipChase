@@ -604,8 +604,68 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onMessage.addListener(() => {});
 });
 
+// ─── In-page entry point (content script) ───────────────────────────────────
+// Registered BEFORE the async handler below and kept deliberately synchronous.
+//
+// Chrome curries the user gesture across runtime.sendMessage, but only into
+// the *synchronous* portion of the receiving listener — anything after an
+// await has lost it. The generic handler below wraps its whole body in an
+// async IIFE, so sidePanel.open() could never work from there.
+chrome.runtime.onMessage.addListener((msg: { type?: string; [key: string]: unknown }, sender) => {
+  if (msg?.type !== "open-side-panel") return false;
+
+  const windowId = sender.tab?.windowId;
+  const surface = typeof msg.surface === "string" ? msg.surface : "unknown";
+
+  void captureSW("popup_open_attempted", {
+    entry_point: "youtube_page",
+    surface,
+    has_window_id: typeof windowId === "number",
+  });
+
+  if (typeof windowId !== "number") {
+    void captureSW("popup_open_failed", {
+      entry_point: "youtube_page",
+      surface,
+      error_message: "missing windowId on content-script open",
+    });
+    return false;
+  }
+
+  // No await before this call, and no reply to the page afterwards — a reply
+  // during the gesture cancels it (crbug.com/355266358 #28).
+  chrome.sidePanel
+    .open({ windowId })
+    .then(() => {
+      void captureSW("popup_open_succeeded", { entry_point: "youtube_page", surface });
+    })
+    .catch((e: unknown) => {
+      const message = e instanceof Error ? e.message : String(e);
+      void captureSW("popup_open_failed", {
+        entry_point: "youtube_page",
+        surface,
+        error_message: message,
+      });
+      captureExceptionSW(e, { source: "sidePanel.open.content" });
+    });
+
+  return false;
+});
+
+// Fire-and-forget telemetry from the content script, which ships without
+// PostHog so it adds nothing to youtube.com's page context.
+chrome.runtime.onMessage.addListener((msg: { type?: string; [key: string]: unknown }) => {
+  if (msg?.type !== "cc-content-event" || typeof msg.name !== "string") return false;
+  void captureSW(msg.name, (msg.props as Record<string, unknown>) ?? {});
+  return false;
+});
+
 chrome.runtime.onMessage.addListener(
   (msg: { type: string; [key: string]: unknown }, _sender, sendResponse) => {
+    // Handled synchronously above. Falling through would hit the `default`
+    // branch and sendResponse() a message back into the page mid-gesture,
+    // which is exactly what cancels the pending user activation.
+    if (msg.type === "open-side-panel" || msg.type === "cc-content-event") return false;
     (async () => {
       try {
         let data: unknown;
