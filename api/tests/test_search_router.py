@@ -367,3 +367,66 @@ def test_search_stream_scans_indexed_catalog_beyond_enumeration_window(_):
     assert meta == {"channel_id": "UC1", "total": 2, "indexed": 1, "live": 1, "skip_live": True}
     unindexed_line = output.splitlines()[output.splitlines().index("event: unindexed_videos") + 1]
     assert [v["id"] for v in json.loads(unindexed_line[6:])["videos"]] == ["new1"]
+
+
+# --- exclude_shorts must not collapse the indexed-catalog scan -------------
+# Regression guard for the bug where `exclude_shorts=true` intersected the
+# indexed catalog with the (max_videos-sized) enumeration window, silently
+# reverting a whole-channel search to "the newest N uploads".
+
+from datetime import datetime, timezone  # noqa: E402
+
+from api.app.routers.search import (  # noqa: E402
+    _is_older_than,
+    _oldest_published_at,
+)
+
+
+def _vid(video_id: str, published_at: str) -> dict:
+    return {"id": video_id, "publishedAt": published_at}
+
+
+def _apply_exclude_shorts(videos: list, indexed_videos: list) -> list:
+    """Mirror of the filter in _search_stream, kept in one place for the test."""
+    enumerated_ids = {v["id"] for v in videos if v.get("id")}
+    window_floor = _oldest_published_at(videos)
+    return [
+        v
+        for v in indexed_videos
+        if v["id"] in enumerated_ids or _is_older_than(v, window_floor)
+    ]
+
+
+def test_oldest_published_at_picks_window_floor():
+    videos = [
+        _vid("new", "2026-08-01T00:00:00Z"),
+        _vid("old", "2026-06-01T00:00:00Z"),
+        _vid("mid", "2026-07-01T00:00:00Z"),
+    ]
+    assert _oldest_published_at(videos) == datetime(2026, 6, 1, tzinfo=timezone.utc)
+    assert _oldest_published_at([]) is None
+    assert _oldest_published_at([{"id": "x"}]) is None
+
+
+def test_exclude_shorts_keeps_catalog_older_than_the_window():
+    # Enumeration window = the two newest uploads, already shorts-filtered.
+    videos = [_vid("n1", "2026-08-02T00:00:00Z"), _vid("n2", "2026-08-01T00:00:00Z")]
+    indexed = [
+        _vid("n1", "2026-08-02T00:00:00Z"),   # in window, survived shorts filter
+        _vid("short", "2026-08-01T12:00:00Z"),  # in window range, filtered out => a short
+        _vid("archive", "2025-01-01T00:00:00Z"),  # predates window, unjudgeable
+    ]
+    kept = {v["id"] for v in _apply_exclude_shorts(videos, indexed)}
+    # The old behavior kept only {"n1"} — the archive tail was the collapse.
+    assert kept == {"n1", "archive"}
+
+
+def test_exclude_shorts_drops_undateable_rows():
+    videos = [_vid("n1", "2026-08-02T00:00:00Z")]
+    indexed = [{"id": "nodate"}, {"id": "bad", "publishedAt": "not-a-date"}]
+    assert _apply_exclude_shorts(videos, indexed) == []
+
+
+def test_exclude_shorts_noop_when_window_is_empty():
+    # No enumerated videos => no floor => nothing is judgeable => nothing kept.
+    assert _apply_exclude_shorts([], [_vid("a", "2026-01-01T00:00:00Z")]) == []

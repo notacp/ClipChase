@@ -256,6 +256,32 @@ def _get_indexed_match(
     return None
 
 
+def _parse_published_at(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _oldest_published_at(videos: List[dict]) -> Optional[datetime]:
+    parsed = [d for d in (_parse_published_at(v.get("publishedAt")) for v in videos) if d]
+    return min(parsed) if parsed else None
+
+
+def _is_older_than(video: dict, floor: Optional[datetime]) -> bool:
+    """True when the video predates the enumeration window entirely.
+
+    Unparseable or missing dates return False — an unjudgeable row is dropped
+    rather than smuggled past an explicit exclude_shorts filter.
+    """
+    if floor is None:
+        return False
+    published = _parse_published_at(video.get("publishedAt"))
+    return published is not None and published < floor
+
+
 def _search_stream(
     service: YouTubeService,
     index_service: TranscriptIndexService,
@@ -304,11 +330,19 @@ def _search_stream(
             except ValueError:
                 pass
         if exclude_shorts:
-            # Catalog rows carry no duration, so shorts can't be filtered from
-            # the index — restrict to the enumerated (already shorts-filtered)
-            # window, i.e. the old behavior.
+            # Catalog rows carry no duration, so shorts can't be identified in
+            # the index directly. The enumerated window IS shorts-filtered, so
+            # anything inside it can be judged by membership — but videos older
+            # than the window can't be judged at all, and dropping those
+            # collapsed the whole-catalog scan back to max_videos (the bug this
+            # replaces). Keep the unjudgeable tail; filter what we can see.
             enumerated_ids = {video["id"] for video in videos if video.get("id")}
-            indexed_videos = [v for v in indexed_videos if v["id"] in enumerated_ids]
+            window_floor = _oldest_published_at(videos)
+            indexed_videos = [
+                v
+                for v in indexed_videos
+                if v["id"] in enumerated_ids or _is_older_than(v, window_floor)
+            ]
 
         indexed_video_ids = {v["id"] for v in indexed_videos}
         live_videos = [video for video in videos if video["id"] not in indexed_video_ids]

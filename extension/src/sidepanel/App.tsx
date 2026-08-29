@@ -15,7 +15,18 @@ import { detectKeywordScript } from "../lib/keyword-script";
 import { consumeSSE } from "../lib/sse";
 
 const UNINDEXED_FETCH_CONCURRENCY = 6;
-const MAX_VIDEOS = 20;
+// Enumeration window for UN-indexed videos. This is the ceiling on how deep a
+// first-ever search of a channel can reach — the index only ever grows from
+// what this window surfaces, so a low value permanently caps catalog coverage.
+// At 20 the product searched ~16 videos on average while promising the whole
+// channel (PostHog: 46% of successful searches returned nothing).
+// ponytail: 60 is the latency ceiling, not the coverage ceiling. All-range
+// searches already run p50 29s / p95 80s / max 192s at 47-60 videos scanned
+// (PostHog, Jul-Aug), so the honest budget is ~3x the old window, not 7x.
+// Going deeper needs a progressive "search deeper" control rather than a
+// bigger default — raise this only once a zero-result search can extend
+// itself instead of making every search pay the worst case up front.
+const MAX_VIDEOS = 60;
 
 type ChannelResolutionSource =
   | "suggestion"
@@ -41,6 +52,23 @@ const BUILDER_NOTE =
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
+// A search against an unreachable host fails in ~50ms (DNS/TLS refusal, not a
+// timeout), which reopens the isLoading guard almost instantly. One blocked
+// client generated 37 error events in 49 seconds that way — holding Enter
+// through the form's disabled guard, plus an unguarded "Try again". Floor the
+// gap between a failure and the next attempt so a dead endpoint can't be
+// hammered at machine speed.
+const RETRY_COOLDOWN_MS = 1500;
+
+// One suggestion-failure event per outage window, not one per typed prefix.
+const SUGGESTION_FAILURE_LOG_INTERVAL_MS = 60_000;
+
+// Generous enough for a pasted quote (the real long-input use case), short
+// enough to reject a pasted article — one user searched a 2,600-character
+// essay, which can never match a caption line and scans the whole channel to
+// prove it.
+const MAX_KEYWORD_LENGTH = 300;
+
 export function App() {
   const [channelUrl, setChannelUrl] = useState("");
   const [channelDisplay, setChannelDisplay] = useState("");
@@ -48,7 +76,12 @@ export function App() {
   const [suggestionsFailed, setSuggestionsFailed] = useState(false);
   const [isSuggestionsLoading, setIsSuggestionsLoading] = useState(false);
   const [keyword, setKeyword] = useState("");
-  const [timeRange, setTimeRange] = useState<TimeRange>("30d");
+  // "all" matches the product promise ("search everything a creator has said").
+  // The old "30d" default quietly searched one month of a channel, which is
+  // aimed away from the actual use case — remembering something said a while
+  // ago. It also date-clipped the indexed catalog, so the deep-scan path only
+  // engages when no published_after is sent.
+  const [timeRange, setTimeRange] = useState<TimeRange>("all");
   const [sortBy, setSortBy] = useState<SortBy>("hits");
   const [excludeShorts, setExcludeShorts] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -71,6 +104,9 @@ export function App() {
     transcriptFailures?: number;
   } | null>(null);
   const [formError, setFormError] = useState("");
+  // Set for RETRY_COOLDOWN_MS after a failed search — see the constant.
+  const [retryBlocked, setRetryBlocked] = useState(false);
+  const retryUnblockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem("hasSeenWelcome"));
   const [showReviewPrompt, setShowReviewPrompt] = useState(false);
   // Generation counter — each runSearch call claims a unique generation.
@@ -82,15 +118,21 @@ export function App() {
   // Without this, the prior fetch keeps streaming bytes (server CPU + bandwidth)
   // even though superseded() gates state writes.
   const searchAbortRef = useRef<AbortController | null>(null);
-  // Prevents the suggestion effect from re-fetching when channelDisplay is set
-  // programmatically (i.e. by selecting a suggestion, not by the user typing).
-  const skipSuggestionFetchRef = useRef(false);
+  // Suppresses the suggestion re-fetch when channelDisplay is set
+  // programmatically (suggestion pick, tab prefill, oEmbed resolve) rather
+  // than typed. Holds the VALUE we set, not a boolean: the programmatic
+  // setters use `(cur) => cur || next`, so when `cur` is already non-empty the
+  // state never changes and the effect never runs. A boolean flag stayed
+  // stuck true and silently swallowed the user's NEXT real fetch; matching on
+  // value self-clears because a no-op set leaves channelDisplay !== the value.
+  const programmaticChannelDisplayRef = useRef<string | null>(null);
   // Tracks whether the current channel value originated from a suggestion pick.
   // Flipped back to false the moment the user edits the field.
   const channelFromSuggestionRef = useRef(false);
-  // Per-query dedupe so a persistently-failing suggestions endpoint doesn't
-  // flood PostHog with one event per keystroke while typing.
-  const suggestionFailureLoggedRef = useRef<string | null>(null);
+  // Time-based dedupe so one outage window logs ~one event. Keying this on the
+  // query STRING fanned out per typed prefix instead: a single offline minute
+  // produced 17 events from one user, because every prefix is a new key.
+  const suggestionFailureLoggedAtRef = useRef(0);
   const suggestionEmptyLoggedRef = useRef<string | null>(null);
   // True while submitSearch is resolving a pasted video URL via oEmbed —
   // dedupes double-submits in the window before runSearch sets isLoading.
@@ -98,8 +140,8 @@ export function App() {
 
   // Channel suggestions — call backend directly (no Next.js proxy in extension).
   useEffect(() => {
-    if (skipSuggestionFetchRef.current) {
-      skipSuggestionFetchRef.current = false;
+    if (programmaticChannelDisplayRef.current === channelDisplay) {
+      programmaticChannelDisplayRef.current = null;
       return;
     }
     if (channelDisplay.length < 2) {
@@ -108,24 +150,34 @@ export function App() {
       setIsSuggestionsLoading(false);
       return;
     }
+    // Without an abort, a slow response for an earlier prefix can land after a
+    // newer one and overwrite fresher suggestions. The 8s cap keeps a stalled
+    // host from pinning the dropdown in its loading state.
+    const controller = new AbortController();
+    const logFailure = (props: Record<string, unknown>) => {
+      const now = Date.now();
+      if (now - suggestionFailureLoggedAtRef.current < SUGGESTION_FAILURE_LOG_INTERVAL_MS) return;
+      suggestionFailureLoggedAtRef.current = now;
+      // navigator.onLine separates "this client lost the network" from "our
+      // API is unreachable" — the difference that cost an investigation.
+      posthog.capture("suggestion_fetch_failed", { ...props, online: navigator.onLine });
+    };
     const timer = setTimeout(async () => {
       setIsSuggestionsLoading(true);
       setSuggestionsFailed(false);
       const query = channelDisplay;
       try {
         const res = await fetch(
-          `${API_BASE}/api/suggest-channels?q=${encodeURIComponent(query)}`
+          `${API_BASE}/api/suggest-channels?q=${encodeURIComponent(query)}`,
+          { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(8000)]) }
         );
         if (!res.ok) {
           setSuggestionsFailed(true);
-          if (suggestionFailureLoggedRef.current !== query) {
-            suggestionFailureLoggedRef.current = query;
-            posthog.capture("suggestion_fetch_failed", {
-              query_length: query.length,
-              status: res.status,
-              reason: "non_ok_status",
-            });
-          }
+          logFailure({
+            query_length: query.length,
+            status: res.status,
+            reason: "non_ok_status",
+          });
           return;
         }
         const items = (await res.json()) as ChannelSuggestion[];
@@ -137,20 +189,23 @@ export function App() {
           });
         }
       } catch (err: unknown) {
+        // A superseded keystroke aborts this request by design — counting that
+        // as a failure would turn a real signal into noise.
+        if (err instanceof DOMException && err.name === "AbortError") return;
         setSuggestionsFailed(true);
-        if (suggestionFailureLoggedRef.current !== query) {
-          suggestionFailureLoggedRef.current = query;
-          posthog.capture("suggestion_fetch_failed", {
-            query_length: query.length,
-            reason: "network_error",
-            error_message: err instanceof Error ? err.message : String(err),
-          });
-        }
+        logFailure({
+          query_length: query.length,
+          reason: "network_error",
+          error_message: err instanceof Error ? err.message : String(err),
+        });
       } finally {
         setIsSuggestionsLoading(false);
       }
     }, 350);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [channelDisplay]);
 
   // Screen-view events — fire on transition into the "shown" state so each
@@ -169,7 +224,7 @@ export function App() {
   // the user typed while the tab query / oEmbed round-trip was in flight.
   useEffect(() => {
     const apply = (url: string, display: string, kind: string) => {
-      skipSuggestionFetchRef.current = true;
+      programmaticChannelDisplayRef.current = display;
       setChannelUrl((cur) => cur || url);
       setChannelDisplay((cur) => cur || display);
       posthog.capture("channel_prefilled_from_tab", { kind });
@@ -213,7 +268,7 @@ export function App() {
   };
 
   const handleSelectSuggestion = (suggestion: ChannelSuggestion) => {
-    skipSuggestionFetchRef.current = true;
+    programmaticChannelDisplayRef.current = suggestion.title;
     channelFromSuggestionRef.current = true;
     setChannelDisplay(suggestion.title);
     setChannelUrl(suggestion.id);
@@ -429,6 +484,9 @@ export function App() {
       searchFailed = true;
       const message = err instanceof Error ? err.message : "Something went wrong. Please try again.";
       setError(message);
+      setRetryBlocked(true);
+      if (retryUnblockTimerRef.current) clearTimeout(retryUnblockTimerRef.current);
+      retryUnblockTimerRef.current = setTimeout(() => setRetryBlocked(false), RETRY_COOLDOWN_MS);
       posthog.capture("search_error", {
         channel: channelUrl,
         keyword,
@@ -533,6 +591,9 @@ export function App() {
     // blanket isLoading guard: resubmitting mid-search is the supersede/cancel
     // path and must keep working.
     if (resolvingChannelRef.current) return;
+    // Covers both entry points (form submit via held Enter, and the retry
+    // button) — they both route through here.
+    if (retryBlocked) return;
     const cleanedKeyword = keyword.trim() ? cleanKeyword(keyword) : "";
     if (!channelUrl && !cleanedKeyword) {
       setFormError("Enter a channel and a keyword to search");
@@ -547,6 +608,16 @@ export function App() {
     if (!cleanedKeyword) {
       setFormError("Enter a keyword to search for");
       posthog.capture("search_validation_error", { missing_field: "keyword" });
+      return;
+    }
+    if (cleanedKeyword.length > MAX_KEYWORD_LENGTH) {
+      setFormError(
+        `That's ${cleanedKeyword.length} characters — search a phrase you remember, not a whole passage.`,
+      );
+      posthog.capture("search_validation_error", {
+        missing_field: "keyword_too_long",
+        keyword_length: cleanedKeyword.length,
+      });
       return;
     }
     setFormError("");
@@ -581,7 +652,7 @@ export function App() {
               // Programmatic fill, not typing: without this the suggestions
               // effect debounces a /suggest-channels call and pops the
               // dropdown open over the running search.
-              skipSuggestionFetchRef.current = true;
+              programmaticChannelDisplayRef.current = d.author_name;
               setChannelDisplay(d.author_name);
             }
             posthog.capture("channel_resolved_from_video", { video_id: videoId });
@@ -662,7 +733,8 @@ export function App() {
           <button
             type="button"
             onClick={() => void submitSearch()}
-            className="mt-3 text-[11px] font-semibold text-yt-red hover:text-white border border-yt-red/40 hover:border-yt-red hover:bg-yt-red px-3 py-2 rounded transition-all"
+            disabled={isLoading || retryBlocked}
+            className="mt-3 text-[11px] font-semibold text-yt-red hover:text-white border border-yt-red/40 hover:border-yt-red hover:bg-yt-red px-3 py-2 rounded transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-yt-red disabled:hover:border-yt-red/40"
           >
             Try again
           </button>
@@ -705,13 +777,20 @@ export function App() {
                 </>
               ) : lastSearch.failureReason === "no_captions" && (lastSearch.failureRatio ?? 0) > 0.5 ? (
                 <>
-                  No mentions of <span className="text-yt-text font-medium">&ldquo;{lastSearch.keyword}&rdquo;</span> in recent videos.<br />
-                  <span className="text-yt-tert">Most videos in this range have no captions — common for Shorts and live streams.</span>
+                  No mentions of <span className="text-yt-text font-medium">&ldquo;{lastSearch.keyword}&rdquo;</span> in the {lastSearch.videosScanned} videos we searched.<br />
+                  <span className="text-yt-tert">Most of them have no captions — common for Shorts and live streams.</span>
                 </>
               ) : (
+                // Never say "in recent videos" — it's false on an All-range
+                // search and it hides the scan size, which is the single most
+                // useful fact when a search comes back empty.
                 <>
-                  No mentions of <span className="text-yt-text font-medium">&ldquo;{lastSearch.keyword}&rdquo;</span><br />
-                  in recent videos. Try a different keyword<br />or expand the time range.
+                  No mentions of <span className="text-yt-text font-medium">&ldquo;{lastSearch.keyword}&rdquo;</span> in the {lastSearch.videosScanned} videos we searched.<br />
+                  <span className="text-yt-tert">
+                    {timeRange === "all"
+                      ? "That's this channel's newest uploads plus everything already indexed — deep back-catalogue may not be covered yet. Try a different keyword or a shorter phrase."
+                      : "Try a different keyword, or switch the range to All to cover the whole catalogue."}
+                  </span>
                 </>
               )
             ) : (
@@ -775,11 +854,18 @@ export function App() {
           {/* !error: a search that throws mid-stream leaves partial results
               plus a lastSearch from the PREVIOUS search — the note would
               describe the wrong search. */}
-          {!isLoading && !error && (lastSearch?.transcriptFailures ?? 0) > 0 && (
+          {/* Shown for every search, not just ones with failures: the scan
+              size is how the user tells "this channel doesn't say that" apart
+              from "you only looked at part of the channel". */}
+          {!isLoading && !error && (lastSearch?.videosScanned ?? 0) > 0 && (
             <p className="mb-3 text-[10px] text-yt-tert leading-relaxed">
               Searched {(lastSearch!.videosScanned ?? 0) - (lastSearch!.transcriptFailures ?? 0)} of {lastSearch!.videosScanned} videos
-              {" · "}
-              {describeFailureCounts(lastSearch!.failureCounts ?? {}).join(" · ")}
+              {(lastSearch!.transcriptFailures ?? 0) > 0 && (
+                <>
+                  {" · "}
+                  {describeFailureCounts(lastSearch!.failureCounts ?? {}).join(" · ")}
+                </>
+              )}
             </p>
           )}
           <SearchResults
