@@ -6,9 +6,19 @@ import os
 
 from pathlib import Path
 
-# Load .env from the root directory (3 levels up from this file)
+# Load .env from the root directory (3 levels up from this file).
+#
+# override=False on purpose: a real environment variable beats the file. That
+# is the conventional precedence, and it is what makes the file safe. With
+# override=True, .env won unconditionally — so anything that imported this
+# module inherited production credentials it could not opt out of, no matter
+# what it had set beforehand. That is how a local test run once migrated the
+# production D1 database.
+#
+# Production is unaffected either way: .env is gitignored, so it never reaches
+# Vercel and this call is a no-op there.
 env_path = Path(__file__).parent.parent.parent / ".env"
-load_dotenv(dotenv_path=env_path, override=True)
+load_dotenv(dotenv_path=env_path, override=False)
 
 app = FastAPI(title="ClipChase API")
 
