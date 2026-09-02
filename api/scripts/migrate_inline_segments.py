@@ -33,9 +33,23 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_ROOT))
 
-from api.app.services.transcript_index import TranscriptIndexService  # noqa: E402
+# Load the same .env the API uses, so this targets the same database the
+# running service does. Without it the service falls back to a local sqlite
+# file and the migration silently does nothing to production.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(_ROOT / ".env", override=True)
+except ImportError:  # pragma: no cover - dotenv ships with the API deps
+    pass
+
+from api.app.services.transcript_index import (  # noqa: E402
+    TranscriptIndexService,
+    _remote_backend,
+)
 
 ADD_COLUMN = "ALTER TABLE indexed_transcripts ADD COLUMN segments TEXT NOT NULL DEFAULT '[]'"
 DROP_OLD = "DROP TABLE IF EXISTS transcript_segments"
@@ -68,6 +82,11 @@ def main() -> int:
         help="drop the obsolete transcript_segments table (run only after the new code is live)",
     )
     args = parser.parse_args()
+
+    # Say out loud which database is about to be altered. A migration that
+    # silently hits a local sqlite file looks identical to one that worked.
+    backend = _remote_backend() or "local sqlite"
+    print(f"target backend: {backend}")
 
     service = TranscriptIndexService()
     conn = service._connect()  # noqa: SLF001 - migration is an insider
