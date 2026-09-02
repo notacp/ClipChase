@@ -79,3 +79,67 @@ class TestGetIndexedLanguages:
 
     def test_empty_for_unknown_video(self, service):
         assert service.get_indexed_languages("nope") == set()
+
+
+# ---------------------------------------------------------------------------
+# Segments stored inline on the transcript row
+# ---------------------------------------------------------------------------
+# Segments used to live in an FTS5 table queried on UNINDEXED columns with no
+# MATCH clause, so every read and every pre-write DELETE scanned the entire
+# corpus. They now ride as a JSON array on the indexed_transcripts row, keyed
+# by the primary key the lookup already used.
+
+class TestInlineSegments:
+    def test_round_trips_segments_with_timings(self, service):
+        _index_video(service, "vid1", ["hello world", "second line"])
+        got = service.get_transcript("vid1", "en")
+        assert got is not None
+        assert [s["text"] for s in got["segments"]] == ["hello world", "second line"]
+        # Timings survive the JSON round-trip as floats, not strings.
+        assert all(isinstance(s["start"], float) for s in got["segments"])
+        assert all(isinstance(s["duration"], float) for s in got["segments"])
+
+    def test_reindex_replaces_rather_than_appends(self, service):
+        _index_video(service, "vid2", ["one", "two", "three"])
+        _index_video(service, "vid2", ["only"])
+        got = service.get_transcript("vid2", "en")
+        assert [s["text"] for s in got["segments"]] == ["only"]
+
+    def test_segments_live_on_the_transcript_row(self, service):
+        """The whole point: one row holds the transcript, so one row is read."""
+        _index_video(service, "vid3", ["a", "b"])
+        conn = service._connect()
+        try:
+            row = conn.execute(
+                "SELECT segments, segment_count FROM indexed_transcripts WHERE video_id=? AND language_code=?",
+                ("vid3", "en"),
+            ).fetchone()
+        finally:
+            conn.close()
+        assert row is not None
+        assert row["segment_count"] == 2
+        assert "\"a\"" in row["segments"]
+
+    def test_oversized_transcript_is_not_cached(self, service):
+        """D1 caps a row at 2 MB. Refusing the cache degrades to the live path;
+        writing it would fail the whole batch."""
+        huge = ["x" * 2000 for _ in range(1200)]  # ~2.4 MB of JSON
+        _index_video(service, "vid4", huge)
+        assert service.get_transcript("vid4", "en") is None
+        # And no language may be reported as stored on the strength of a
+        # transcript that was never written — that would classify the video as
+        # indexed and return silent zero matches.
+        assert service.get_indexed_languages("vid4") == set()
+
+    def test_unreadable_segments_read_as_a_cache_miss(self, service):
+        _index_video(service, "vid5", ["fine"])
+        conn = service._connect()
+        try:
+            conn.execute(
+                "UPDATE indexed_transcripts SET segments = ? WHERE video_id = ?",
+                ("{not json", "vid5"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        assert service.get_transcript("vid5", "en") is None

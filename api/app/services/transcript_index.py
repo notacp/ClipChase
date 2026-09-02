@@ -1,3 +1,5 @@
+import json
+import logging
 import os
 import re
 import sqlite3
@@ -8,11 +10,23 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set
 
 
+logger = logging.getLogger(__name__)
+
+# D1 caps a row at 2,000,000 bytes. Stay well under it: a transcript that
+# large is pathological, and skipping the cache degrades to the live path
+# rather than failing the write.
+_MAX_SEGMENTS_BYTES = 1_500_000
+
 # commit() routes each queued write into an ordered phase by matching its SQL.
 # Tolerant of `INSERT OR REPLACE` and extra whitespace: a brittle startswith that
 # silently mis-routed would break DELETE-before-INSERT ordering.  (An explicit
 # per-statement phase tag would be cleaner, but execute() must stay drop-in
 # compatible with sqlite3.Connection.execute, which takes no such argument.)
+#
+# The segments phase is now vestigial: nothing writes transcript_segments since
+# segments moved inline into indexed_transcripts. Left in place deliberately —
+# removing it touches both adapters' commit ordering, which is not a change to
+# make in the same diff as an incident fix. It degenerates to an empty bucket.
 _SEGMENT_INSERT_RE = re.compile(
     r"^\s*INSERT(\s+OR\s+\w+)?\s+INTO\s+transcript_segments\b", re.IGNORECASE
 )
@@ -444,39 +458,6 @@ def _default_db_path() -> Path:
     return project_root / ".data" / "clipchase_index.sqlite3"
 
 
-def _build_search_text(text: str) -> str:
-    """Pad transcript text with extra forms so the FTS index can match across
-    scripts. For each token we add (a) a romanized form for Devanagari tokens
-    and (b) a pronunciation key for both scripts. The key collapses long
-    vowels and the trailing schwa, so "startup" and "स्टार्टअप" land on the
-    same key and either query lights up the other.
-    """
-    normalized = _normalize_text(text)
-    if not normalized:
-        return ""
-
-    additions: List[str] = []
-    seen = set()
-
-    def add(value: str) -> None:
-        if not value:
-            return
-        k = value.casefold()
-        if k in seen:
-            return
-        seen.add(k)
-        additions.append(value)
-
-    for token in MIXED_TOKEN_RE.findall(normalized):
-        if DEVANAGARI_TOKEN_RE.fullmatch(token):
-            add(_romanize_devanagari(token))
-        add(_phonetic_key(token))
-
-    if not additions:
-        return normalized
-
-    return " ".join([normalized, *additions])
-
 
 class TranscriptIndexService:
     def __init__(self, db_path: Optional[str] = None):
@@ -546,6 +527,13 @@ class TranscriptIndexService:
         CREATE INDEX IF NOT EXISTS idx_indexed_videos_channel_id
             ON indexed_videos(channel_id)
         """,
+        # Segments live in this row as a JSON array, not in a separate
+        # per-segment table. Every read wants the whole transcript for one
+        # (video_id, language_code) — nothing ranges over segments, and no
+        # MATCH query has existed since c8ff4b2 removed the FTS pre-filter.
+        # D1 bills per row TOUCHED and explicitly not per byte ("a row that is
+        # 1 KB and a row that is 100 KB both count as one row"), so one fat row
+        # costs 1 read where ~1,000 thin ones cost 1,000.
         """
         CREATE TABLE IF NOT EXISTS indexed_transcripts (
             video_id TEXT NOT NULL,
@@ -553,24 +541,21 @@ class TranscriptIndexService:
             language_label TEXT NOT NULL,
             is_generated INTEGER NOT NULL,
             segment_count INTEGER NOT NULL,
+            segments TEXT NOT NULL DEFAULT '[]',
             indexed_at TEXT NOT NULL,
             PRIMARY KEY (video_id, language_code),
             FOREIGN KEY(video_id) REFERENCES indexed_videos(video_id) ON DELETE CASCADE
         )
         """,
-        """
-        CREATE VIRTUAL TABLE IF NOT EXISTS transcript_segments USING fts5(
-            video_id UNINDEXED,
-            language_code UNINDEXED,
-            segment_index UNINDEXED,
-            start UNINDEXED,
-            duration UNINDEXED,
-            text,
-            search_text
-        )
-        """,
     ]
 
+    # NOTE: the `segments` column is NOT added here for databases that predate
+    # it. ALTER TABLE cannot be made idempotent in this code path — the remote
+    # adapters queue writes and flush them as one batch at commit(), so a
+    # per-statement try/except never sees the "duplicate column name" error and
+    # the whole batch fails instead. Existing databases are migrated once, out
+    # of band, by scripts/migrate_inline_segments.py. Fresh databases get the
+    # column from the CREATE TABLE above.
     def ensure_schema(self) -> None:
         conn = self._connect()
         try:
@@ -625,16 +610,41 @@ class TranscriptIndexService:
         if not any(_normalize_text(s.get("text", "")) for s in segments):
             return False
 
-        # Clear the old marker up front (program order: before the re-insert
-        # below, so the atomic local-sqlite path stays correct). On the remote
-        # Turso path commit() routes this DELETE to the pre-phase and the INSERT
-        # to the post-phase, so if the segment writes fail in between, no marker
-        # survives — the video falls through to the live path instead of being
-        # classified 'indexed' with zero stored segments.
-        conn.execute(
-            "DELETE FROM indexed_transcripts WHERE video_id = ? AND language_code = ?",
-            (video_id, language_code),
-        )
+        stored = [
+            {
+                "start": float(segment.get("start", 0)),
+                "duration": float(segment.get("duration", 0)),
+                "text": text,
+            }
+            for segment, text in (
+                (s, _normalize_text(s.get("text", ""))) for s in segments
+            )
+            if text
+        ]
+        payload = json.dumps(stored, ensure_ascii=False, separators=(",", ":"))
+
+        # D1's hard ceiling is 2 MB per row. A 3-hour video is ~200 KB of JSON
+        # and a 10-hour livestream ~700 KB, so this only trips on something
+        # pathological — and when it does, skipping the cache is correct:
+        # the video still resolves through the live path.
+        if len(payload.encode("utf-8")) > _MAX_SEGMENTS_BYTES:
+            logger.warning(
+                "transcript too large to cache video_id=%s language=%s bytes=%d",
+                video_id,
+                language_code,
+                len(payload.encode("utf-8")),
+            )
+            return False
+
+        # One row, one write. The previous shape deleted by (video_id,
+        # language_code) against an FTS5 table whose columns were all
+        # UNINDEXED — a full scan of every segment ever stored — and then
+        # issued one INSERT per segment. Cost grew with the corpus, so every
+        # video indexed made the next index write more expensive.
+        #
+        # Segments and marker are now the same row, so the old hazard of "a
+        # marker survives with zero segments" is structurally impossible and
+        # needs no write-phase ordering to prevent.
         conn.execute(
             """
             INSERT INTO indexed_transcripts (
@@ -643,13 +653,15 @@ class TranscriptIndexService:
                 language_label,
                 is_generated,
                 segment_count,
+                segments,
                 indexed_at
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(video_id, language_code) DO UPDATE SET
                 language_label = excluded.language_label,
                 is_generated = excluded.is_generated,
                 segment_count = excluded.segment_count,
+                segments = excluded.segments,
                 indexed_at = excluded.indexed_at
             """,
             (
@@ -657,42 +669,11 @@ class TranscriptIndexService:
                 language_code,
                 transcript.get("language_label") or language_code.upper(),
                 1 if transcript.get("is_generated") else 0,
-                len(segments),
+                len(stored),
+                payload,
                 _utc_now_iso(),
             ),
         )
-        conn.execute(
-            "DELETE FROM transcript_segments WHERE video_id = ? AND language_code = ?",
-            (video_id, language_code),
-        )
-
-        for index, segment in enumerate(segments):
-            text = _normalize_text(segment.get("text", ""))
-            if not text:
-                continue
-            conn.execute(
-                """
-                INSERT INTO transcript_segments (
-                    video_id,
-                    language_code,
-                    segment_index,
-                    start,
-                    duration,
-                    text,
-                    search_text
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    video_id,
-                    language_code,
-                    index,
-                    float(segment.get("start", 0)),
-                    float(segment.get("duration", 0)),
-                    text,
-                    _build_search_text(text),
-                ),
-            )
         return True
 
     def cache_video_transcripts(
@@ -800,9 +781,12 @@ class TranscriptIndexService:
 
         conn = self._connect()
         try:
+            # One query, one row. This used to be two queries, the second of
+            # which scanned every segment in the database because it filtered
+            # an FTS5 table on UNINDEXED columns with no MATCH clause.
             transcript_row = conn.execute(
                 """
-                SELECT video_id, language_code, language_label, is_generated, segment_count
+                SELECT language_code, language_label, is_generated, segments
                 FROM indexed_transcripts
                 WHERE video_id = ? AND language_code = ?
                 """,
@@ -811,15 +795,19 @@ class TranscriptIndexService:
             if transcript_row is None:
                 return None
 
-            segments = conn.execute(
-                """
-                SELECT start, duration, text
-                FROM transcript_segments
-                WHERE video_id = ? AND language_code = ?
-                ORDER BY CAST(segment_index AS INTEGER)
-                """,
-                (video_id, normalized_language),
-            ).fetchall()
+            try:
+                segments = json.loads(transcript_row["segments"] or "[]")
+            except (TypeError, ValueError):
+                # Row predates the inline-segments migration, or is corrupt.
+                # Treat as a cache miss so the caller re-fetches and rewrites.
+                logger.warning(
+                    "unreadable cached segments video_id=%s language=%s",
+                    video_id,
+                    normalized_language,
+                )
+                return None
+            if not segments:
+                return None
 
             return {
                 "language_code": transcript_row["language_code"],
@@ -827,9 +815,9 @@ class TranscriptIndexService:
                 "is_generated": bool(transcript_row["is_generated"]),
                 "segments": [
                     {
-                        "start": float(row["start"]),
-                        "duration": float(row["duration"]),
-                        "text": row["text"],
+                        "start": float(row.get("start", 0)),
+                        "duration": float(row.get("duration", 0)),
+                        "text": row.get("text", ""),
                     }
                     for row in segments
                 ],

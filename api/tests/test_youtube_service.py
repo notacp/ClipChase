@@ -10,7 +10,6 @@ from api.app.services.youtube import (
     _collapse_long_vowels,
     _drop_trailing_schwa,
 )
-from api.app.services.transcript_index import _build_search_text
 
 ENGLISH_TRANSCRIPT = [
     {"start": 1.0, "duration": 2.5, "text": "Welcome to the video"},
@@ -344,31 +343,6 @@ def test_phrase_match_does_not_duplicate_for_overlapping_windows():
     matches = service.search_in_transcript(transcript, ["machine learning"], "en")
     assert len(matches) == 1
     assert matches[0]["start"] == 1.0
-
-
-# ---------------------------------------------------------------------------
-# _build_search_text — index-side script bridging
-# ---------------------------------------------------------------------------
-
-def test_build_search_text_emits_phonetic_key_for_latin_loanword():
-    text = _build_search_text("we built a startup")
-    # Original normalized text included plus its phonetic key.
-    assert "startup" in text
-
-
-def test_build_search_text_emits_romanized_and_key_for_devanagari():
-    text = _build_search_text("मेरा स्टार्टअप बड़ा है")
-    # Romanized form ("staartaapa") and phonetic key ("startap") are both present.
-    assert "staartaapa" in text
-    assert "startap" in text
-
-
-def test_build_search_text_returns_normalized_when_no_additions():
-    text = _build_search_text("the quick brown fox")
-    # All-Latin tokens with no doubled vowels and no trailing schwa: keys equal
-    # original tokens, so additions just duplicate them — that's acceptable.
-    assert text.startswith("the quick brown fox")
-
 
 # ---------------------------------------------------------------------------
 # resolve_channel_id — handle / URL / username / canonical-ID resolution

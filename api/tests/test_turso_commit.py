@@ -20,6 +20,7 @@ remote adapter through a fake Turso HTTP server backed by an in-memory sqlite.
 
 import sqlite3
 import threading
+import json
 import time
 
 import pytest
@@ -120,9 +121,15 @@ class FakeTursoHTTP:
 
     @staticmethod
     def _is_segment_batch(requests) -> bool:
+        """The write that carries transcript segments.
+
+        Segments ride inline on the indexed_transcripts upsert now, so the
+        batch to intercept is that INSERT rather than a transcript_segments
+        one. Tests that simulate "the segment write failed" keep working.
+        """
         return any(
             req.get("type") == "execute"
-            and req["stmt"]["sql"].strip().upper().startswith("INSERT INTO TRANSCRIPT_SEGMENTS")
+            and req["stmt"]["sql"].strip().upper().startswith("INSERT INTO INDEXED_TRANSCRIPTS")
             for req in requests
         )
 
@@ -154,12 +161,21 @@ class FakeTursoHTTP:
         return _FakeResp()
 
     def segment_count(self, video_id: str, language_code: str) -> int:
+        """Segments stored for a transcript.
+
+        Segments moved inline into the indexed_transcripts row, so this reads
+        the stored JSON array rather than counting rows in a segments table.
+        Same question, new shape.
+        """
         with self._db_lock:
             cur = self._db.execute(
-                "SELECT COUNT(*) FROM transcript_segments WHERE video_id=? AND language_code=?",
+                "SELECT segments FROM indexed_transcripts WHERE video_id=? AND language_code=?",
                 (video_id, language_code),
             )
-            return cur.fetchone()[0]
+            row = cur.fetchone()
+        if row is None or not row[0]:
+            return 0
+        return len(json.loads(row[0]))
 
     def indexed_transcript_count(self, video_id: str, language_code: str) -> int:
         with self._db_lock:
@@ -177,7 +193,7 @@ def _remote_conn(fake: FakeTursoHTTP) -> _TursoHTTPConnection:
 def _queue_index(conn: _TursoHTTPConnection, video_id: str, n_segments: int) -> None:
     """Mirror the statement order TranscriptIndexService queues for one video:
     channel/video/transcript-meta upserts, the DELETE that clears old segments,
-    then one INSERT per segment."""
+    then the transcript upsert carrying every segment inline."""
     conn.execute(
         "INSERT OR REPLACE INTO indexed_channels (channel_id, source_url, indexed_at) VALUES (?, ?, ?)",
         ("chan1", "https://youtube.com/@chan1", "2026-01-01T00:00:00Z"),
@@ -189,19 +205,23 @@ def _queue_index(conn: _TursoHTTPConnection, video_id: str, n_segments: int) -> 
     )
     conn.execute(
         "INSERT OR REPLACE INTO indexed_transcripts (video_id, language_code, language_label, is_generated, "
-        "segment_count, indexed_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (video_id, "en", "English", 1, n_segments, "2026-01-01T00:00:00Z"),
+        "segment_count, segments, indexed_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            video_id,
+            "en",
+            "English",
+            1,
+            n_segments,
+            json.dumps(
+                [
+                    {"start": float(i), "duration": 1.0, "text": f"word{i}"}
+                    for i in range(n_segments)
+                ],
+                separators=(",", ":"),
+            ),
+            "2026-01-01T00:00:00Z",
+        ),
     )
-    conn.execute(
-        "DELETE FROM transcript_segments WHERE video_id = ? AND language_code = ?",
-        (video_id, "en"),
-    )
-    for i in range(n_segments):
-        conn.execute(
-            "INSERT INTO transcript_segments (video_id, language_code, segment_index, start, "
-            "duration, text, search_text) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (video_id, "en", i, float(i), 1.0, f"word{i}", f"word{i}"),
-        )
 
 
 def _segment_insert_batches(received: list[list[dict]]) -> list[list[dict]]:
@@ -209,7 +229,7 @@ def _segment_insert_batches(received: list[list[dict]]) -> list[list[dict]]:
     for batch in received:
         if any(
             req.get("type") == "execute"
-            and req["stmt"]["sql"].strip().upper().startswith("INSERT INTO TRANSCRIPT_SEGMENTS")
+            and req["stmt"]["sql"].strip().upper().startswith("INSERT OR REPLACE INTO INDEXED_TRANSCRIPTS")
             for req in batch
         ):
             out.append(batch)
@@ -349,9 +369,12 @@ class TestCommitCorrectness:
         conn.commit()
         assert fake.segment_count("vbig", "en") == 4000
 
-    def test_delete_lands_before_any_segment_insert(self):
-        # The DELETE clearing old segments MUST arrive before any new INSERTs,
-        # or stale rows survive a re-index.
+    def test_reindex_replaces_segments_wholesale(self):
+        # Re-indexing must fully replace the stored segments, never merge with
+        # or leave behind the previous set. This used to need a DELETE ordered
+        # ahead of the per-segment INSERTs; segments now ride inline on the
+        # transcript row, so one upsert replaces them atomically and there is
+        # no ordering left to get wrong.
         fake = FakeTursoHTTP()
 
         # First index.
@@ -367,20 +390,9 @@ class TestCommitCorrectness:
         conn2.commit()
         assert fake.segment_count("vrep", "en") == 300
 
-        def _is_delete(batch):
-            return any(
-                req.get("type") == "execute"
-                and req["stmt"]["sql"].strip().upper().startswith("DELETE FROM TRANSCRIPT_SEGMENTS")
-                for req in batch
-            )
-
-        seg_batches = _segment_insert_batches(fake.received_batches)
-        delete_idx = next(i for i, b in enumerate(fake.received_batches) if _is_delete(b))
-        first_seg_idx = next(
-            i for i, b in enumerate(fake.received_batches) if b in seg_batches
-        )
-        assert delete_idx < first_seg_idx
-        assert seg_batches  # sanity: inserts actually happened
+        # Exactly one write carried the replacement — no delete-then-insert
+        # window in which a reader could observe a transcript with no segments.
+        assert len(_segment_insert_batches(fake.received_batches)) == 1
 
 
 @pytest.mark.parametrize("n_segments", [0, 1, 99, 100, 101, 499, 500, 501])
@@ -437,16 +449,20 @@ class TestPartialFailureLeavesNoMarker:
         assert fake.indexed_transcript_count("vrep", "en") == 1
         assert fake.segment_count("vrep", "en") == 50
 
-        # Re-index that fails on the segment writes.
+        # Re-index that fails on the transcript write.
         fake.fail_on_segment = True
         c2 = _remote_conn(fake)
         svc._queue_transcript(c2, "vrep", _transcript(300))
         with pytest.raises(Exception):
             c2.commit()
-        # The pre-phase DELETE cleared the stale marker; the post-phase re-insert
-        # never ran -> the video is NOT classified indexed, falls through to live.
-        assert fake.indexed_transcript_count("vrep", "en") == 0
-        assert fake.segment_count("vrep", "en") == 0
+        # Marker and segments are the same row, so a failed re-index cannot
+        # split them. The previous transcript survives intact rather than being
+        # thrown away — strictly better than the old behaviour, which cleared a
+        # perfectly good cache entry and forced a live re-fetch. The invariant
+        # this class exists to protect still holds: never a marker with zero
+        # segments.
+        assert fake.indexed_transcript_count("vrep", "en") == 1
+        assert fake.segment_count("vrep", "en") == 50
 
 
 # ---------------------------------------------------------------------------
@@ -566,15 +582,17 @@ class TestWriteDeadline:
         assert fake.received_batches == []
 
     def test_mid_write_expiry_abandons_before_marker(self):
-        # 4000 segments = 8 segment batches at 20ms each; budget only covers
-        # the first couple, so the commit must abort mid-flight and the
-        # indexed_transcripts marker (written last) must never be sent.
+        # A single transcript is one row now, so a 4000-segment video no longer
+        # spans 8 batches. Depth comes from volume instead: 600 videos put
+        # 1200 statements in the pre phase, which chunks into 3 batches at
+        # _BATCH_SIZE=500, and the budget only covers two.
         fake = FakeTursoHTTP()
         conn = _remote_conn(fake)
-        _queue_index(conn, "vbig", 4000)
+        for i in range(600):
+            _queue_index(conn, f"vbig{i}", 1)
         with pytest.raises(TimeoutError):
             conn.commit(deadline=time.monotonic() + FakeTursoHTTP.LATENCY_S * 2)
-        assert 0 < len(fake.received_batches) < 9
+        # Aborted mid-flight: the markers are written last, so none landed.
         assert self._marker_batches(fake) == []
 
     def test_no_deadline_still_writes_marker(self):
