@@ -1,0 +1,42 @@
+# This project deploys two things: the Next.js site (src/) and the Python API
+# (api/index.py). Everything below is local tooling or a separate artifact that
+# the deploy does not need, and Vercel's Python builder pulls project files into
+# the function bundle — demo-video/ and extension/ alone were 553 MB of a
+# 575 MB bundle against a 500 MB function cap, which is what broke the deploy.
+
+# Chrome extension: built and shipped through the Web Store, not this deploy.
+extension/
+
+# Local media workspace, including a TTS virtualenv.
+demo-video/
+
+# Packaged extension builds.
+*.zip
+
+docs/
+
+# Python virtualenvs and local caches.
+.venv/
+.test_venv/
+.pytest_cache/
+__pycache__/
+*.pyc
+
+# Local index database.
+.data/
+
+# Browser-automation and agent tooling scratch dirs.
+.playwright/
+.playwright-cli/
+.playwright-mcp/
+.wrangler/
+.conductor/
+.agents/
+.claude/
+.hallmark/
+.impeccable/
+.stitch/
+.code-review-graph/
+.devcontainer/
+
+.DS_Store
