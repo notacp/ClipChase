@@ -1,3 +1,5 @@
+import sqlite3
+
 import pytest
 
 from api.app.services.transcript_index import TranscriptIndexService
@@ -143,3 +145,51 @@ class TestInlineSegments:
         finally:
             conn.close()
         assert service.get_transcript("vid5", "en") is None
+
+
+# ---------------------------------------------------------------------------
+# Production safety
+# ---------------------------------------------------------------------------
+
+class TestRemoteBackendGuard:
+    """Tests must not be able to reach production by accident.
+
+    main.py calls load_dotenv(override=True) at import, so importing the app is
+    enough to put real credentials in os.environ. A stray ALTER TABLE in
+    ensure_schema once migrated the live D1 database from a local test run.
+    """
+
+    def test_refuses_remote_even_with_credentials_present(self, monkeypatch):
+        from api.app.services import transcript_index
+
+        monkeypatch.setenv("CF_ACCOUNT_ID", "acct")
+        monkeypatch.setenv("CF_D1_DATABASE_ID", "db")
+        monkeypatch.setenv("CF_API_TOKEN", "tok")
+        monkeypatch.delenv("CLIPCHASE_ALLOW_REMOTE_IN_TESTS", raising=False)
+        assert transcript_index._remote_backend() is None
+
+        monkeypatch.setenv("TURSO_DATABASE_URL", "libsql://real-database")
+        assert transcript_index._remote_backend() is None
+
+    def test_service_connects_locally_despite_credentials(self, monkeypatch, tmp_path):
+        from api.app.services import transcript_index
+
+        monkeypatch.setenv("CF_ACCOUNT_ID", "acct")
+        monkeypatch.setenv("CF_D1_DATABASE_ID", "db")
+        monkeypatch.setenv("CF_API_TOKEN", "tok")
+        svc = transcript_index.TranscriptIndexService(db_path=str(tmp_path / "guard.db"))
+        conn = svc._connect()
+        try:
+            # A plain sqlite3.Connection, not one of the HTTP adapters.
+            assert isinstance(conn, sqlite3.Connection)
+        finally:
+            conn.close()
+
+    def test_opt_in_restores_remote_resolution(self, monkeypatch):
+        from api.app.services import transcript_index
+
+        monkeypatch.setenv("CLIPCHASE_ALLOW_REMOTE_IN_TESTS", "1")
+        monkeypatch.setenv("CF_ACCOUNT_ID", "acct")
+        monkeypatch.setenv("CF_D1_DATABASE_ID", "db")
+        monkeypatch.setenv("CF_API_TOKEN", "tok")
+        assert transcript_index._remote_backend() == "d1"

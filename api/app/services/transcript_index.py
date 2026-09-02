@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import sqlite3
+import sys
 import threading
 import time
 from datetime import datetime, timezone
@@ -44,7 +45,32 @@ from .youtube import (
 )
 
 
+def _under_pytest() -> bool:
+    # sys.modules, not PYTEST_CURRENT_TEST: the latter is only set while a test
+    # is executing, so it misses services constructed at import or collection
+    # time — which is exactly when the accidental production write happened.
+    return "pytest" in sys.modules
+
+
 def _remote_backend() -> Optional[str]:
+    # Tests must not be able to reach production by accident. main.py calls
+    # load_dotenv(override=True) at import, so merely importing the app pulls
+    # real CF_*/TURSO_* credentials into os.environ — and any service built
+    # afterwards talks to the live database. That is how a stray ALTER TABLE in
+    # ensure_schema once migrated production from a local test run.
+    #
+    # This guard is the load-bearing one because it sits at the point of
+    # choice: every caller routes through here, including paths that never
+    # import main. Opt back in with CLIPCHASE_ALLOW_REMOTE_IN_TESTS=1 when you
+    # genuinely mean to exercise a real backend.
+    if _under_pytest() and os.getenv("CLIPCHASE_ALLOW_REMOTE_IN_TESTS") != "1":
+        if os.getenv("CF_ACCOUNT_ID") or os.getenv("TURSO_DATABASE_URL"):
+            logger.warning(
+                "remote backend credentials present under pytest — using local "
+                "sqlite instead. Set CLIPCHASE_ALLOW_REMOTE_IN_TESTS=1 to override."
+            )
+        return None
+
     # D1 takes priority: it's the active migration target (see the D1
     # adapter's docstring for why). Checking D1 first means setting its vars
     # in Vercel cuts over immediately without having to also unset Turso's —
