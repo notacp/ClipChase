@@ -9,6 +9,7 @@ import { TimeRangeSelector } from "../components/TimeRangeSelector";
 import { SearchResults } from "../components/SearchResults";
 import { LoadingStream } from "../components/LoadingStream";
 import { WelcomeModal } from "../components/WelcomeModal";
+import { FeedbackCard } from "../components/FeedbackCard";
 import posthog from "../shared/posthog";
 import { PREFERRED_TRANSCRIPT_LANGS } from "../shared/constants";
 import { detectKeywordScript } from "../lib/keyword-script";
@@ -108,13 +109,15 @@ export function App() {
   const [retryBlocked, setRetryBlocked] = useState(false);
   const retryUnblockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem("hasSeenWelcome"));
-  // Replaced the store-review prompt. It fired after the 3rd search and
-  // converted 0 of 38 across three weeks. The people it reached are exactly
-  // the ones worth a conversation, and PostHog only holds anonymous IDs, so
-  // the product itself is the only place to ask. Fires after the 2nd video
-  // opened — someone who got value twice — and carries the distinct_id so a
-  // reply maps back to the behaviour that prompted it.
-  const [showInterviewPrompt, setShowInterviewPrompt] = useState(false);
+  // In-panel feedback replaced both the store-review prompt (0 of 38) and the
+  // Tally form (two junk submissions in five months): leaving the product to
+  // help is the step nobody takes. See components/FeedbackCard.tsx.
+  // After-videos prompt fires once ever, after the 2nd video opened.
+  const [showFeedbackPrompt, setShowFeedbackPrompt] = useState(false);
+  // Zero-result feedback expands inline from the link that already gets
+  // clicks; keyed per search so a new search offers it again.
+  const [zeroFeedbackFor, setZeroFeedbackFor] = useState<string | null>(null);
+  const [showFooterFeedback, setShowFooterFeedback] = useState(false);
   // Generation counter — each runSearch call claims a unique generation.
   // After every await, we compare against the latest generation; if a newer
   // search has started, we bail out.  This prevents stale results from an
@@ -220,9 +223,6 @@ export function App() {
   useEffect(() => {
     if (showWelcome) posthog.capture("welcome_shown");
   }, [showWelcome]);
-  useEffect(() => {
-    if (showInterviewPrompt) posthog.capture("interview_prompt_shown");
-  }, [showInterviewPrompt]);
 
   // Prefill the channel from the tab the panel was opened on — recalling and
   // typing a channel name cold is the biggest first-search hurdle (PostHog:
@@ -798,59 +798,43 @@ export function App() {
               <>No results found.<br />Try a different keyword or time range.</>
             )}
           </p>
-          <a
-            href="https://tally.so/r/7RJQZA?source=ext_zero_results"
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() => posthog.capture("feedback_link_clicked", { trigger: "zero_results" })}
-            className="mt-2 text-[11px] text-yt-tert hover:text-yt-light-gray transition-colors underline underline-offset-2"
-          >
-            What were you looking for? →
-          </a>
+          {(() => {
+            const searchKey = `${lastSearch?.channel ?? ""}::${lastSearch?.keyword ?? ""}`;
+            return zeroFeedbackFor === searchKey ? (
+              <FeedbackCard
+                key={searchKey}
+                trigger="zero_results"
+                channel={lastSearch?.channel}
+                keyword={lastSearch?.keyword}
+                onClose={() => setZeroFeedbackFor(`${searchKey}::closed`)}
+              />
+            ) : zeroFeedbackFor === `${searchKey}::closed` ? null : (
+              <button
+                type="button"
+                onClick={() => {
+                  posthog.capture("feedback_link_clicked", { trigger: "zero_results" });
+                  setZeroFeedbackFor(searchKey);
+                }}
+                className="mt-2 text-[11px] text-yt-tert hover:text-yt-light-gray transition-colors underline underline-offset-2 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-yt-red"
+              >
+                What were you looking for? →
+              </button>
+            );
+          })()}
         </motion.div>
       )}
 
-      {showInterviewPrompt && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mt-5 p-4 rounded border border-yt-dark-gray bg-yt-gray flex items-start gap-3"
-        >
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-yt-text mb-0.5">Found what you were after?</p>
-            <p className="text-[11px] text-yt-light-gray leading-snug">
-              I&rsquo;m Pradyumn, I built this. 15 minutes on what you use it for would shape what I build next.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <a
-              href={`https://tally.so/r/7RJQZA?source=ext_interview&pid=${encodeURIComponent(posthog.get_distinct_id() ?? "")}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => {
-                posthog.capture("interview_prompt_clicked");
-                localStorage.setItem("interviewPromptDismissed", "1");
-                setShowInterviewPrompt(false);
-              }}
-              className="text-[11px] font-semibold text-yt-red hover:text-white transition-colors whitespace-nowrap"
-            >
-              Sure, let&rsquo;s talk
-            </a>
-            <button
-              type="button"
-              onClick={() => {
-                posthog.capture("interview_prompt_dismissed");
-                localStorage.setItem("interviewPromptDismissed", "1");
-                setShowInterviewPrompt(false);
-              }}
-              className="text-yt-light-gray/40 hover:text-yt-light-gray text-xs transition-colors"
-              aria-label="Dismiss"
-            >
-              ✕
-            </button>
-          </div>
-        </motion.div>
-      )}
+      <AnimatePresence>
+        {showFeedbackPrompt && (
+          <FeedbackCard
+            key="after-videos"
+            trigger="after_videos"
+            channel={lastSearch?.channel}
+            keyword={lastSearch?.keyword}
+            onClose={() => setShowFeedbackPrompt(false)}
+          />
+        )}
+      </AnimatePresence>
 
       {results.length > 0 && (
         <div className="mt-5">
@@ -892,8 +876,9 @@ export function App() {
                   });
                   const opened = parseInt(localStorage.getItem("videosOpened") || "0") + 1;
                   localStorage.setItem("videosOpened", String(opened));
-                  if (opened === 2 && !localStorage.getItem("interviewPromptDismissed")) {
-                    setShowInterviewPrompt(true);
+                  if (opened === 2 && !localStorage.getItem("feedbackPromptDone")) {
+                    localStorage.setItem("feedbackPromptDone", "1");
+                    setShowFeedbackPrompt(true);
                   }
                   chrome.tabs.update(tab.id, {
                     url: `https://www.youtube.com/watch?v=${id}&t=${Math.floor(start)}s`,
@@ -908,15 +893,17 @@ export function App() {
       <div className="mt-10 pt-3 border-t border-yt-dark-gray flex justify-between items-center">
         <span className="font-mono text-[9px] text-yt-tert">v1.0</span>
         <div className="flex items-center gap-3">
-          <a
-            href="https://tally.so/r/7RJQZA?source=ext_footer"
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() => posthog.capture("feedback_link_clicked", { trigger: "ext_footer" })}
-            className="text-[9px] text-yt-tert hover:text-yt-light-gray transition-colors"
+          <button
+            type="button"
+            onClick={() => {
+              posthog.capture("feedback_link_clicked", { trigger: "ext_footer" });
+              setShowFooterFeedback((v) => !v);
+            }}
+            aria-expanded={showFooterFeedback}
+            className="text-[9px] text-yt-tert hover:text-yt-light-gray transition-colors rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-yt-red"
           >
             Feedback
-          </a>
+          </button>
           <a
             href="https://clipchase.xyz"
             target="_blank"
@@ -927,6 +914,11 @@ export function App() {
           </a>
         </div>
       </div>
+      <AnimatePresence>
+        {showFooterFeedback && (
+          <FeedbackCard key="footer" trigger="footer" onClose={() => setShowFooterFeedback(false)} />
+        )}
+      </AnimatePresence>
     </main>
   );
 }
