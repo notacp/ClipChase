@@ -108,7 +108,13 @@ export function App() {
   const [retryBlocked, setRetryBlocked] = useState(false);
   const retryUnblockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem("hasSeenWelcome"));
-  const [showReviewPrompt, setShowReviewPrompt] = useState(false);
+  // Replaced the store-review prompt. It fired after the 3rd search and
+  // converted 0 of 38 across three weeks. The people it reached are exactly
+  // the ones worth a conversation, and PostHog only holds anonymous IDs, so
+  // the product itself is the only place to ask. Fires after the 2nd video
+  // opened — someone who got value twice — and carries the distinct_id so a
+  // reply maps back to the behaviour that prompted it.
+  const [showInterviewPrompt, setShowInterviewPrompt] = useState(false);
   // Generation counter — each runSearch call claims a unique generation.
   // After every await, we compare against the latest generation; if a newer
   // search has started, we bail out.  This prevents stale results from an
@@ -215,8 +221,8 @@ export function App() {
     if (showWelcome) posthog.capture("welcome_shown");
   }, [showWelcome]);
   useEffect(() => {
-    if (showReviewPrompt) posthog.capture("review_prompt_shown");
-  }, [showReviewPrompt]);
+    if (showInterviewPrompt) posthog.capture("interview_prompt_shown");
+  }, [showInterviewPrompt]);
 
   // Prefill the channel from the tab the panel was opened on — recalling and
   // typing a channel name cold is the biggest first-search hurdle (PostHog:
@@ -549,11 +555,6 @@ export function App() {
           success: !searchFailed,
           duration_ms: Date.now() - searchStartedAt,
         });
-        const searchCount = parseInt(localStorage.getItem("searchCount") || "0") + 1;
-        localStorage.setItem("searchCount", String(searchCount));
-        if (searchCount === 3 && !localStorage.getItem("reviewPromptDismissed")) {
-          setShowReviewPrompt(true);
-        }
         if (matchCount === 0 && !searchFailed) {
           posthog.capture("zero_results", {
             channel: channelUrl,
@@ -809,36 +810,38 @@ export function App() {
         </motion.div>
       )}
 
-      {showReviewPrompt && (
+      {showInterviewPrompt && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           className="mt-5 p-4 rounded border border-yt-dark-gray bg-yt-gray flex items-start gap-3"
         >
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-yt-text mb-0.5">Enjoying ClipChase?</p>
-            <p className="text-[11px] text-yt-light-gray leading-snug">A quick review helps others find it.</p>
+            <p className="text-xs font-semibold text-yt-text mb-0.5">Found what you were after?</p>
+            <p className="text-[11px] text-yt-light-gray leading-snug">
+              I&rsquo;m Pradyumn, I built this. 15 minutes on what you use it for would shape what I build next.
+            </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <a
-              href="https://chromewebstore.google.com/detail/ojgacfpcibnmggkenjndnogpfglmhefn/reviews"
+              href={`https://tally.so/r/7RJQZA?source=ext_interview&pid=${encodeURIComponent(posthog.get_distinct_id() ?? "")}`}
               target="_blank"
               rel="noopener noreferrer"
               onClick={() => {
-                posthog.capture("review_prompt_clicked");
-                localStorage.setItem("reviewPromptDismissed", "1");
-                setShowReviewPrompt(false);
+                posthog.capture("interview_prompt_clicked");
+                localStorage.setItem("interviewPromptDismissed", "1");
+                setShowInterviewPrompt(false);
               }}
-              className="text-[11px] font-semibold text-yt-red hover:text-white transition-colors"
+              className="text-[11px] font-semibold text-yt-red hover:text-white transition-colors whitespace-nowrap"
             >
-              ⭐ Review
+              Sure, let&rsquo;s talk
             </a>
             <button
               type="button"
               onClick={() => {
-                posthog.capture("review_prompt_dismissed");
-                localStorage.setItem("reviewPromptDismissed", "1");
-                setShowReviewPrompt(false);
+                posthog.capture("interview_prompt_dismissed");
+                localStorage.setItem("interviewPromptDismissed", "1");
+                setShowInterviewPrompt(false);
               }}
               className="text-yt-light-gray/40 hover:text-yt-light-gray text-xs transition-colors"
               aria-label="Dismiss"
@@ -887,6 +890,11 @@ export function App() {
                     keyword,
                     channel: channelUrl,
                   });
+                  const opened = parseInt(localStorage.getItem("videosOpened") || "0") + 1;
+                  localStorage.setItem("videosOpened", String(opened));
+                  if (opened === 2 && !localStorage.getItem("interviewPromptDismissed")) {
+                    setShowInterviewPrompt(true);
+                  }
                   chrome.tabs.update(tab.id, {
                     url: `https://www.youtube.com/watch?v=${id}&t=${Math.floor(start)}s`,
                   });

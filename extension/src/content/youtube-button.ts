@@ -58,6 +58,25 @@ const ANCHORS: Record<Surface, string[]> = {
   ],
 };
 
+// Ids and custom-element names under the region the actions row lives in.
+// Capped so a pathological page can't turn one telemetry event into a payload.
+function describeRegion(surface: Surface): string[] {
+  const root =
+    surface === "watch_page"
+      ? document.querySelector("ytd-watch-metadata, #above-the-fold, #primary-inner")
+      : document.querySelector("#page-header, ytd-channel-header-renderer, #channel-header");
+  if (!root) return ["<region root missing>"];
+  const seen = new Set<string>();
+  for (const el of root.querySelectorAll("[id], yt-flexible-actions-view-model, ytd-menu-renderer, yt-button-view-model")) {
+    const tag = el.tagName.toLowerCase();
+    const key = el.id ? `${tag}#${el.id}` : tag;
+    if (!tag.startsWith("yt") && !el.id) continue;
+    seen.add(key);
+    if (seen.size >= 40) break;
+  }
+  return [...seen];
+}
+
 function findAnchor(surface: Surface): Element | null {
   for (const selector of ANCHORS[surface]) {
     const el = document.querySelector(selector);
@@ -208,7 +227,17 @@ function ensureButton(): void {
     // would otherwise look identical to "nobody clicked it".
     if (consecutiveMisses >= MISSES_BEFORE_REPORTING && reportedMissFor !== surface) {
       reportedMissFor = surface;
-      report("entry_button_anchor_missing", { surface, path: location.pathname });
+      // A bare "missing" can't be acted on — the Sep 11 and Sep 23 spikes
+      // (116 and 55 events) came from a layout variant nobody could name.
+      // Ship the evidence with the report: which of our candidates are
+      // present, and what id'd containers actually exist where the actions
+      // row should be, so the next spike names its own selector.
+      report("entry_button_anchor_missing", {
+        surface,
+        path: location.pathname,
+        candidates_present: ANCHORS[surface].filter((s) => document.querySelector(s)),
+        nearby_ids: describeRegion(surface),
+      });
     }
     return;
   }
