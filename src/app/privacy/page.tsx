@@ -195,9 +195,27 @@ const SECTIONS: Section[] = [
         YouTube.
         <br />
         <br />
-        We use PostHog to collect anonymous, aggregated usage analytics to help
-        improve the extension. This data does not contain personally
-        identifiable information.
+        We use PostHog to collect usage analytics to help improve the
+        extension, such as which searches return results and which features
+        are used. It is tied to a random ID generated in your browser, not to
+        your name, account, or email.
+      </>
+    ),
+  },
+  {
+    title: "Feedback you choose to send",
+    body: (
+      <>
+        ClipChase occasionally asks for feedback inside the extension, and when
+        you remove it, a page asks why. Answers are optional, and anything you
+        type is stored with the same random ID as your usage analytics so we
+        can understand what went wrong.
+        <br />
+        <br />
+        If you choose to leave an email address in a feedback prompt, it is
+        stored only so we can reply to you. It is never shared, sold, or used
+        for marketing, and we will delete it on request using the contact
+        address below.
       </>
     ),
   },
@@ -284,7 +302,7 @@ export default function PrivacyPolicy() {
               color: T.muted,
             }}
           >
-            Last updated · 2026-04-26
+            Last updated · 2026-09-25
           </span>
         </header>
 

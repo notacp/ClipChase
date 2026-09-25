@@ -182,6 +182,26 @@ chrome.runtime.onStartup.addListener(registerHeaderSpoofRules);
 // Re-register on every SW wake — session rules don't survive SW termination.
 registerHeaderSpoofRules();
 
+// Uninstall page. Chrome opens this URL when the extension is removed — the
+// only chance to hear from people who leave, who are most installs (74 of 129
+// since July went silent within two weeks). Carries the same stable_id the
+// /installed page uses, so the answer joins that person's history, plus the
+// version so reasons can be split by release. Set on every boot rather than
+// only onInstalled: it's idempotent, and it keeps the version current after
+// an update. www directly — the apex 308-redirects, which is one more hop on a
+// page that has seconds to be read.
+void (async () => {
+  try {
+    const stableId = await getOrCreateStableId();
+    const version = chrome.runtime.getManifest().version;
+    await chrome.runtime.setUninstallURL(
+      `https://www.clipchase.xyz/uninstalled?stable_id=${encodeURIComponent(stableId)}&v=${encodeURIComponent(version)}`,
+    );
+  } catch (e) {
+    console.warn("[CC] setUninstallURL failed:", e);
+  }
+})();
+
 // Lifecycle ping. Fires once per SW boot, including the first start after
 // install. Tells us the background actually came alive on this client —
 // the absence of this for an active person_id is itself a strong signal.
