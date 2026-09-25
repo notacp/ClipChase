@@ -5,17 +5,13 @@
 // shared with the panel via chrome.storage.local so events from both surfaces
 // resolve to the same person in PostHog.
 
+// The shared, race-safe implementation. This file used to carry its own copy
+// of the read-then-write, which on first boot raced the one in service-worker
+// and split fresh installs across two PostHog persons.
+import { getOrCreateStableId as getStableId } from "../shared/stable-id";
+
 const POSTHOG_KEY = import.meta.env.VITE_POSTHOG_KEY as string | undefined;
 const POSTHOG_HOST = import.meta.env.VITE_POSTHOG_HOST as string | undefined;
-const STABLE_ID_KEY = "clipchase_stable_id";
-
-async function getStableId(): Promise<string> {
-  const stored = await chrome.storage.local.get(STABLE_ID_KEY);
-  if (stored[STABLE_ID_KEY]) return stored[STABLE_ID_KEY] as string;
-  const id = `cc_${crypto.randomUUID()}`;
-  await chrome.storage.local.set({ [STABLE_ID_KEY]: id });
-  return id;
-}
 
 function extVersion(): string {
   return chrome?.runtime?.getManifest?.().version ?? "unknown";
