@@ -17,6 +17,22 @@ function extVersion(): string {
   return chrome?.runtime?.getManifest?.().version ?? "unknown";
 }
 
+// posthog-js sets $os in the panel; SW events had none, so installs couldn't
+// be split by OS (CWS says ChromeOS is ~32% of installs but PostHog barely sees
+// it). Values match posthog-js's so one breakdown covers both surfaces.
+export function swOs(): string | null {
+  const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
+  const p = nav.userAgentData?.platform || "";
+  if (p === "macOS") return "Mac OS X";
+  if (p) return p; // "Windows", "Chrome OS", "Linux", "Android"
+  const ua = nav.userAgent || "";
+  if (/CrOS/.test(ua)) return "Chrome OS";
+  if (/Windows/.test(ua)) return "Windows";
+  if (/Mac OS X/.test(ua)) return "Mac OS X";
+  if (/Linux/.test(ua)) return "Linux";
+  return null;
+}
+
 export async function captureSW(
   event: string,
   properties: Record<string, unknown> = {},
@@ -42,6 +58,7 @@ export async function captureSW(
           // ingests with $cymbal_errors and skips Error Tracking grouping.
           platform: "web",
           extension_version: extVersion(),
+          $os: swOs(),
           ...properties,
         },
         timestamp: new Date().toISOString(),
