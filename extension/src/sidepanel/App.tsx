@@ -595,7 +595,16 @@ export function App() {
             videosScanned: chain.scanned,
             transcriptFailures: chain.failures,
           });
-          if (hasMore) setOlderPage({ offset: offset + MAX_VIDEOS, timeRange: range, excludeShorts: shorts });
+          const next = { offset: offset + MAX_VIDEOS, timeRange: range, excludeShorts: shorts };
+          // An older window can be entirely videos the first page already
+          // searched from the index (the index grows as people search, so
+          // this gets more common). Scanning nothing must not cost the user
+          // a click: skip straight to the next window.
+          if (hasMore && older && videosScanned === 0) {
+            setTimeout(() => void runSearch(keyword, channelUrl, next), 0);
+          } else if (hasMore) {
+            setOlderPage(next);
+          }
         }
         posthog.capture("search_completed", {
           channel: channelUrl,
