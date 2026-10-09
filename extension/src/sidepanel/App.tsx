@@ -24,9 +24,9 @@ const UNINDEXED_FETCH_CONCURRENCY = 6;
 // ponytail: 60 is the latency ceiling, not the coverage ceiling. All-range
 // searches already run p50 29s / p95 80s / max 192s at 47-60 videos scanned
 // (PostHog, Jul-Aug), so the honest budget is ~3x the old window, not 7x.
-// Going deeper needs a progressive "search deeper" control rather than a
-// bigger default — raise this only once a zero-result search can extend
-// itself instead of making every search pay the worst case up front.
+// Deeper is opt-in per search: "Search older videos" asks the server for the
+// next window (offset), so only users who want the back catalogue pay for it.
+// Also the page size of each older window.
 const MAX_VIDEOS = 60;
 
 type ChannelResolutionSource =
@@ -60,6 +60,11 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 // gap between a failure and the next attempt so a dead endpoint can't be
 // hammered at machine speed.
 const RETRY_COOLDOWN_MS = 1500;
+
+// Older pages append to the list; a video must never show twice.
+function appendUnique(prev: SearchResult[], next: SearchResult): SearchResult[] {
+  return prev.some((r) => r.video_id === next.video_id) ? prev : [...prev, next];
+}
 
 // One suggestion-failure event per outage window, not one per typed prefix.
 const SUGGESTION_FAILURE_LOG_INTERVAL_MS = 60_000;
@@ -105,6 +110,23 @@ export function App() {
     transcriptFailures?: number;
   } | null>(null);
   const [formError, setFormError] = useState("");
+  // "Search older videos": set when the server says older uploads exist past
+  // the last window. Carries the filters the chain started with, so editing
+  // the form mid-chain can't make page 2 search a different slice.
+  const [olderPage, setOlderPage] = useState<{
+    offset: number;
+    timeRange: TimeRange;
+    excludeShorts: boolean;
+  } | null>(null);
+  const [searchingOlder, setSearchingOlder] = useState(false);
+  // Running totals across one search and its older pages, so the scan note
+  // and zero-result copy describe everything searched, not the last page.
+  const chainRef = useRef({
+    scanned: 0,
+    failures: 0,
+    matches: 0,
+    failureCounts: {} as Partial<Record<FailureReason, number>>,
+  });
   // Set for RETRY_COOLDOWN_MS after a failed search — see the constant.
   const [retryBlocked, setRetryBlocked] = useState(false);
   const retryUnblockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -309,7 +331,13 @@ export function App() {
   // whatever the input field currently holds.
   // channelUrl arrives as a parameter (shadowing the state binding) so
   // handleSearch can pass a just-resolved value without waiting a render.
-  const runSearch = async (keyword: string, channelUrl: string) => {
+  // `older` continues the previous search one window further back: results
+  // append instead of replacing, and filters come from the chain's first page.
+  const runSearch = async (
+    keyword: string,
+    channelUrl: string,
+    older?: { offset: number; timeRange: TimeRange; excludeShorts: boolean },
+  ) => {
     // Cancel any in-flight SSE before claiming a new generation.
     searchAbortRef.current?.abort();
     const controller = new AbortController();
@@ -318,10 +346,19 @@ export function App() {
     const myGen = ++searchGenRef.current;
     const superseded = () => myGen !== searchGenRef.current;
 
+    const offset = older?.offset ?? 0;
+    const range = older?.timeRange ?? timeRange;
+    const shorts = older?.excludeShorts ?? excludeShorts;
+
     setIsLoading(true);
+    setSearchingOlder(!!older);
+    setOlderPage(null);
     setError("");
-    setResults([]);
-    setHasSearched(false);
+    if (!older) {
+      setResults([]);
+      setHasSearched(false);
+      chainRef.current = { scanned: 0, failures: 0, matches: 0, failureCounts: {} };
+    }
     setSuggestions([]);
 
     // Pin the SW alive for the full search. The SSE indexed phase runs without
@@ -341,19 +378,21 @@ export function App() {
       channel: channelUrl,
       keyword,
       keyword_script: detectKeywordScript(keyword),
-      time_range: timeRange,
-      exclude_shorts: excludeShorts,
+      time_range: range,
+      exclude_shorts: shorts,
       channel_resolution_source: channelResolutionSource,
+      offset,
     });
 
     let videosScanned = 0;
+    let hasMore = false;
     let indexedHits = 0;
     let transcriptFailures = 0;
     let matchCount = 0;
     const failureReasonCounts: Partial<Record<FailureReason, number>> = {};
 
     try {
-      const publishedAfter = getPublishedAfterDate(timeRange);
+      const publishedAfter = getPublishedAfterDate(range);
 
       // Step 1 — Stream indexed-only matches from /api/search via SSE.
       // Indexed FTS pre-filter skips videos that can't possibly match. Cached
@@ -363,10 +402,11 @@ export function App() {
         channel_url: channelUrl,
         keyword,
         max_videos: String(MAX_VIDEOS),
-        exclude_shorts: String(excludeShorts),
+        exclude_shorts: String(shorts),
         skip_live: "true",
       });
       if (publishedAfter) params.set("published_after", publishedAfter);
+      if (offset) params.set("offset", String(offset));
       const sseUrl = `${API_BASE}/api/search?${params.toString()}`;
 
       let unindexedVideos: VideoInfo[] = [];
@@ -381,7 +421,7 @@ export function App() {
             const result = JSON.parse(data) as SearchResult;
             indexedHits++;
             matchCount++;
-            setResults((prev) => [...prev, result]);
+            setResults((prev) => appendUnique(prev, result));
           } catch {
             // ignore malformed
           }
@@ -397,9 +437,15 @@ export function App() {
             }
           } else if (event === "meta") {
             try {
-              const parsed = JSON.parse(data) as { total: number; channel_id?: string };
+              const parsed = JSON.parse(data) as {
+                total: number;
+                channel_id?: string;
+                has_more?: boolean;
+              };
               videosScanned = parsed.total ?? 0;
               resolvedChannelId = parsed.channel_id ?? null;
+              // Older servers omit it: no button, same as before.
+              hasMore = parsed.has_more === true;
             } catch {
               // ignore
             }
@@ -472,7 +518,8 @@ export function App() {
 
             if (matchRes.ok && matchRes.data.match_result) {
               matchCount++;
-              setResults((prev) => [...prev, matchRes.data.match_result!]);
+              const hit = matchRes.data.match_result;
+              setResults((prev) => appendUnique(prev, hit));
             }
           }
         };
@@ -506,6 +553,7 @@ export function App() {
       });
     } finally {
       stopKeepalive();
+      if (!superseded()) setSearchingOlder(false);
       if (superseded()) {
         posthog.capture("search_cancelled", {
           channel: channelUrl,
@@ -528,22 +576,34 @@ export function App() {
             : null;
         const hadAnyTranscript = videosWithTranscript > 0;
         const transcriptFailureReasonTop = dominantReason(failureReasonCounts);
+        // Telemetry above/below stays per page (with `offset`); the UI state
+        // describes the whole chain.
+        const chain = chainRef.current;
         if (!searchFailed) {
+          chain.scanned += videosScanned;
+          chain.failures += transcriptFailures;
+          chain.matches += matchCount;
+          for (const [reason, n] of Object.entries(failureReasonCounts) as [FailureReason, number][]) {
+            chain.failureCounts[reason] = (chain.failureCounts[reason] ?? 0) + n;
+          }
           setLastSearch({
             channel: channelUrl,
             keyword,
-            failureReason: transcriptFailureReasonTop,
-            failureRatio: videosScanned > 0 ? transcriptFailures / videosScanned : 0,
-            failureCounts: failureReasonCounts,
-            videosScanned,
-            transcriptFailures,
+            failureReason: dominantReason(chain.failureCounts),
+            failureRatio: chain.scanned > 0 ? chain.failures / chain.scanned : 0,
+            failureCounts: { ...chain.failureCounts },
+            videosScanned: chain.scanned,
+            transcriptFailures: chain.failures,
           });
+          if (hasMore) setOlderPage({ offset: offset + MAX_VIDEOS, timeRange: range, excludeShorts: shorts });
         }
         posthog.capture("search_completed", {
           channel: channelUrl,
           keyword,
           keyword_script: detectKeywordScript(keyword),
-          time_range: timeRange,
+          offset,
+          has_more: hasMore,
+          time_range: range,
           result_count: matchCount,
           indexed_hits: indexedHits,
           videos_scanned: videosScanned,
@@ -555,12 +615,16 @@ export function App() {
           success: !searchFailed,
           duration_ms: Date.now() - searchStartedAt,
         });
-        if (matchCount === 0 && !searchFailed) {
+        // Zero-result events follow what the user sees: an older page that
+        // adds nothing to earlier results isn't a zero-result search.
+        if (chain.matches === 0 && !searchFailed) {
           posthog.capture("zero_results", {
             channel: channelUrl,
             keyword,
             keyword_script: detectKeywordScript(keyword),
-            time_range: timeRange,
+            offset,
+            has_more: hasMore,
+            time_range: range,
             videos_scanned: videosScanned,
             videos_with_transcript: videosWithTranscript,
             transcript_failures: transcriptFailures,
@@ -578,6 +642,7 @@ export function App() {
             result_count: matchCount,
             indexed_hits: indexedHits,
             had_any_transcript: hadAnyTranscript,
+            offset,
           });
         }
       }
@@ -718,7 +783,7 @@ export function App() {
         }}
       />
 
-      {isLoading && <LoadingStream keyword={keyword} channel={channelDisplay} />}
+      {isLoading && !searchingOlder && <LoadingStream keyword={keyword} channel={channelDisplay} />}
 
       {error && (
         <motion.div
@@ -789,7 +854,9 @@ export function App() {
                   No mentions of <span className="text-yt-text font-medium">&ldquo;{lastSearch.keyword}&rdquo;</span> in the {lastSearch.videosScanned} videos we searched.<br />
                   <span className="text-yt-tert">
                     {timeRange === "all"
-                      ? "That's this channel's newest uploads plus everything already indexed — deep back-catalogue may not be covered yet. Try a different keyword or a shorter phrase."
+                      ? olderPage
+                        ? "That's this channel's newest uploads plus everything already indexed. Older videos haven't been searched yet."
+                        : "That's this channel's newest uploads plus everything already indexed. Try a different keyword or a shorter phrase."
                       : "Try a different keyword, or switch the range to All to cover the whole catalogue."}
                   </span>
                 </>
@@ -888,6 +955,36 @@ export function App() {
             }}
           />
         </div>
+      )}
+
+      {/* Below the zero-result note or the results list, whichever showed.
+          74% of zero-result searches had used the whole 60-video window. */}
+      {searchingOlder && isLoading ? (
+        <p className="mt-4 flex items-center justify-center gap-2 text-[11px] text-yt-light-gray" role="status">
+          <span className="w-3 h-3 rounded-full border-2 border-yt-dark-gray border-t-yt-red animate-spin" aria-hidden="true" />
+          Searching {MAX_VIDEOS} older videos…
+        </p>
+      ) : (
+        olderPage &&
+        hasSearched &&
+        !isLoading &&
+        !error &&
+        lastSearch && (
+          <button
+            type="button"
+            onClick={() => {
+              posthog.capture("search_older_clicked", {
+                offset: olderPage.offset,
+                prior_results: results.length,
+                prior_scanned: lastSearch.videosScanned ?? 0,
+              });
+              void runSearch(lastSearch.keyword, lastSearch.channel, olderPage);
+            }}
+            className="mt-4 w-full py-2.5 rounded border border-yt-dark-gray text-[11px] font-semibold text-yt-text hover:border-yt-red hover:text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-yt-red"
+          >
+            Search {MAX_VIDEOS} older videos
+          </button>
+        )
       )}
 
       <div className="mt-10 pt-3 border-t border-yt-dark-gray flex justify-between items-center">
