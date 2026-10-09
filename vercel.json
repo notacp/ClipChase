@@ -3,12 +3,21 @@
     "fluid": true,
     "buildCommand": "npm install --include=dev && npm run build",
     "rewrites": [
-        { "source": "/api/(.*)", "destination": "/api/index" }
+        {
+            "source": "/api/(.*)",
+            "destination": "/api/index"
+        }
     ],
     "functions": {
         "api/index.py": {
             "maxDuration": 300,
             "memory": 1024
         }
-    }
+    },
+    "crons": [
+        {
+            "path": "/api/cron/capacity",
+            "schedule": "0 6 * * *"
+        }
+    ]
 }

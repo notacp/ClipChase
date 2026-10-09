@@ -9,12 +9,13 @@ from typing import Iterator, List, Optional, Sequence
 
 import anyio
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
+from ..services.capacity import capture_server_event, run_capacity_check
 from ..services.transcript_index import TranscriptIndexService
 from ..services.youtube import (
     ChannelResolveUnavailable,
@@ -660,11 +661,18 @@ def _index_after_match_sync(
             channel_id,
             video.get("id"),
         )
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "match-side indexing failed channel=%s video=%s",
             channel_id,
             video.get("id"),
+        )
+        # The Oct-2026 "database full" outage was three silent days of exactly
+        # this. One event per instance per 10 min is enough to alert on.
+        capture_server_event(
+            "d1_write_failed",
+            {"error": str(exc)[:200], "path": "match"},
+            throttle_s=600,
         )
 
 
@@ -705,3 +713,12 @@ async def match_transcript(
         )
 
     return MatchResponse(match_result=match_result)
+
+
+@router.get("/cron/capacity")
+def capacity_cron(authorization: Optional[str] = Header(None)):
+    """Daily D1 size check (Vercel cron). See services/capacity.py."""
+    secret = os.getenv("CRON_SECRET")
+    if not secret or authorization != f"Bearer {secret}":
+        raise HTTPException(status_code=401, detail="unauthorized")
+    return run_capacity_check()
