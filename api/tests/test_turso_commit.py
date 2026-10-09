@@ -602,3 +602,23 @@ class TestWriteDeadline:
         _queue_index(conn, "vok", 100)
         conn.commit()
         assert len(self._marker_batches(fake)) == 1
+
+
+def test_d1_httpx_timeout_under_deadline_is_a_shed():
+    """Oct 9 alert: the POST's timeout is the leftover budget, so an httpx
+    timeout under a deadline must surface as TimeoutError (shed), not as a
+    generic failure that fires d1_write_failed."""
+    import httpx
+    from api.app.services.transcript_index import _D1HTTPConnection
+
+    conn = _D1HTTPConnection("a", "d", "t")
+
+    def slow(*_a, **_k):
+        raise httpx.ReadTimeout("The read operation timed out")
+
+    conn._send = slow
+    with pytest.raises(TimeoutError):
+        conn._send_sequential([{"sql": "x"}], deadline=time.monotonic() + 5)
+    # Without a deadline it is a real failure and must not be relabelled.
+    with pytest.raises(httpx.ReadTimeout):
+        conn._send_sequential([{"sql": "x"}])

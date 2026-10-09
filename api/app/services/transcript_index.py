@@ -501,7 +501,17 @@ class _D1HTTPConnection:
                 timeout = deadline - time.monotonic()
                 if timeout <= 0:
                     raise TimeoutError("index write budget exhausted")
-            self._send(requests[start:start + self._BATCH_SIZE], timeout=timeout)
+            try:
+                self._send(requests[start:start + self._BATCH_SIZE], timeout=timeout)
+            except Exception as exc:
+                # The POST's timeout IS the leftover budget, so an httpx timeout
+                # here means the budget ran out mid-send: a shed, not a failure.
+                # Without this it reached the d1_write_failed alert (Oct 9).
+                import httpx
+
+                if timeout is not None and isinstance(exc, httpx.TimeoutException):
+                    raise TimeoutError("index write budget exhausted") from exc
+                raise
 
     def close(self) -> None:
         self._write_queue.clear()
