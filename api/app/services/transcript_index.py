@@ -27,6 +27,12 @@ _MAX_SEGMENTS_BYTES = 1_500_000
 # JSON and still read fine; scripts/compress_segments.py converts them.
 _SEGMENTS_PREFIX = "z1:"
 
+# Cap on the UNcompressed transcript too. Without it, a client could send a
+# huge but highly repetitive transcript that compresses under the row cap and
+# then expands to its full size on every read. A 10-hour livestream is
+# ~700 KB of JSON; this is the old raw cap, unchanged.
+_MAX_RAW_SEGMENTS_BYTES = 1_500_000
+
 
 def encode_segments(payload_json: str) -> str:
     return _SEGMENTS_PREFIX + base64.b64encode(
@@ -40,7 +46,13 @@ def decode_segments(stored: Optional[str]) -> Any:
         return []
     if stored.startswith(_SEGMENTS_PREFIX):
         try:
-            stored = zlib.decompress(base64.b64decode(stored[len(_SEGMENTS_PREFIX):])).decode("utf-8")
+            inflater = zlib.decompressobj()
+            raw = inflater.decompress(
+                base64.b64decode(stored[len(_SEGMENTS_PREFIX):]), _MAX_RAW_SEGMENTS_BYTES + 1
+            )
+            if len(raw) > _MAX_RAW_SEGMENTS_BYTES or inflater.unconsumed_tail:
+                raise ValueError("compressed segments exceed size cap")
+            stored = raw.decode("utf-8")
         except (zlib.error, ValueError) as exc:
             raise ValueError(f"corrupt compressed segments: {exc}") from exc
     return json.loads(stored)
@@ -674,17 +686,20 @@ class TranscriptIndexService:
             )
             if text
         ]
-        payload = encode_segments(json.dumps(stored, ensure_ascii=False, separators=(",", ":")))
+        raw_json = json.dumps(stored, ensure_ascii=False, separators=(",", ":"))
+        payload = encode_segments(raw_json)
 
-        # D1's hard ceiling is 2 MB per row. Compressed, a 10-hour livestream
-        # is ~250 KB, so this only trips on something pathological — and when
-        # it does, skipping the cache is correct: the video still resolves
-        # through the live path.
-        if len(payload) > _MAX_SEGMENTS_BYTES:
+        # D1's hard ceiling is 2 MB per row. A 10-hour livestream is ~700 KB
+        # raw, ~250 KB stored, so this only trips on something pathological
+        # (or hostile, for the raw check) — and when it does, skipping the
+        # cache is correct: the video still resolves through the live path.
+        raw_bytes = len(raw_json.encode("utf-8"))
+        if raw_bytes > _MAX_RAW_SEGMENTS_BYTES or len(payload) > _MAX_SEGMENTS_BYTES:
             logger.warning(
-                "transcript too large to cache video_id=%s language=%s bytes=%d",
+                "transcript too large to cache video_id=%s language=%s raw_bytes=%d stored_bytes=%d",
                 video_id,
                 language_code,
+                raw_bytes,
                 len(payload),
             )
             return False

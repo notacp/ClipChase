@@ -141,6 +141,18 @@ class TestInlineSegments:
         got = service.get_transcript("vid5", "en")
         assert [seg["text"] for seg in got["segments"]] == ["legacy line"]
 
+    def test_compressible_giant_is_not_cached(self, service):
+        """Repetitive text compresses under the row cap; the raw cap must still
+        refuse it, or every read inflates it back to full size."""
+        _index_video(service, "vid7", ["same line " * 100 for _ in range(3000)])  # ~3 MB raw
+        assert service.get_transcript("vid7", "en") is None
+
+    def test_decoder_refuses_oversized_payload(self):
+        import base64, zlib
+        bomb = "z1:" + base64.b64encode(zlib.compress(b"[" + b" " * 3_000_000 + b"]", 9)).decode()
+        with pytest.raises(ValueError):
+            decode_segments(bomb)
+
     def test_corrupt_compressed_row_is_a_cache_miss(self, service):
         _index_video(service, "vid6", ["x"])
         conn = service._connect()
