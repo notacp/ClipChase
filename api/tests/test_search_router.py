@@ -364,9 +364,127 @@ def test_search_stream_scans_indexed_catalog_beyond_enumeration_window(_):
     meta = json.loads(
         [l for l in output.splitlines() if l.startswith("data: {\"channel_id\"")][0][6:]
     )
-    assert meta == {"channel_id": "UC1", "total": 2, "indexed": 1, "live": 1, "skip_live": True}
+    assert meta == {
+        "channel_id": "UC1",
+        "total": 2,
+        "indexed": 1,
+        "live": 1,
+        "skip_live": True,
+        "offset": 0,
+        "has_more": False,
+    }
     unindexed_line = output.splitlines()[output.splitlines().index("event: unindexed_videos") + 1]
     assert [v["id"] for v in json.loads(unindexed_line[6:])["videos"]] == ["new1"]
+
+
+# --- "search older videos" pages -------------------------------------------
+
+
+def _uploads(n: int) -> list:
+    """n uploads, newest first, ids u0..u{n-1}."""
+    return [
+        {"id": f"u{i}", "title": f"U{i}", "publishedAt": f"2026-01-01T00:00:{i % 60:02d}Z", "thumbnail": ""}
+        for i in range(n)
+    ]
+
+
+def _run_stream(service, index, offset, max_videos=3, published_after=None):
+    from api.app.routers.search import _search_stream
+
+    output = "".join(
+        _search_stream(
+            service=service,
+            index_service=index,
+            channel_id="UC1",
+            keyword="hit",
+            max_videos=max_videos,
+            published_after=published_after,
+            exclude_shorts=False,
+            offset=offset,
+        )
+    )
+    lines = output.splitlines()
+    meta = json.loads(lines[lines.index("event: meta") + 1][6:])
+    live = json.loads(lines[lines.index("event: unindexed_videos") + 1][6:])["videos"]
+    return output, meta, [v["id"] for v in live]
+
+
+def _deep_fixtures(n_uploads: int, indexed_ids: list):
+    service = MagicMock()
+    service.fetch_uploads_playlist_id.return_value = "PL1"
+    service.fetch_videos.side_effect = lambda pl, max_videos, exclude_shorts: _uploads(n_uploads)[:max_videos]
+    service.expand_search_terms_for_transcript.side_effect = lambda terms, segments, lang: terms
+    service.search_in_transcript.return_value = [
+        {"start": 1.0, "text": "hit", "context_before": "", "context_after": ""}
+    ]
+    index = MagicMock(spec=TranscriptIndexService)
+    index.get_channel_videos.return_value = [v for v in _uploads(n_uploads) if v["id"] in indexed_ids]
+    index.get_indexed_languages.return_value = {"en"}
+    index.get_transcript.return_value = {
+        "language_code": "en",
+        "language_label": "English",
+        "is_generated": True,
+        "segments": [{"start": 1.0, "duration": 2.0, "text": "hit"}],
+    }
+    return service, index
+
+
+def test_offset_returns_the_next_older_window():
+    service, index = _deep_fixtures(n_uploads=10, indexed_ids=[])
+    _, meta, live = _run_stream(service, index, offset=3)
+    assert live == ["u3", "u4", "u5"]
+    assert meta["offset"] == 3 and meta["has_more"] is True
+
+
+def test_last_partial_window_reports_no_more():
+    service, index = _deep_fixtures(n_uploads=8, indexed_ids=[])
+    _, meta, live = _run_stream(service, index, offset=6)
+    assert live == ["u6", "u7"]
+    assert meta["has_more"] is False
+
+
+def test_deeper_page_skips_indexed_rescan_but_excludes_indexed_from_live():
+    # u4 is indexed: the first page already matched it from the catalog scan.
+    service, index = _deep_fixtures(n_uploads=10, indexed_ids=["u4", "u0"])
+    output, meta, live = _run_stream(service, index, offset=3)
+    assert live == ["u3", "u5"]
+    assert '"video_id": "u4"' not in output and '"video_id":"u4"' not in output
+    assert meta["indexed"] == 0 and meta["total"] == 2
+    index.get_transcript.assert_not_called()
+
+
+def test_first_page_still_scans_whole_indexed_catalog():
+    service, index = _deep_fixtures(n_uploads=10, indexed_ids=["u9"])
+    output, meta, live = _run_stream(service, index, offset=0)
+    assert '"u9"' in output
+    assert live == ["u0", "u1", "u2"]
+    assert meta["has_more"] is True
+
+
+def test_has_more_stops_at_offset_ceiling():
+    from api.app.routers.search import MAX_SEARCH_OFFSET
+
+    service, index = _deep_fixtures(n_uploads=MAX_SEARCH_OFFSET + 50, indexed_ids=[])
+    _, meta, _ = _run_stream(service, index, offset=MAX_SEARCH_OFFSET - 3)
+    assert meta["has_more"] is False
+
+
+@patch("api.app.routers.search.YouTubeService")
+def test_search_rejects_offset_past_ceiling(mock_yt_service_class):
+    from api.app.routers.search import MAX_SEARCH_OFFSET
+
+    mock_yt_service_class.return_value.resolve_channel_id.return_value = "UC1"
+    app.dependency_overrides[get_index_service] = lambda: MagicMock(spec=TranscriptIndexService)
+    try:
+        r = client.get(
+            "/api/search",
+            params={"channel_url": "@x", "keyword": "hit", "offset": MAX_SEARCH_OFFSET + 1},
+        )
+        assert r.status_code == 422
+        r = client.get("/api/search", params={"channel_url": "@x", "keyword": "hit", "offset": -1})
+        assert r.status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_index_service, None)
 
 
 # --- exclude_shorts must not collapse the indexed-catalog scan -------------

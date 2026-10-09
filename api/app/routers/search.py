@@ -9,7 +9,7 @@ from typing import Iterator, List, Optional, Sequence
 
 import anyio
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -147,15 +147,25 @@ class IndexTranscriptResponse(BaseModel):
     stored: int
 
 
+# Deepest a "search older videos" page may start. Each page re-enumerates the
+# uploads playlist from the top (1 quota unit per 50 items), so this bounds
+# YouTube quota per click. ponytail: re-enumeration is O(offset); carry the
+# playlist pageToken to the client if channels deeper than this matter.
+MAX_SEARCH_OFFSET = 1200
+
+
 def _fetch_channel_videos(
     service: YouTubeService,
     channel_id: str,
     max_videos: int,
     published_after: Optional[str],
     exclude_shorts: bool,
+    offset: int = 0,
 ) -> List[dict]:
+    """Newest-first window of uploads: positions [offset, offset + max_videos)."""
     playlist_id = service.fetch_uploads_playlist_id(channel_id)
-    fetch_count = max_videos * 3 if (published_after or exclude_shorts) else max_videos
+    wanted = offset + max_videos
+    fetch_count = wanted * 3 if (published_after or exclude_shorts) else wanted
     videos = service.fetch_videos(playlist_id, max_videos=fetch_count, exclude_shorts=exclude_shorts)
 
     if published_after:
@@ -165,11 +175,11 @@ def _fetch_channel_videos(
                 video
                 for video in videos
                 if datetime.fromisoformat(video["publishedAt"].replace("Z", "+00:00")) >= cutoff_date
-            ][:max_videos]
+            ]
         except ValueError:
             pass
 
-    return videos
+    return videos[offset:wanted]
 
 
 def _build_match_result(
@@ -290,6 +300,7 @@ def _search_stream(
     max_videos: int,
     published_after: Optional[str],
     exclude_shorts: bool,
+    offset: int = 0,
 ) -> Iterator[str]:
     # Flush headers + arm client idle timer before YouTube/FTS calls run. Cold
     # channels can take >45s to enumerate videos, which would trip the client's
@@ -302,7 +313,13 @@ def _search_stream(
             max_videos=max_videos,
             published_after=published_after,
             exclude_shorts=exclude_shorts,
+            offset=offset,
         )
+        # A full window means older uploads probably exist. A short one means
+        # the playlist (or the time range) ran out. Can overshoot by one empty
+        # page when the channel size is an exact multiple — the next page then
+        # comes back empty and says so.
+        has_more = len(videos) == max_videos and offset + max_videos < MAX_SEARCH_OFFSET
 
         query_language = detect_query_language(keyword)
         preferred_languages = preferred_transcript_languages(query_language)
@@ -347,12 +364,21 @@ def _search_stream(
         indexed_video_ids = {v["id"] for v in indexed_videos}
         live_videos = [video for video in videos if video["id"] not in indexed_video_ids]
 
+        # Deeper pages: the first page already scanned the whole indexed
+        # catalog, so re-streaming it would only duplicate results. The index
+        # read still runs, to keep already-indexed videos out of the live
+        # handoff (no point making the client refetch them).
+        if offset > 0:
+            indexed_videos = []
+
         meta_payload = {
             "channel_id": channel_id,
             "total": len(indexed_videos) + len(live_videos),
-            "indexed": len(indexed_video_ids),
+            "indexed": len(indexed_videos),
             "live": len(live_videos),
             "skip_live": True,
+            "offset": offset,
+            "has_more": has_more,
         }
         yield f"event: meta\ndata: {json.dumps(meta_payload)}\n\n"
 
@@ -397,6 +423,9 @@ async def search(
     max_videos: int = 20,
     published_after: Optional[str] = None,
     exclude_shorts: bool = False,
+    # "Search older videos": start the enumeration window this many uploads
+    # back. Old clients never send it and get the first page, as before.
+    offset: int = Query(0, ge=0, le=MAX_SEARCH_OFFSET),
     # Accepted for compat with clients that still send it; skip-live is now
     # the only behavior (the extension always sent skip_live=true).
     skip_live: bool = True,
@@ -423,6 +452,7 @@ async def search(
             max_videos=max_videos,
             published_after=published_after,
             exclude_shorts=exclude_shorts,
+            offset=offset,
         ),
         media_type="text/event-stream",
         headers={
