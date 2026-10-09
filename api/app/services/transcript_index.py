@@ -524,6 +524,36 @@ def _default_db_path() -> Path:
 
 
 
+def _row_to_transcript(video_id: str, row) -> Optional[Dict[str, Any]]:
+    """Stored transcript row -> transcript dict, or None for an unusable row."""
+    try:
+        segments = decode_segments(row["segments"])
+    except (TypeError, ValueError):
+        # Row predates the inline-segments migration, or is corrupt.
+        # Treat as a cache miss so the caller re-fetches and rewrites.
+        logger.warning(
+            "unreadable cached segments video_id=%s language=%s",
+            video_id,
+            row["language_code"],
+        )
+        return None
+    if not segments:
+        return None
+    return {
+        "language_code": row["language_code"],
+        "language_label": row["language_label"],
+        "is_generated": bool(row["is_generated"]),
+        "segments": [
+            {
+                "start": float(seg.get("start", 0)),
+                "duration": float(seg.get("duration", 0)),
+                "text": seg.get("text", ""),
+            }
+            for seg in segments
+        ],
+    }
+
+
 class TranscriptIndexService:
     def __init__(self, db_path: Optional[str] = None):
         # Explicit db_path always uses local SQLite regardless of env vars.
@@ -863,35 +893,47 @@ class TranscriptIndexService:
             if transcript_row is None:
                 return None
 
-            try:
-                segments = decode_segments(transcript_row["segments"])
-            except (TypeError, ValueError):
-                # Row predates the inline-segments migration, or is corrupt.
-                # Treat as a cache miss so the caller re-fetches and rewrites.
-                logger.warning(
-                    "unreadable cached segments video_id=%s language=%s",
-                    video_id,
-                    normalized_language,
-                )
-                return None
-            if not segments:
-                return None
-
-            return {
-                "language_code": transcript_row["language_code"],
-                "language_label": transcript_row["language_label"],
-                "is_generated": bool(transcript_row["is_generated"]),
-                "segments": [
-                    {
-                        "start": float(row.get("start", 0)),
-                        "duration": float(row.get("duration", 0)),
-                        "text": row.get("text", ""),
-                    }
-                    for row in segments
-                ],
-            }
+            return _row_to_transcript(video_id, transcript_row)
         finally:
             conn.close()
+
+    # D1 caps bound parameters at 100 per query.
+    BULK_MAX_IDS = 90
+
+    def get_transcripts_for(self, video_ids: Sequence[str]) -> Dict[str, Dict[str, Dict[str, Any]]]:
+        """Every stored transcript for these videos in ONE query.
+
+        Returns video_id -> language_code -> transcript (same shape as
+        get_transcript). The first-page search used to make two round-trips
+        per indexed video (languages, then transcript): 179 videos took 64s.
+        Callers chunk to BULK_MAX_IDS and may run chunks in parallel.
+        """
+        ids = [v for v in dict.fromkeys(video_ids) if v]
+        if not ids:
+            return {}
+        if len(ids) > self.BULK_MAX_IDS:
+            raise ValueError(f"at most {self.BULK_MAX_IDS} ids per call")
+
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                f"""
+                SELECT video_id, language_code, language_label, is_generated, segments
+                FROM indexed_transcripts
+                WHERE video_id IN ({", ".join("?" * len(ids))}) AND segments != '[]'
+                """,
+                tuple(ids),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        out: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        for row in rows:
+            transcript = _row_to_transcript(row["video_id"], row)
+            if transcript:
+                language = normalize_language_code(row["language_code"])
+                out.setdefault(row["video_id"], {})[language] = transcript
+        return out
 
     def get_indexed_languages(self, video_id: str, deadline: Optional[float] = None) -> Set[str]:
         """Languages actually stored for a video, in ONE round-trip.

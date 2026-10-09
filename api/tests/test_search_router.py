@@ -340,13 +340,13 @@ def test_search_stream_scans_indexed_catalog_beyond_enumeration_window(_):
     index.get_channel_videos.return_value = [
         {"id": "old900", "title": "Old", "publishedAt": "2020-01-01T00:00:00Z", "thumbnail": ""},
     ]
-    index.get_indexed_languages.return_value = {"en"}
-    index.get_transcript.return_value = {
+    _hit = {
         "language_code": "en",
         "language_label": "English",
         "is_generated": True,
         "segments": [{"start": 1.0, "duration": 2.0, "text": "hit"}],
     }
+    index.get_transcripts_for.side_effect = lambda ids: {i: {"en": _hit} for i in ids}
 
     output = "".join(
         _search_stream(
@@ -419,13 +419,13 @@ def _deep_fixtures(n_uploads: int, indexed_ids: list):
     ]
     index = MagicMock(spec=TranscriptIndexService)
     index.get_channel_videos.return_value = [v for v in _uploads(n_uploads) if v["id"] in indexed_ids]
-    index.get_indexed_languages.return_value = {"en"}
-    index.get_transcript.return_value = {
+    _hit = {
         "language_code": "en",
         "language_label": "English",
         "is_generated": True,
         "segments": [{"start": 1.0, "duration": 2.0, "text": "hit"}],
     }
+    index.get_transcripts_for.side_effect = lambda ids: {i: {"en": _hit} for i in ids}
     return service, index
 
 
@@ -450,7 +450,7 @@ def test_deeper_page_skips_indexed_rescan_but_excludes_indexed_from_live():
     assert live == ["u3", "u5"]
     assert '"video_id": "u4"' not in output and '"video_id":"u4"' not in output
     assert meta["indexed"] == 0 and meta["total"] == 2
-    index.get_transcript.assert_not_called()
+    index.get_transcripts_for.assert_not_called()
 
 
 def test_first_page_still_scans_whole_indexed_catalog():
@@ -485,6 +485,31 @@ def test_search_rejects_offset_past_ceiling(mock_yt_service_class):
         assert r.status_code == 422
     finally:
         app.dependency_overrides.pop(get_index_service, None)
+
+
+def test_indexed_catalog_is_read_in_chunks_not_per_video():
+    """64s for 179 videos was two D1 round-trips per video. The catalog must be
+    read in a few bulk calls, and results must still come out newest-first."""
+    from api.app.routers import search as search_mod
+
+    service, index = _deep_fixtures(n_uploads=100, indexed_ids=[f"u{i}" for i in range(100)])
+    output, meta, live = _run_stream(service, index, offset=0, max_videos=60)
+    calls = index.get_transcripts_for.call_args_list
+    assert len(calls) == -(-100 // search_mod._INDEX_READ_CHUNK)
+    assert all(len(c.args[0]) <= TranscriptIndexService.BULK_MAX_IDS for c in calls)
+    ids = [json.loads(l[6:])["video_id"] for l in output.splitlines() if l.startswith('data: {"video_id"')]
+    assert ids == [f"u{i}" for i in range(100)]
+    assert live == []
+
+
+def test_failed_chunk_fails_open():
+    service, index = _deep_fixtures(n_uploads=50, indexed_ids=[f"u{i}" for i in range(50)])
+    good = index.get_transcripts_for.side_effect
+    index.get_transcripts_for.side_effect = lambda ids: (_ for _ in ()).throw(RuntimeError("D1 down")) if "u0" in ids else good(ids)
+    output, meta, _ = _run_stream(service, index, offset=0, max_videos=60)
+    ids = [json.loads(l[6:])["video_id"] for l in output.splitlines() if l.startswith('data: {"video_id"')]
+    assert ids == [f"u{i}" for i in range(40, 50)]  # first chunk lost, rest still served
+    assert "event: done" in output
 
 
 # --- exclude_shorts must not collapse the indexed-catalog scan -------------

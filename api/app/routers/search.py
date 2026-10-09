@@ -4,6 +4,7 @@ import logging
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Iterator, List, Optional, Sequence
 
@@ -226,32 +227,25 @@ def _build_match_result(
     )
 
 
-def _get_indexed_match(
+def _match_stored(
     service: YouTubeService,
-    index_service: TranscriptIndexService,
     video: dict,
     keyword: str,
     preferred_languages: Sequence[str],
+    stored: dict,
 ) -> Optional[SearchResult]:
-    # Resolve the languages this video actually has in ONE round-trip, then
-    # fetch only those. The old nested loop called get_transcript() for every
-    # (order x language) combination — up to ~25 Turso HTTP connections per
-    # video; adding fr/es/pt (151ec1d) silently turned ~4 into ~25.
-    stored = {normalize_language_code(code) for code in index_service.get_indexed_languages(video["id"])}
-    stored.discard("")
+    """Match against a video's already-fetched stored transcripts.
+
+    Tries languages by query-language priority, then any other stored one.
+    `stored` is language -> transcript from get_transcripts_for().
+    """
     if not stored:
         return None
-
-    # Try stored languages by query-language priority, each fetched once.
     priority = [normalize_language_code(code) for code in preferred_languages]
     ordered = [code for code in priority if code in stored]
     ordered += [code for code in stored if code not in ordered]
 
     for language in ordered:
-        transcript_data = index_service.get_transcript(video["id"], language)
-        if not transcript_data or not transcript_data.get("segments"):
-            continue
-
         match_result = _build_match_result(
             service=service,
             keyword=keyword,
@@ -259,12 +253,19 @@ def _get_indexed_match(
             title=video["title"],
             published_at=video["publishedAt"],
             thumbnail=video["thumbnail"],
-            transcript_data=transcript_data,
+            transcript_data=stored[language],
         )
         if match_result:
             return match_result
-
     return None
+
+
+# Indexed-catalog read: chunks of this many videos, this many chunks in
+# flight. 179 videos went from 64s (two round-trips per video) to a handful
+# of parallel queries. ponytail: 4 workers is a guess sized for D1's HTTP
+# API; raise it if first-page latency still grows with the catalog.
+_INDEX_READ_CHUNK = 40
+_INDEX_READ_WORKERS = 4
 
 
 def _parse_published_at(value: Optional[str]) -> Optional[datetime]:
@@ -383,23 +384,38 @@ def _search_stream(
         }
         yield f"event: meta\ndata: {json.dumps(meta_payload)}\n\n"
 
-        for video in indexed_videos:
+        def _read_chunk(chunk: List[dict]) -> dict:
             try:
-                match_result = _get_indexed_match(
-                    service=service,
-                    index_service=index_service,
-                    video=video,
-                    keyword=keyword,
-                    preferred_languages=preferred_languages,
-                )
-                if match_result:
-                    yield f"data: {match_result.model_dump_json()}\n\n"
-                else:
-                    # No-match videos emit no data; without a heartbeat the
-                    # client's SSE idle timer trips on long no-match runs.
-                    yield ": ping\n\n"
+                return index_service.get_transcripts_for([v["id"] for v in chunk])
             except Exception:
-                yield ": ping\n\n"
+                # Fail open per chunk: those videos just don't match this time.
+                logger.exception("indexed transcript read failed channel_id=%s", channel_id)
+                return {}
+
+        chunks = [
+            indexed_videos[i : i + _INDEX_READ_CHUNK]
+            for i in range(0, len(indexed_videos), _INDEX_READ_CHUNK)
+        ]
+        if chunks:
+            with ThreadPoolExecutor(max_workers=_INDEX_READ_WORKERS) as pool:
+                # map() yields in chunk order as each completes, so results
+                # still stream newest-first instead of all at the end.
+                for chunk, stored_by_video in zip(chunks, pool.map(_read_chunk, chunks)):
+                    for video in chunk:
+                        try:
+                            match_result = _match_stored(
+                                service=service,
+                                video=video,
+                                keyword=keyword,
+                                preferred_languages=preferred_languages,
+                                stored=stored_by_video.get(video["id"], {}),
+                            )
+                        except Exception:
+                            match_result = None
+                        if match_result:
+                            yield f"data: {match_result.model_dump_json()}\n\n"
+                    # Keeps the client's SSE idle timer fed between chunks.
+                    yield ": ping\n\n"
 
         # Hand un-indexed videos back to the client so it can fetch transcripts
         # locally (e.g. an extension's service worker) and call /api/match.

@@ -256,3 +256,30 @@ def test_empty_marker_rows_do_not_count_as_indexed(tmp_path):
         conn.close()
     assert svc.get_indexed_languages("v1") == set()
     assert svc.get_channel_videos("UC" + "x" * 22) == []
+
+
+def test_get_transcripts_for_bulk(tmp_path):
+    svc = TranscriptIndexService(db_path=str(tmp_path / "idx.db"))
+    ch = "UC" + "y" * 22
+    def put(vid, lang, text):
+        svc.cache_video_transcripts(
+            channel_id=ch, source_url="",
+            video={"id": vid, "title": vid, "publishedAt": "2026-01-01T00:00:00Z", "thumbnail": ""},
+            transcripts=[{"language_code": lang, "language_label": lang, "is_generated": True,
+                          "segments": [{"start": 0, "duration": 1, "text": text}]}],
+        )
+    put("a", "en", "alpha"); put("a", "hi", "अल्फा"); put("b", "en", "beta"); put("c", "en", "gamma")
+    conn = svc._connect()
+    try:
+        conn.execute("UPDATE indexed_transcripts SET segments='[]' WHERE video_id='c'")
+        conn.commit()
+    finally:
+        conn.close()
+    got = svc.get_transcripts_for(["a", "b", "c", "missing", "a"])
+    assert set(got) == {"a", "b"}
+    assert set(got["a"]) == {"en", "hi"}
+    assert got["b"]["en"]["segments"][0]["text"] == "beta"
+    assert got["b"]["en"] == svc.get_transcript("b", "en")
+    assert svc.get_transcripts_for([]) == {}
+    with pytest.raises(ValueError):
+        svc.get_transcripts_for([f"v{i}" for i in range(TranscriptIndexService.BULK_MAX_IDS + 1)])
