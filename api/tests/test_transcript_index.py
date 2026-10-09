@@ -1,7 +1,9 @@
+import os
 import sqlite3
 
 import pytest
 
+from api.app.services.transcript_index import decode_segments
 from api.app.services.transcript_index import TranscriptIndexService
 
 
@@ -120,12 +122,40 @@ class TestInlineSegments:
             conn.close()
         assert row is not None
         assert row["segment_count"] == 2
-        assert "\"a\"" in row["segments"]
+        assert row["segments"].startswith("z1:")  # stored compressed
+        assert [seg["text"] for seg in decode_segments(row["segments"])] == ["a", "b"]
+
+    def test_legacy_raw_json_rows_still_read(self, service):
+        """Rows written before compression hold plain JSON and must keep working
+        until scripts/compress_segments.py converts them."""
+        _index_video(service, "vid5", ["old"])
+        conn = service._connect()
+        try:
+            conn.execute(
+                "UPDATE indexed_transcripts SET segments=? WHERE video_id=?",
+                ('[{"start":1.0,"duration":2.0,"text":"legacy line"}]', "vid5"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        got = service.get_transcript("vid5", "en")
+        assert [seg["text"] for seg in got["segments"]] == ["legacy line"]
+
+    def test_corrupt_compressed_row_is_a_cache_miss(self, service):
+        _index_video(service, "vid6", ["x"])
+        conn = service._connect()
+        try:
+            conn.execute("UPDATE indexed_transcripts SET segments='z1:not-base64!!' WHERE video_id='vid6'")
+            conn.commit()
+        finally:
+            conn.close()
+        assert service.get_transcript("vid6", "en") is None
 
     def test_oversized_transcript_is_not_cached(self, service):
         """D1 caps a row at 2 MB. Refusing the cache degrades to the live path;
         writing it would fail the whole batch."""
-        huge = ["x" * 2000 for _ in range(1200)]  # ~2.4 MB of JSON
+        # Random hex: compression can't shrink it under the cap, unlike "x"*n.
+        huge = [os.urandom(1000).hex() for _ in range(1600)]  # ~3.2 MB of JSON
         _index_video(service, "vid4", huge)
         assert service.get_transcript("vid4", "en") is None
         # And no language may be reported as stored on the strength of a

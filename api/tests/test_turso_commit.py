@@ -29,6 +29,7 @@ from api.app.services.transcript_index import (
     TranscriptIndexService,
     _TursoHTTPConnection,
     _encode_value,
+    decode_segments,
 )
 
 
@@ -175,7 +176,7 @@ class FakeTursoHTTP:
             row = cur.fetchone()
         if row is None or not row[0]:
             return 0
-        return len(json.loads(row[0]))
+        return len(decode_segments(row[0]))
 
     def indexed_transcript_count(self, video_id: str, language_code: str) -> int:
         with self._db_lock:

@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 import os
@@ -6,6 +7,7 @@ import sqlite3
 import sys
 import threading
 import time
+import zlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set
@@ -17,6 +19,31 @@ logger = logging.getLogger(__name__)
 # large is pathological, and skipping the cache degrades to the live path
 # rather than failing the write.
 _MAX_SEGMENTS_BYTES = 1_500_000
+
+# Stored segments are zlib-compressed JSON, base64'd so the column stays TEXT
+# (D1's HTTP params are JSON; no clean binary path). ~2.8x smaller than raw
+# JSON on real transcripts — the difference between the free plan's 500 MB
+# cap and a full database (Oct 2026). Rows without the prefix are legacy raw
+# JSON and still read fine; scripts/compress_segments.py converts them.
+_SEGMENTS_PREFIX = "z1:"
+
+
+def encode_segments(payload_json: str) -> str:
+    return _SEGMENTS_PREFIX + base64.b64encode(
+        zlib.compress(payload_json.encode("utf-8"), 9)
+    ).decode("ascii")
+
+
+def decode_segments(stored: Optional[str]) -> Any:
+    """Parsed segment list from either storage format. Raises ValueError on junk."""
+    if not stored:
+        return []
+    if stored.startswith(_SEGMENTS_PREFIX):
+        try:
+            stored = zlib.decompress(base64.b64decode(stored[len(_SEGMENTS_PREFIX):])).decode("utf-8")
+        except (zlib.error, ValueError) as exc:
+            raise ValueError(f"corrupt compressed segments: {exc}") from exc
+    return json.loads(stored)
 
 # commit() routes each queued write into an ordered phase by matching its SQL.
 # Tolerant of `INSERT OR REPLACE` and extra whitespace: a brittle startswith that
@@ -647,18 +674,18 @@ class TranscriptIndexService:
             )
             if text
         ]
-        payload = json.dumps(stored, ensure_ascii=False, separators=(",", ":"))
+        payload = encode_segments(json.dumps(stored, ensure_ascii=False, separators=(",", ":")))
 
-        # D1's hard ceiling is 2 MB per row. A 3-hour video is ~200 KB of JSON
-        # and a 10-hour livestream ~700 KB, so this only trips on something
-        # pathological — and when it does, skipping the cache is correct:
-        # the video still resolves through the live path.
-        if len(payload.encode("utf-8")) > _MAX_SEGMENTS_BYTES:
+        # D1's hard ceiling is 2 MB per row. Compressed, a 10-hour livestream
+        # is ~250 KB, so this only trips on something pathological — and when
+        # it does, skipping the cache is correct: the video still resolves
+        # through the live path.
+        if len(payload) > _MAX_SEGMENTS_BYTES:
             logger.warning(
                 "transcript too large to cache video_id=%s language=%s bytes=%d",
                 video_id,
                 language_code,
-                len(payload.encode("utf-8")),
+                len(payload),
             )
             return False
 
@@ -822,7 +849,7 @@ class TranscriptIndexService:
                 return None
 
             try:
-                segments = json.loads(transcript_row["segments"] or "[]")
+                segments = decode_segments(transcript_row["segments"])
             except (TypeError, ValueError):
                 # Row predates the inline-segments migration, or is corrupt.
                 # Treat as a cache miss so the caller re-fetches and rewrites.
