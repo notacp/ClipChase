@@ -66,7 +66,7 @@ _last_sent: dict = {}
 
 def capture_server_event(event: str, properties: dict, throttle_s: float = 0) -> None:
     """Fire-and-forget PostHog event from the API. Never raises."""
-    key = os.getenv("NEXT_PUBLIC_POSTHOG_KEY") or os.getenv("VITE_POSTHOG_KEY")
+    key = os.getenv("POSTHOG_API_KEY")  # public project key; NEXT_PUBLIC_* is not visible to the Python runtime
     if not key:
         return
     now = time.monotonic()
