@@ -824,7 +824,7 @@ class TranscriptIndexService:
                 SELECT DISTINCT v.video_id, v.title, v.published_at, v.thumbnail
                 FROM indexed_videos v
                 JOIN indexed_transcripts t ON t.video_id = v.video_id
-                WHERE v.channel_id = ?
+                WHERE v.channel_id = ? AND t.segments != '[]'
                 ORDER BY v.published_at DESC
                 LIMIT ?
                 """,
@@ -917,7 +917,11 @@ class TranscriptIndexService:
                     raise TimeoutError("index read budget exhausted")
                 kwargs["timeout"] = remaining
             rows = conn.execute(
-                "SELECT DISTINCT language_code FROM indexed_transcripts WHERE video_id = ?",
+                # segments != '[]': ~1,900 pre-Sep-2026 rows were left as empty
+                # markers by the inline-segments migration. Counting them as
+                # stored hid those videos from search permanently: never
+                # refetched (looked indexed), never matched (no text).
+                "SELECT DISTINCT language_code FROM indexed_transcripts WHERE video_id = ? AND segments != '[]'",
                 (video_id,),
                 **kwargs,
             ).fetchall()

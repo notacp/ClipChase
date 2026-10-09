@@ -235,3 +235,24 @@ class TestRemoteBackendGuard:
         monkeypatch.setenv("CF_D1_DATABASE_ID", "db")
         monkeypatch.setenv("CF_API_TOKEN", "tok")
         assert transcript_index._remote_backend() == "d1"
+
+
+def test_empty_marker_rows_do_not_count_as_indexed(tmp_path):
+    """Legacy '[]' rows must not hide a video: it should look un-indexed so a
+    client refetches it, instead of being skipped and never matching."""
+    svc = TranscriptIndexService(db_path=str(tmp_path / "idx.db"))
+    svc.cache_video_transcripts(
+        channel_id="UC" + "x" * 22,
+        source_url="",
+        video={"id": "v1", "title": "t", "publishedAt": "2026-01-01T00:00:00Z", "thumbnail": ""},
+        transcripts=[{"language_code": "en", "language_label": "English", "is_generated": True,
+                      "segments": [{"start": 0, "duration": 1, "text": "hi"}]}],
+    )
+    conn = svc._connect()
+    try:
+        conn.execute("UPDATE indexed_transcripts SET segments='[]' WHERE video_id='v1'")
+        conn.commit()
+    finally:
+        conn.close()
+    assert svc.get_indexed_languages("v1") == set()
+    assert svc.get_channel_videos("UC" + "x" * 22) == []
