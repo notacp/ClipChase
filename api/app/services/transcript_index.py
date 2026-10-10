@@ -380,6 +380,14 @@ class _TursoHTTPConnection:
 # serialization here would only add latency for no reason.
 # ---------------------------------------------------------------------------
 
+# At D1's 500 MB cap every write is refused, DELETEs included, so a full
+# database can't even be trimmed (Oct 2026: had to copy to a new one). Index
+# writes stop at this size instead, leaving headroom to evict. Every D1
+# response carries meta.size_after, so tracking it costs no extra request.
+D1_WRITE_STOP_BYTES = 450 * 1000 * 1000
+_d1_last_size = 0
+
+
 class _D1Cursor:
     def __init__(self, rows: List[dict]):
         self._rows = rows
@@ -437,6 +445,9 @@ class _D1HTTPConnection:
         for r in results:
             if not r.get("success", True):
                 raise Exception(f"D1 statement error: {r.get('error') or r}")
+        global _d1_last_size
+        for r in results:
+            _d1_last_size = (r.get("meta") or {}).get("size_after") or _d1_last_size
         return results
 
     def execute(self, sql: str, params=(), timeout: Optional[float] = None) -> _D1Cursor:
@@ -475,6 +486,9 @@ class _D1HTTPConnection:
         if not self._write_queue:
             return
         queue, self._write_queue = self._write_queue, []
+        if _d1_last_size >= D1_WRITE_STOP_BYTES:
+            # Surfaces as d1_write_failed, which emails via the PostHog alert.
+            raise Exception(f"D1 write guard: {_d1_last_size / 1e6:.0f} MB >= {D1_WRITE_STOP_BYTES / 1e6:.0f} MB stop line")
 
         pre: List[dict] = []
         segments: List[dict] = []

@@ -622,3 +622,24 @@ def test_d1_httpx_timeout_under_deadline_is_a_shed():
     # Without a deadline it is a real failure and must not be relabelled.
     with pytest.raises(httpx.ReadTimeout):
         conn._send_sequential([{"sql": "x"}])
+
+
+def test_d1_write_guard_refuses_writes_near_cap(monkeypatch):
+    """Oct 10: deep search added 124 MB in a day. A full D1 refuses even
+    DELETEs, so writes must stop short of the cap while reads continue."""
+    from api.app.services import transcript_index as ti
+
+    sent = []
+    conn = ti._D1HTTPConnection("a", "d", "t")
+    conn._send = lambda reqs, timeout=None: sent.append(reqs) or []
+    conn.execute("INSERT INTO indexed_channels VALUES (?)", ("c",))
+
+    monkeypatch.setattr(ti, "_d1_last_size", ti.D1_WRITE_STOP_BYTES)
+    with pytest.raises(Exception, match="write guard"):
+        conn.commit()
+    assert sent == []
+
+    monkeypatch.setattr(ti, "_d1_last_size", ti.D1_WRITE_STOP_BYTES - 1)
+    conn.execute("INSERT INTO indexed_channels VALUES (?)", ("c",))
+    conn.commit()
+    assert sent
