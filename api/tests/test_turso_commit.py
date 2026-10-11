@@ -635,6 +635,7 @@ def test_d1_write_guard_refuses_writes_near_cap(monkeypatch):
     conn.execute("INSERT INTO indexed_channels VALUES (?)", ("c",))
 
     monkeypatch.setattr(ti, "_d1_last_size", ti.D1_WRITE_STOP_BYTES)
+    monkeypatch.setattr(ti, "_d1_last_evict", time.monotonic())  # eviction throttled
     with pytest.raises(Exception, match="write guard"):
         conn.commit()
     assert sent == []
@@ -643,3 +644,33 @@ def test_d1_write_guard_refuses_writes_near_cap(monkeypatch):
     conn.execute("INSERT INTO indexed_channels VALUES (?)", ("c",))
     conn.commit()
     assert sent
+
+
+def test_d1_evicts_oldest_before_writing_past_evict_line(monkeypatch):
+    """Oct 11: the index is a cache. Past D1_EVICT_AT_BYTES a write first
+    deletes the oldest batch (once per throttle window), then proceeds."""
+    from api.app.services import transcript_index as ti
+
+    sent = []
+
+    def fake_send(reqs, timeout=None):
+        sent.append(reqs[0]["sql"])
+        if reqs[0]["sql"].startswith("DELETE"):
+            ti._d1_last_size = ti.D1_EVICT_AT_BYTES - 1  # D1 reports the freed size
+        return []
+
+    monkeypatch.setattr(ti, "_d1_last_size", ti.D1_EVICT_AT_BYTES + 5)
+    monkeypatch.setattr(ti, "_d1_last_evict", -1e9)
+    conn = ti._D1HTTPConnection("a", "d", "t")
+    conn._send = fake_send
+    conn.execute("INSERT INTO indexed_channels VALUES (?)", ("c",))
+    conn.commit()
+    assert sent[0].startswith("DELETE FROM indexed_transcripts")
+    assert sent[1].startswith("INSERT")
+
+    # Throttled: a second write right after doesn't evict again.
+    monkeypatch.setattr(ti, "_d1_last_size", ti.D1_EVICT_AT_BYTES + 5)
+    sent.clear()
+    conn.execute("INSERT INTO indexed_channels VALUES (?)", ("c",))
+    conn.commit()
+    assert not any(s.startswith("DELETE") for s in sent)

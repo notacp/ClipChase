@@ -387,6 +387,18 @@ class _TursoHTTPConnection:
 D1_WRITE_STOP_BYTES = 450 * 1000 * 1000
 _d1_last_size = 0
 
+# The index is a cache (a lost row only means the next search refetches), so
+# past this size the oldest-written transcripts are evicted to make room.
+# Deleting the row removes the "indexed" marker too, so the video is simply
+# fetched again next time. D1 frees the pages at once (verified Oct 11: 20 MB
+# -> 10 MB in size_after right after deleting half the rows).
+# ponytail: FIFO by indexed_at, not LRU; a read-heavy old channel gets evicted
+# like any other. Add a last_read_at column if hot channels keep refetching.
+D1_EVICT_AT_BYTES = 400 * 1000 * 1000
+_D1_EVICT_ROWS = 200  # ~6 MB at the Oct-2026 average of ~29 KB/row
+_D1_EVICT_EVERY_S = 30.0
+_d1_last_evict = -1e9
+
 
 class _D1Cursor:
     def __init__(self, rows: List[dict]):
@@ -486,6 +498,8 @@ class _D1HTTPConnection:
         if not self._write_queue:
             return
         queue, self._write_queue = self._write_queue, []
+        if _d1_last_size >= D1_EVICT_AT_BYTES:
+            self._evict_oldest(deadline)
         if _d1_last_size >= D1_WRITE_STOP_BYTES:
             # Surfaces as d1_write_failed, which emails via the PostHog alert.
             raise Exception(f"D1 write guard: {_d1_last_size / 1e6:.0f} MB >= {D1_WRITE_STOP_BYTES / 1e6:.0f} MB stop line")
@@ -505,6 +519,34 @@ class _D1HTTPConnection:
 
         self._send_sequential(post, deadline)
         yield
+
+    def _evict_oldest(self, deadline: Optional[float] = None) -> None:
+        """One bounded DELETE of the oldest transcripts. Best-effort: a failure
+        only means this write runs without making room (the stop line still
+        protects the cap). Throttled per instance so concurrent writes don't
+        each evict a batch."""
+        global _d1_last_evict
+        now = time.monotonic()
+        if now - _d1_last_evict < _D1_EVICT_EVERY_S:
+            return
+        _d1_last_evict = now
+        timeout = None if deadline is None else deadline - now
+        if timeout is not None and timeout <= 0:
+            return
+        before = _d1_last_size
+        try:
+            self._send(
+                [{
+                    "sql": "DELETE FROM indexed_transcripts WHERE rowid IN "
+                    "(SELECT rowid FROM indexed_transcripts ORDER BY indexed_at LIMIT ?)",
+                    "params": [_D1_EVICT_ROWS],
+                }],
+                timeout=timeout,
+            )
+            logger.info("d1 evicted %d oldest transcripts: %.0f -> %.0f MB",
+                        _D1_EVICT_ROWS, before / 1e6, _d1_last_size / 1e6)
+        except Exception:
+            logger.warning("d1 eviction failed", exc_info=True)
 
     def _send_sequential(self, requests: List[dict], deadline: Optional[float] = None) -> None:
         # No lock here (see _BATCH_SIZE's comment) — just the deadline as a
@@ -665,6 +707,12 @@ class TranscriptIndexService:
             PRIMARY KEY (video_id, language_code),
             FOREIGN KEY(video_id) REFERENCES indexed_videos(video_id) ON DELETE CASCADE
         )
+        """,
+        # Eviction order (D1_EVICT_AT_BYTES). Without it, ORDER BY indexed_at
+        # walks every row's segments overflow pages: the whole database.
+        """
+        CREATE INDEX IF NOT EXISTS idx_indexed_transcripts_indexed_at
+            ON indexed_transcripts(indexed_at)
         """,
     ]
 

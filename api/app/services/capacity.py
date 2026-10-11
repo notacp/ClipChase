@@ -29,8 +29,11 @@ import httpx
 logger = logging.getLogger(__name__)
 
 D1_FREE_CAP_BYTES = 500 * 1000 * 1000
-WARN_PCT, URGENT_PCT = 70.0, 85.0
-WARN_DAYS, URGENT_DAYS = 30.0, 7.0
+# Since Oct 11 the index evicts its oldest rows past 80% (D1_EVICT_AT_BYTES)
+# and stops writing at 90%, so it sits near 80% by design. Alert when it
+# climbs past that: eviction is failing or falling behind.
+# days_to_full is still reported, for context only.
+WARN_PCT, URGENT_PCT = 84.0, 88.0
 
 
 def forecast_days_to_full(history: List[Tuple[int, int]], cap: int = D1_FREE_CAP_BYTES) -> Optional[float]:
@@ -51,10 +54,10 @@ def forecast_days_to_full(history: List[Tuple[int, int]], cap: int = D1_FREE_CAP
     return max(0.0, (cap - latest) / slope)
 
 
-def alert_level(pct: float, days_to_full: Optional[float]) -> str:
-    if pct >= URGENT_PCT or (days_to_full is not None and days_to_full < URGENT_DAYS):
+def alert_level(pct: float, days_to_full: Optional[float] = None) -> str:
+    if pct >= URGENT_PCT:
         return "urgent"
-    if pct >= WARN_PCT or (days_to_full is not None and days_to_full < WARN_DAYS):
+    if pct >= WARN_PCT:
         return "warn"
     return "ok"
 

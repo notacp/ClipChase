@@ -15,11 +15,12 @@ def test_forecast_none_without_growth_or_history():
 
 
 def test_levels():
+    # Eviction holds the index near 80%, so only climbing past it alerts;
+    # a fast-growth forecast alone doesn't.
     assert alert_level(50, None) == "ok"
-    assert alert_level(72, None) == "warn"
-    assert alert_level(50, 20) == "warn"
-    assert alert_level(86, None) == "urgent"
-    assert alert_level(40, 5) == "urgent"
+    assert alert_level(80, 2) == "ok"
+    assert alert_level(85, None) == "warn"
+    assert alert_level(89, None) == "urgent"
 
 
 def test_cron_requires_secret(monkeypatch):
