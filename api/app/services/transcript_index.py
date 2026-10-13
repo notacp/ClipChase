@@ -399,6 +399,38 @@ _d1_last_size = 0
 # left). Trimming the deepest tail of the biggest channel keeps every
 # channel's recent videos, which is what page-1 searches read.
 # Cost: ~280 ms and ~53k rows_read per eviction at 17k transcripts.
+# Daily rows-written guard. The free plan allows 100k rows written per day
+# per account, and going over fails EVERY query until 00:00 UTC, reads too,
+# which would take the indexed catalog out of search for the rest of the day.
+# Deep search (1.3.7) pushed writes to 68k/day by Oct 12 (~6 rows per saved
+# video: channel 1, video 3, transcript 2). Index writes stop at this line;
+# the margin covers analytics lag, the cache window and other writers.
+D1_DAILY_WRITE_STOP = 85_000
+_D1_USAGE_TTL_S = 300.0
+_d1_usage_cache = {"day": "", "written": 0, "at": -1e9}
+
+
+def _d1_rows_written_today(client=None) -> int:
+    """Account-wide rows written today (UTC), cached per instance. Fails open
+    to the last known value: a broken analytics call must not stop writes."""
+    now = time.monotonic()
+    day = datetime.now(timezone.utc).date().isoformat()
+    cache = _d1_usage_cache
+    if cache["day"] == day and now - cache["at"] < _D1_USAGE_TTL_S:
+        return cache["written"]
+    try:
+        from .capacity import d1_usage
+
+        _, written = d1_usage(day, client=client, timeout=3)
+        cache.update(day=day, written=written, at=now)
+    except Exception:
+        logger.warning("d1 usage lookup failed", exc_info=True)
+        cache["at"] = now  # don't retry on every write
+        if cache["day"] != day:
+            cache.update(day=day, written=0)
+    return cache["written"]
+
+
 D1_EVICT_AT_BYTES = 400 * 1000 * 1000
 _D1_EVICT_VIDEOS = 300
 _D1_EVICT_SQL = (
@@ -512,6 +544,9 @@ class _D1HTTPConnection:
         if not self._write_queue:
             return
         queue, self._write_queue = self._write_queue, []
+        written = _d1_rows_written_today(self._shared_client)
+        if written >= D1_DAILY_WRITE_STOP:
+            raise Exception(f"D1 daily write guard: {written} rows written >= {D1_DAILY_WRITE_STOP}")
         if _d1_last_size >= D1_EVICT_AT_BYTES:
             self._evict_oldest(deadline)
         if _d1_last_size >= D1_WRITE_STOP_BYTES:
@@ -647,10 +682,13 @@ class TranscriptIndexService:
         try:
             self.ensure_schema()
         except Exception:
-            if self._shared_http_client is not None:
-                self._shared_http_client.close()
-                self._shared_http_client = None
-            raise
+            if not self._remote:
+                raise
+            # The remote tables already exist; this is CREATE ... IF NOT
+            # EXISTS. Raising here made every request on a cold instance 500
+            # while the database was unreachable (quota exhausted, outage),
+            # even though every index call after this point fails open.
+            logger.warning("ensure_schema failed; continuing without it", exc_info=True)
 
     def _connect(self):
         if self._backend == "d1":

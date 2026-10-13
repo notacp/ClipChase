@@ -700,3 +700,53 @@ def test_d1_evict_sql_trims_deepest_tail_of_biggest_channel(tmp_path):
     assert not {vid for _, vid in oldest_big} & left
     assert {"s0", "s1", "s2"} <= left
     assert len(left) == 9
+
+
+def test_d1_daily_write_guard(monkeypatch):
+    """Oct 13: going over the free plan's 100k rows/day fails every query,
+    reads included. Index writes stop at D1_DAILY_WRITE_STOP; an analytics
+    failure must not stop them."""
+    from api.app.services import transcript_index as ti
+
+    monkeypatch.setattr(ti, "_d1_last_size", 0)
+    sent = []
+    conn = ti._D1HTTPConnection("a", "d", "t")
+    conn._send = lambda reqs, timeout=None: sent.append(reqs) or []
+
+    monkeypatch.setattr(ti, "_d1_rows_written_today", lambda client=None: ti.D1_DAILY_WRITE_STOP)
+    conn.execute("INSERT INTO indexed_channels VALUES (?)", ("c",))
+    with pytest.raises(Exception, match="daily write guard"):
+        conn.commit()
+    assert sent == []
+
+    monkeypatch.undo()
+    monkeypatch.setattr(ti, "_d1_last_size", 0)
+    monkeypatch.setattr(ti, "_d1_usage_cache", {"day": "", "written": 0, "at": -1e9})
+
+    def broken(*a, **k):
+        raise RuntimeError("analytics down")
+
+    import api.app.services.capacity as cap
+    monkeypatch.setattr(cap, "d1_usage", broken)
+    assert ti._d1_rows_written_today() == 0  # fails open
+    conn.execute("INSERT INTO indexed_channels VALUES (?)", ("c",))
+    conn.commit()
+    assert sent
+
+
+def test_remote_schema_failure_does_not_break_construction(monkeypatch):
+    """A quota-exhausted D1 made ensure_schema raise on cold instances, which
+    500'd every search there. Remote construction must survive it."""
+    from api.app.services import transcript_index as ti
+
+    monkeypatch.setattr(ti, "_remote_backend", lambda: "d1")
+    monkeypatch.setenv("CF_ACCOUNT_ID", "a")
+    monkeypatch.setenv("CF_D1_DATABASE_ID", "d")
+    monkeypatch.setenv("CF_API_TOKEN", "t")
+
+    def boom(self):
+        raise Exception("D1 daily limit exceeded")
+
+    monkeypatch.setattr(ti.TranscriptIndexService, "ensure_schema", boom)
+    svc = ti.TranscriptIndexService()
+    assert svc._remote

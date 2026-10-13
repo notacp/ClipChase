@@ -62,6 +62,38 @@ def alert_level(pct: float, days_to_full: Optional[float] = None) -> str:
     return "ok"
 
 
+# --- daily row quotas ----------------------------------------------------------
+
+D1_FREE_ROWS_READ_PER_DAY = 5_000_000
+D1_FREE_ROWS_WRITTEN_PER_DAY = 100_000
+
+
+def d1_usage(day: str, client=None, timeout: float = 10) -> Tuple[int, int]:
+    """(rows_read, rows_written) for the whole account on a UTC day. The free
+    plan's daily limits are account-wide, and hitting either one fails EVERY
+    query, reads included, until 00:00 UTC. Needs the token's "Account
+    Analytics: Read" permission (added Oct 13 2026). Analytics lag a few
+    minutes behind real usage."""
+    query = (
+        "query($a:String!,$d:Date!){viewer{accounts(filter:{accountTag:$a})"
+        "{d1AnalyticsAdaptiveGroups(limit:100,filter:{date:$d}){sum{rowsRead rowsWritten}}}}}"
+    )
+    r = (client or httpx).post(
+        "https://api.cloudflare.com/client/v4/graphql",
+        headers={"Authorization": f"Bearer {os.environ['CF_API_TOKEN']}"},
+        json={"query": query, "variables": {"a": os.environ["CF_ACCOUNT_ID"], "d": day}},
+        timeout=timeout,
+    )
+    body = r.json()
+    if body.get("errors"):
+        raise RuntimeError(str(body["errors"])[:300])
+    groups = body["data"]["viewer"]["accounts"][0]["d1AnalyticsAdaptiveGroups"]
+    return (
+        sum(g["sum"]["rowsRead"] for g in groups),
+        sum(g["sum"]["rowsWritten"] for g in groups),
+    )
+
+
 # --- delivery ---------------------------------------------------------------
 
 _last_sent: dict = {}
@@ -129,6 +161,19 @@ def run_capacity_check() -> dict:
         log_error = str(exc)[:200]
         history = [(today.toordinal(), size)]
 
+    usage = {}
+    try:
+        yday = date.fromordinal(today.toordinal() - 1).isoformat()
+        read, written = d1_usage(yday)
+        usage = {
+            "rows_read_yday": read,
+            "rows_written_yday": written,
+            "rows_read_pct_yday": round(100.0 * read / D1_FREE_ROWS_READ_PER_DAY, 1),
+            "rows_written_pct_yday": round(100.0 * written / D1_FREE_ROWS_WRITTEN_PER_DAY, 1),
+        }
+    except Exception as exc:
+        usage = {"usage_error": str(exc)[:200]}
+
     pct = round(100.0 * size / D1_FREE_CAP_BYTES, 1)
     days = forecast_days_to_full(history)
     result = {
@@ -140,6 +185,7 @@ def run_capacity_check() -> dict:
         "history_days": len(history),
         "level": alert_level(pct, days),
         "log_error": log_error,
+        **usage,
     }
     capture_server_event("d1_capacity", result)
     return result
