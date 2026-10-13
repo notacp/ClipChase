@@ -674,3 +674,29 @@ def test_d1_evicts_oldest_before_writing_past_evict_line(monkeypatch):
     conn.execute("INSERT INTO indexed_channels VALUES (?)", ("c",))
     conn.commit()
     assert not any(s.startswith("DELETE") for s in sent)
+
+
+def test_d1_evict_sql_trims_deepest_tail_of_biggest_channel(tmp_path):
+    """Oct 12: FIFO eviction let deep paging on two channels wipe every other
+    channel. The victim must be the oldest-published videos of the channel
+    with the most stored videos; smaller channels stay intact."""
+    from api.app.services import transcript_index as ti
+
+    svc = ti.TranscriptIndexService(db_path=str(tmp_path / "i.db"))
+    conn = svc._connect()
+    rows = [("big", f"b{i:03d}", f"2025-01-{i % 28 + 1:02d}T{i % 24:02d}:00:00Z") for i in range(10)]
+    rows += [("small", f"s{i}", "2020-01-01T00:00:00Z") for i in range(3)]  # older, but small channel
+    for ch, vid, pub in rows:
+        conn.execute("INSERT OR IGNORE INTO indexed_channels VALUES (?, ?, 'x')", (ch, ch))
+        conn.execute("INSERT INTO indexed_videos VALUES (?, ?, 't', ?, '', 'x')", (vid, ch, pub))
+        conn.execute(
+            "INSERT INTO indexed_transcripts VALUES (?, 'en', 'English', 0, 1, 'z1:x', 'x')", (vid,)
+        )
+    conn.commit()
+
+    conn.execute(ti._D1_EVICT_SQL, (4,))
+    left = {r[0] for r in conn.execute("SELECT video_id FROM indexed_transcripts")}
+    oldest_big = sorted((pub, vid) for ch, vid, pub in rows if ch == "big")[:4]
+    assert not {vid for _, vid in oldest_big} & left
+    assert {"s0", "s1", "s2"} <= left
+    assert len(left) == 9
