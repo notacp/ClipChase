@@ -432,14 +432,27 @@ def _d1_rows_written_today(client=None) -> int:
 
 
 D1_EVICT_AT_BYTES = 400 * 1000 * 1000
+# Hysteresis: once eviction starts, it runs down to this size in one go.
+# Oct 15: evicting one small batch per trigger meant 92 evictions a day.
+D1_EVICT_TO_BYTES = 380 * 1000 * 1000
 _D1_EVICT_VIDEOS = 300
+_D1_EVICT_ROUNDS = 4
+# Oct 15: the previous form read ~73k rows per run and was 97% of the day's
+# rows_read (90% of the free 5M). Two fixes, both measured on prod:
+#  - CROSS JOIN pins indexed_transcripts (~7k rows) as the outer loop. SQLite
+#    otherwise walked all ~59k indexed_videos rows, most of which have no
+#    transcript: 22k rows read instead of 73k.
+#  - EXISTS is a per-video key lookup, not a materialized IN over every
+#    transcript.
+# Victims span the 5 biggest channels: by Oct 16 the biggest held only ~120
+# videos, so one channel per round freed too little.
 _D1_EVICT_SQL = (
     "DELETE FROM indexed_transcripts WHERE video_id IN ("
-    "SELECT v.video_id FROM indexed_videos v WHERE v.channel_id = ("
+    "SELECT v.video_id FROM indexed_videos v WHERE v.channel_id IN ("
     "SELECT v2.channel_id FROM indexed_transcripts t2 "
-    "JOIN indexed_videos v2 ON v2.video_id = t2.video_id "
-    "GROUP BY v2.channel_id ORDER BY count(*) DESC LIMIT 1) "
-    "AND v.video_id IN (SELECT video_id FROM indexed_transcripts) "
+    "CROSS JOIN indexed_videos v2 ON v2.video_id = t2.video_id "
+    "GROUP BY v2.channel_id ORDER BY count(*) DESC LIMIT 5) "
+    "AND EXISTS (SELECT 1 FROM indexed_transcripts t WHERE t.video_id = v.video_id) "
     "ORDER BY v.published_at ASC LIMIT ?)"
 )
 _D1_EVICT_EVERY_S = 30.0
@@ -570,7 +583,8 @@ class _D1HTTPConnection:
         yield
 
     def _evict_oldest(self, deadline: Optional[float] = None) -> None:
-        """One bounded DELETE (see _D1_EVICT_SQL). Best-effort: a failure
+        """Up to _D1_EVICT_ROUNDS DELETEs (see _D1_EVICT_SQL), stopping below
+        D1_EVICT_TO_BYTES. Best-effort: a failure
         only means this write runs without making room (the stop line still
         protects the cap). Throttled per instance so concurrent writes don't
         each evict a batch."""
@@ -584,9 +598,16 @@ class _D1HTTPConnection:
             return
         before = _d1_last_size
         try:
-            self._send([{"sql": _D1_EVICT_SQL, "params": [_D1_EVICT_VIDEOS]}], timeout=timeout)
-            logger.info("d1 evicted up to %d videos from the biggest channel: %.0f -> %.0f MB",
-                        _D1_EVICT_VIDEOS, before / 1e6, _d1_last_size / 1e6)
+            for _ in range(_D1_EVICT_ROUNDS):
+                if deadline is not None:
+                    timeout = deadline - time.monotonic()
+                    if timeout <= 0:
+                        break
+                results = self._send([{"sql": _D1_EVICT_SQL, "params": [_D1_EVICT_VIDEOS]}], timeout=timeout)
+                changes = ((results[0].get("meta") or {}).get("changes") or 0) if results else 0
+                if _d1_last_size < D1_EVICT_TO_BYTES or not changes:
+                    break
+            logger.info("d1 evicted: %.0f -> %.0f MB", before / 1e6, _d1_last_size / 1e6)
         except Exception:
             logger.warning("d1 eviction failed", exc_info=True)
 

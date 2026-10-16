@@ -676,30 +676,34 @@ def test_d1_evicts_oldest_before_writing_past_evict_line(monkeypatch):
     assert not any(s.startswith("DELETE") for s in sent)
 
 
-def test_d1_evict_sql_trims_deepest_tail_of_biggest_channel(tmp_path):
+def test_d1_evict_sql_trims_deepest_tail_of_biggest_channels(tmp_path):
     """Oct 12: FIFO eviction let deep paging on two channels wipe every other
-    channel. The victim must be the oldest-published videos of the channel
-    with the most stored videos; smaller channels stay intact."""
+    channel. Victims are the oldest-published videos among the 5 channels
+    with the most stored videos; smaller channels stay intact even when
+    their videos are older."""
     from api.app.services import transcript_index as ti
 
     svc = ti.TranscriptIndexService(db_path=str(tmp_path / "i.db"))
     conn = svc._connect()
-    rows = [("big", f"b{i:03d}", f"2025-01-{i % 28 + 1:02d}T{i % 24:02d}:00:00Z") for i in range(10)]
-    rows += [("small", f"s{i}", "2020-01-01T00:00:00Z") for i in range(3)]  # older, but small channel
+    rows = [("big", f"b{i}", f"2024-01-{i + 1:02d}T00:00:00Z") for i in range(10)]
+    for m in range(4):
+        rows += [(f"mid{m}", f"m{m}_{i}", f"2025-06-{i + 1:02d}T00:00:00Z") for i in range(5)]
+    rows += [("small", f"s{i}", "2020-01-01T00:00:00Z") for i in range(2)]  # oldest, but small
     for ch, vid, pub in rows:
         conn.execute("INSERT OR IGNORE INTO indexed_channels VALUES (?, ?, 'x')", (ch, ch))
         conn.execute("INSERT INTO indexed_videos VALUES (?, ?, 't', ?, '', 'x')", (vid, ch, pub))
         conn.execute(
             "INSERT INTO indexed_transcripts VALUES (?, 'en', 'English', 0, 1, 'z1:x', 'x')", (vid,)
         )
+    # A video row without a transcript must not count or be selected.
+    conn.execute("INSERT INTO indexed_videos VALUES ('orphan', 'small', 't', '2019-01-01', '', 'x')")
     conn.commit()
 
     conn.execute(ti._D1_EVICT_SQL, (4,))
     left = {r[0] for r in conn.execute("SELECT video_id FROM indexed_transcripts")}
-    oldest_big = sorted((pub, vid) for ch, vid, pub in rows if ch == "big")[:4]
-    assert not {vid for _, vid in oldest_big} & left
-    assert {"s0", "s1", "s2"} <= left
-    assert len(left) == 9
+    assert not {"b0", "b1", "b2", "b3"} & left
+    assert {"s0", "s1", "b4"} <= left
+    assert len(left) == len(rows) - 4
 
 
 def test_d1_daily_write_guard(monkeypatch):
@@ -750,3 +754,24 @@ def test_remote_schema_failure_does_not_break_construction(monkeypatch):
     monkeypatch.setattr(ti.TranscriptIndexService, "ensure_schema", boom)
     svc = ti.TranscriptIndexService()
     assert svc._remote
+
+
+def test_d1_eviction_runs_down_to_hysteresis_line(monkeypatch):
+    """Oct 16: one small batch per trigger meant 92 evictions/day. One
+    trigger now evicts in rounds until below D1_EVICT_TO_BYTES."""
+    from api.app.services import transcript_index as ti
+
+    rounds = []
+
+    def fake_send(reqs, timeout=None):
+        rounds.append(1)
+        ti._d1_last_size -= 8 * 1000 * 1000  # each round frees 8 MB
+        return [{"meta": {"changes": 300}}]
+
+    monkeypatch.setattr(ti, "_d1_last_size", ti.D1_EVICT_AT_BYTES + 1)
+    monkeypatch.setattr(ti, "_d1_last_evict", -1e9)
+    conn = ti._D1HTTPConnection("a", "d", "t")
+    conn._send = fake_send
+    conn._evict_oldest()
+    assert ti._d1_last_size < ti.D1_EVICT_TO_BYTES
+    assert len(rounds) == 3  # 400 -> 392 -> 384 -> 376
