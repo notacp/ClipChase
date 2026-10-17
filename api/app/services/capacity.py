@@ -140,6 +140,22 @@ def _d1(sql: str, params: Optional[list] = None) -> list:
     return body["result"][0]["results"]
 
 
+_ORPHAN_BATCH, _ORPHAN_ROUNDS = 2000, 5
+
+
+def _d1_changes(sql: str, params: list) -> int:
+    account, db = os.environ["CF_ACCOUNT_ID"], os.environ["CF_D1_DATABASE_ID"]
+    body = httpx.post(
+        f"https://api.cloudflare.com/client/v4/accounts/{account}/d1/database/{db}/query",
+        headers={"Authorization": f"Bearer {os.environ['CF_API_TOKEN']}"},
+        json={"sql": sql, "params": params},
+        timeout=60,
+    ).json()
+    if not body.get("success"):
+        raise RuntimeError(str(body.get("errors"))[:300])
+    return int(body["result"][0]["meta"].get("changes") or 0)
+
+
 def run_capacity_check() -> dict:
     account, db = os.environ["CF_ACCOUNT_ID"], os.environ["CF_D1_DATABASE_ID"]
     info = httpx.get(
@@ -160,6 +176,25 @@ def run_capacity_check() -> dict:
     except Exception as exc:  # a full database can't take the log row; still alert
         log_error = str(exc)[:200]
         history = [(today.toordinal(), size)]
+
+    # Orphan video rows (no transcript) cost a row read on every page-1
+    # search of their channel. ~51k piled up before saves became one atomic
+    # batch (Oct 17); clear them a slice a day while the day's write budget
+    # is fresh. 1 write + ~4 reads per row, measured.
+    orphans_deleted = 0
+    try:
+        for _ in range(_ORPHAN_ROUNDS):
+            n = _d1_changes(
+                "DELETE FROM indexed_videos WHERE video_id IN (SELECT v.video_id FROM indexed_videos v "
+                "WHERE NOT EXISTS (SELECT 1 FROM indexed_transcripts t WHERE t.video_id = v.video_id) "
+                "AND v.indexed_at < ? LIMIT ?)",
+                [today.isoformat(), _ORPHAN_BATCH],
+            )
+            orphans_deleted += n
+            if n < _ORPHAN_BATCH:
+                break
+    except Exception as exc:
+        log_error = log_error or f"orphans: {str(exc)[:180]}"
 
     usage = {}
     try:
@@ -185,6 +220,7 @@ def run_capacity_check() -> dict:
         "history_days": len(history),
         "level": alert_level(pct, days),
         "log_error": log_error,
+        "orphans_deleted": orphans_deleted,
         **usage,
     }
     capture_server_event("d1_capacity", result)
