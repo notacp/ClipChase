@@ -717,7 +717,7 @@ def test_d1_daily_write_guard(monkeypatch):
     conn = ti._D1HTTPConnection("a", "d", "t")
     conn._send = lambda reqs, timeout=None: sent.append(reqs) or []
 
-    monkeypatch.setattr(ti, "_d1_rows_written_today", lambda client=None: ti.D1_DAILY_WRITE_STOP)
+    monkeypatch.setattr(ti, "_d1_usage_today", lambda client=None: (0, ti.D1_DAILY_WRITE_STOP))
     conn.execute("INSERT INTO indexed_channels VALUES (?)", ("c",))
     with pytest.raises(Exception, match="daily write guard"):
         conn.commit()
@@ -725,14 +725,14 @@ def test_d1_daily_write_guard(monkeypatch):
 
     monkeypatch.undo()
     monkeypatch.setattr(ti, "_d1_last_size", 0)
-    monkeypatch.setattr(ti, "_d1_usage_cache", {"day": "", "written": 0, "at": -1e9})
+    monkeypatch.setattr(ti, "_d1_usage_cache", {"day": "", "read": 0, "written": 0, "at": -1e9})
 
     def broken(*a, **k):
         raise RuntimeError("analytics down")
 
     import api.app.services.capacity as cap
     monkeypatch.setattr(cap, "d1_usage", broken)
-    assert ti._d1_rows_written_today() == 0  # fails open
+    assert ti._d1_usage_today() == (0, 0)  # fails open
     conn.execute("INSERT INTO indexed_channels VALUES (?)", ("c",))
     conn.commit()
     assert sent
@@ -775,3 +775,24 @@ def test_d1_eviction_runs_down_to_hysteresis_line(monkeypatch):
     conn._evict_oldest()
     assert ti._d1_last_size < ti.D1_EVICT_TO_BYTES
     assert len(rounds) == 3  # 400 -> 392 -> 384 -> 376
+
+
+
+def test_d1_daily_read_guard_skips_every_call(monkeypatch):
+    """Oct 17: reads were on pace for the 5M/day limit, past which every
+    query fails until 00:00 UTC. Past D1_DAILY_READ_STOP the adapter makes no
+    D1 call at all; callers fail open to the live path."""
+    from api.app.services import transcript_index as ti
+
+    posted = []
+
+    class Client:
+        def post(self, *a, **k):
+            posted.append(1)
+            raise AssertionError("must not reach D1")
+
+    monkeypatch.setattr(ti, "_d1_usage_today", lambda client=None: (ti.D1_DAILY_READ_STOP, 0))
+    conn = ti._D1HTTPConnection("a", "d", "t", shared_client=Client())
+    with pytest.raises(Exception, match="daily read guard"):
+        conn.execute("SELECT 1")
+    assert posted == []

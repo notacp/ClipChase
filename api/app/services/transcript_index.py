@@ -10,7 +10,7 @@ import time
 import zlib
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Set
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 
 logger = logging.getLogger(__name__)
@@ -398,7 +398,6 @@ _d1_last_size = 0
 # offset 1140 evict every other channel within a day (78 of 295 channels
 # left). Trimming the deepest tail of the biggest channel keeps every
 # channel's recent videos, which is what page-1 searches read.
-# Cost: ~280 ms and ~53k rows_read per eviction at 17k transcripts.
 # Daily rows-written guard. The free plan allows 100k rows written per day
 # per account, and going over fails EVERY query until 00:00 UTC, reads too,
 # which would take the indexed catalog out of search for the rest of the day.
@@ -406,18 +405,34 @@ _d1_last_size = 0
 # video: channel 1, video 3, transcript 2). Index writes stop at this line;
 # the margin covers analytics lag, the cache window and other writers.
 D1_DAILY_WRITE_STOP = 85_000
+# Same failure mode for reads (5M/day). Oct 17: page-1 catalog reads grew to
+# ~1.8k rows per search as channels got deeper, on pace for ~5M by evening.
+# Past this line every D1 call is skipped; each caller already fails open
+# (search falls back to live fetching), so users get slower, not broken.
+D1_DAILY_READ_STOP = 4_000_000
 _D1_USAGE_TTL_S = 300.0
-_d1_usage_cache = {"day": "", "written": 0, "at": -1e9}
+_d1_usage_cache = {"day": "", "read": 0, "written": 0, "at": -1e9}
 
 
-def _d1_rows_written_today(client=None) -> int:
-    """Account-wide rows written today (UTC), cached per instance. Fails open
-    to the last known value: a broken analytics call must not stop writes."""
+def _d1_usage_today(client=None) -> Tuple[int, int]:
+    """Account-wide (rows_read, rows_written) today (UTC), cached per
+    instance. Fails open to the last known values: a broken analytics call
+    must not stop the index."""
     now = time.monotonic()
     day = datetime.now(timezone.utc).date().isoformat()
     cache = _d1_usage_cache
-    if cache["day"] == day and now - cache["at"] < _D1_USAGE_TTL_S:
-        return cache["written"]
+    if not (cache["day"] == day and now - cache["at"] < _D1_USAGE_TTL_S):
+        cache["at"] = now  # also throttles retries after a failure
+        try:
+            from .capacity import d1_usage
+
+            read, written = d1_usage(day, client=client, timeout=3)
+            cache.update(day=day, read=read, written=written)
+        except Exception:
+            logger.warning("d1 usage lookup failed", exc_info=True)
+            if cache["day"] != day:
+                cache.update(day=day, read=0, written=0)
+    return cache["read"], cache["written"]
     try:
         from .capacity import d1_usage
 
@@ -498,6 +513,9 @@ class _D1HTTPConnection:
         # timeout overrides the client's default _HTTP_TIMEOUT (20s) with
         # whatever's left of the caller's deadline, so a single slow POST
         # can't itself blow the budget the way a fixed 20s ceiling could.
+        read, _ = _d1_usage_today(self._shared_client)
+        if read >= D1_DAILY_READ_STOP:
+            raise Exception(f"D1 daily read guard: {read} rows read >= {D1_DAILY_READ_STOP}")
         kwargs = {"timeout": timeout} if timeout is not None else {}
         response = self._http_client().post(
             self._url,
@@ -557,7 +575,7 @@ class _D1HTTPConnection:
         if not self._write_queue:
             return
         queue, self._write_queue = self._write_queue, []
-        written = _d1_rows_written_today(self._shared_client)
+        _, written = _d1_usage_today(self._shared_client)
         if written >= D1_DAILY_WRITE_STOP:
             raise Exception(f"D1 daily write guard: {written} rows written >= {D1_DAILY_WRITE_STOP}")
         if _d1_last_size >= D1_EVICT_AT_BYTES:
