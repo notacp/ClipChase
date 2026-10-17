@@ -665,7 +665,7 @@ def test_d1_evicts_oldest_before_writing_past_evict_line(monkeypatch):
     conn._send = fake_send
     conn.execute("INSERT INTO indexed_channels VALUES (?)", ("c",))
     conn.commit()
-    assert sent[0].startswith("DELETE FROM indexed_transcripts")
+    assert sent[0].startswith("DELETE FROM indexed_videos")
     assert sent[1].startswith("INSERT")
 
     # Throttled: a second write right after doesn't evict again.
@@ -796,3 +796,22 @@ def test_d1_daily_read_guard_skips_every_call(monkeypatch):
     with pytest.raises(Exception, match="daily read guard"):
         conn.execute("SELECT 1")
     assert posted == []
+
+
+def test_d1_commit_is_one_atomic_batch(monkeypatch):
+    """Oct 17: three POSTs per save left a video row without its transcript
+    on 71% of saves when the budget ran out between them. A D1 batch is one
+    transaction, so channel, video and transcript must go in a single POST,
+    in phase order."""
+    from api.app.services import transcript_index as ti
+
+    monkeypatch.setattr(ti, "_d1_usage_today", lambda client=None: (0, 0))
+    monkeypatch.setattr(ti, "_d1_last_size", 0)
+    posts = []
+    conn = ti._D1HTTPConnection("a", "d", "t")
+    conn._send = lambda reqs, timeout=None: posts.append([r["sql"].split()[2] for r in reqs]) or []
+    conn.execute("INSERT INTO indexed_transcripts VALUES (?)", ("x",))
+    conn.execute("INSERT INTO indexed_channels VALUES (?)", ("c",))
+    conn.execute("INSERT INTO indexed_videos VALUES (?)", ("v",))
+    conn.commit(deadline=time.monotonic() + 5)
+    assert posts == [["indexed_channels", "indexed_videos", "indexed_transcripts"]]

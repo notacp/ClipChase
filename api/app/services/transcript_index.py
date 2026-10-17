@@ -459,10 +459,12 @@ _D1_EVICT_ROUNDS = 4
 #    transcript: 22k rows read instead of 73k.
 #  - EXISTS is a per-video key lookup, not a materialized IN over every
 #    transcript.
+# Deletes the video row; ON DELETE CASCADE (D1 enforces foreign keys)
+# takes its transcripts, so eviction leaves no orphan video rows behind.
 # Victims span the 5 biggest channels: by Oct 16 the biggest held only ~120
 # videos, so one channel per round freed too little.
 _D1_EVICT_SQL = (
-    "DELETE FROM indexed_transcripts WHERE video_id IN ("
+    "DELETE FROM indexed_videos WHERE video_id IN ("
     "SELECT v.video_id FROM indexed_videos v WHERE v.channel_id IN ("
     "SELECT v2.channel_id FROM indexed_transcripts t2 "
     "CROSS JOIN indexed_videos v2 ON v2.video_id = t2.video_id "
@@ -591,13 +593,28 @@ class _D1HTTPConnection:
         for req in queue:
             bucket.get(self._phase(req), pre).append(req)
 
-        self._send_sequential(pre, deadline)
-        yield
+        # One POST: D1 runs a batch as a single transaction, so the video row
+        # and its transcript land together or not at all. Oct 17: sent as
+        # three POSTs, a budget expiry between them left the video row without
+        # its transcript for 71% of saves (5,990 videos, 1,748 transcripts),
+        # wasting 3 writes each and inflating every page-1 catalog read.
+        ordered = pre + segments + post
+        if len(ordered) <= self._BATCH_SIZE:
+            timeout = None
+            if deadline is not None:
+                timeout = deadline - time.monotonic()
+                if timeout <= 0:
+                    raise TimeoutError("index write budget exhausted")
+            try:
+                self._send(ordered, timeout=timeout)
+            except Exception as exc:
+                import httpx
 
-        self._send_sequential(segments, deadline)
-        yield
-
-        self._send_sequential(post, deadline)
+                if timeout is not None and isinstance(exc, httpx.TimeoutException):
+                    raise TimeoutError("index write budget exhausted") from exc
+                raise
+        else:  # ponytail: only giant multi-transcript commits; not atomic
+            self._send_sequential(ordered, deadline)
         yield
 
     def _evict_oldest(self, deadline: Optional[float] = None) -> None:
