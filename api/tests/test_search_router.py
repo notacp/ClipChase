@@ -203,19 +203,21 @@ def _override_index_service(mock_index):
 
 
 def test_index_transcript_accepts_valid_channel_id():
+    # The endpoint streams SSE (ping per phase, then `done` or `error`), so
+    # the result is in the body, not a JSON response.
     mock_index = MagicMock()
-    mock_index.cache_video_transcripts.return_value = 1
+    mock_index.cache_video_transcripts_with_progress.return_value = iter([None, 1])
     dep = _override_index_service(mock_index)
     try:
         valid_id = "UC" + "x" * 22  # 24 chars total
         response = client.post("/api/index/transcript", json=_index_payload(valid_id))
 
         assert response.status_code == 200, response.text
-        assert response.json() == {"stored": 1}
+        assert 'event: done\ndata: {"stored": 1}' in response.text
         # Must pass the caller-supplied channel_id straight through — proves the
         # redundant resolve_channel_id round trip is gone.
-        mock_index.cache_video_transcripts.assert_called_once()
-        kwargs = mock_index.cache_video_transcripts.call_args.kwargs
+        mock_index.cache_video_transcripts_with_progress.assert_called_once()
+        kwargs = mock_index.cache_video_transcripts_with_progress.call_args.kwargs
         assert kwargs["channel_id"] == valid_id
     finally:
         app.dependency_overrides.pop(dep, None)
@@ -260,16 +262,19 @@ def test_index_transcript_surfaces_pipeline_error_detail():
     # A bare `raise` returns FastAPI's generic "Internal Server Error" with no
     # body, which is why 172 client-side 500s were blind. The real reason must
     # reach the caller so telemetry can see it.
+    # Streamed now: headers are sent before the write runs, so the failure
+    # arrives as an SSE `error` event carrying the detail, under a 200.
     mock_index = MagicMock()
-    mock_index.cache_video_transcripts.side_effect = Exception(
+    mock_index.cache_video_transcripts_with_progress.side_effect = Exception(
         "Turso 400 on 5 reqs: invalid type"
     )
     dep = _override_index_service(mock_index)
     try:
         valid_id = "UC" + "x" * 22
         response = client.post("/api/index/transcript", json=_index_payload(valid_id))
-        assert response.status_code == 500, response.text
-        assert "Turso 400" in response.json().get("detail", "")
+        assert response.status_code == 200, response.text
+        assert "event: error" in response.text
+        assert "Turso 400" in response.text
     finally:
         app.dependency_overrides.pop(dep, None)
 

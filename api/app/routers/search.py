@@ -17,7 +17,7 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 
 from ..services.capacity import capture_server_event, run_capacity_check
-from ..services.transcript_index import TranscriptIndexService
+from ..services.transcript_index import D1QuotaGuard, TranscriptIndexService
 from ..services.youtube import (
     ChannelResolveUnavailable,
     DEVANAGARI_RE,
@@ -677,6 +677,10 @@ def _index_after_match_sync(
             channel_id,
             video.get("id"),
         )
+    except D1QuotaGuard as exc:
+        # Planned: the day's D1 quota is nearly spent. Tracked, not alerted.
+        logger.info("match-side index write skipped: %s", exc)
+        capture_server_event("d1_quota_guard", {"reason": str(exc)[:120]}, throttle_s=3600)
     except Exception as exc:
         logger.exception(
             "match-side indexing failed channel=%s video=%s",

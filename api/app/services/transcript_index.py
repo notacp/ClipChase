@@ -405,6 +405,12 @@ _d1_last_size = 0
 # video: channel 1, video 3, transcript 2). Index writes stop at this line;
 # the margin covers analytics lag, the cache window and other writers.
 D1_DAILY_WRITE_STOP = 85_000
+
+
+class D1QuotaGuard(Exception):
+    """A daily-quota guard tripped: planned load shedding, not a failure.
+    Kept apart so it doesn't fire the d1_write_failed alert every day."""
+
 # Same failure mode for reads (5M/day). Oct 17: page-1 catalog reads grew to
 # ~1.8k rows per search as channels got deeper, on pace for ~5M by evening.
 # Past this line every D1 call is skipped; each caller already fails open
@@ -517,7 +523,7 @@ class _D1HTTPConnection:
         # can't itself blow the budget the way a fixed 20s ceiling could.
         read, _ = _d1_usage_today(self._shared_client)
         if read >= D1_DAILY_READ_STOP:
-            raise Exception(f"D1 daily read guard: {read} rows read >= {D1_DAILY_READ_STOP}")
+            raise D1QuotaGuard(f"D1 daily read guard: {read} rows read >= {D1_DAILY_READ_STOP}")
         kwargs = {"timeout": timeout} if timeout is not None else {}
         response = self._http_client().post(
             self._url,
@@ -579,7 +585,7 @@ class _D1HTTPConnection:
         queue, self._write_queue = self._write_queue, []
         _, written = _d1_usage_today(self._shared_client)
         if written >= D1_DAILY_WRITE_STOP:
-            raise Exception(f"D1 daily write guard: {written} rows written >= {D1_DAILY_WRITE_STOP}")
+            raise D1QuotaGuard(f"D1 daily write guard: {written} rows written >= {D1_DAILY_WRITE_STOP}")
         if _d1_last_size >= D1_EVICT_AT_BYTES:
             self._evict_oldest(deadline)
         if _d1_last_size >= D1_WRITE_STOP_BYTES:
@@ -828,13 +834,13 @@ class TranscriptIndexService:
             conn.close()
 
     def _queue_channel(self, conn, channel_id: str, source_url: str) -> None:
+        # Nothing reads this row; it exists as the videos' foreign-key parent.
+        # OR IGNORE: the upsert rewrote it on every save, ~10k D1 writes/day
+        # (Oct 18) for a row that never changes.
         conn.execute(
             """
-            INSERT INTO indexed_channels (channel_id, source_url, indexed_at)
+            INSERT OR IGNORE INTO indexed_channels (channel_id, source_url, indexed_at)
             VALUES (?, ?, ?)
-            ON CONFLICT(channel_id) DO UPDATE SET
-                source_url = excluded.source_url,
-                indexed_at = excluded.indexed_at
             """,
             (channel_id, source_url, _utc_now_iso()),
         )
