@@ -1,4 +1,5 @@
 import functools
+import hmac
 import json
 import logging
 import os
@@ -10,7 +11,7 @@ from typing import Iterator, List, Optional, Sequence
 
 import anyio
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -742,3 +743,39 @@ def capacity_cron(authorization: Optional[str] = Header(None)):
     if not secret or authorization != f"Bearer {secret}":
         raise HTTPException(status_code=401, detail="unauthorized")
     return run_capacity_check()
+
+
+@router.post("/kofi/webhook")
+async def kofi_webhook(request: Request):
+    """Ko-fi posts form data with one field, `data`, holding JSON. Records a
+    `support_donated` event; the supporter's name and email are never sent
+    on. The optional message is kept: it's the closest thing to "what would
+    you pay for" we get."""
+    from urllib.parse import parse_qs
+
+    expected = os.getenv("KOFI_VERIFICATION_TOKEN")
+    if not expected:
+        raise HTTPException(status_code=503, detail="not configured")
+    raw = parse_qs((await request.body()).decode("utf-8", "replace")).get("data", [""])[0]
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="bad payload")
+    if not hmac.compare_digest(str(data.get("verification_token", "")), expected):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    try:
+        amount = float(data.get("amount") or 0)
+    except (TypeError, ValueError):
+        amount = 0.0
+    capture_server_event(
+        "support_donated",
+        {
+            "amount": amount,
+            "currency": str(data.get("currency") or "")[:8],
+            "kofi_type": str(data.get("type") or "")[:32],
+            "is_subscription": bool(data.get("is_subscription_payment")),
+            "message": str(data.get("message") or "")[:500],
+            "kofi_transaction_id": str(data.get("kofi_transaction_id") or "")[:64],
+        },
+    )
+    return {"ok": True}

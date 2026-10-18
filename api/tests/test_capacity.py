@@ -32,3 +32,42 @@ def test_cron_requires_secret(monkeypatch):
     assert c.get("/api/cron/capacity").status_code == 401
     monkeypatch.setenv("CRON_SECRET", "s3")
     assert c.get("/api/cron/capacity", headers={"Authorization": "Bearer nope"}).status_code == 401
+
+
+def test_kofi_webhook_verifies_token_and_drops_pii(monkeypatch):
+    import json
+    from urllib.parse import urlencode
+
+    from fastapi.testclient import TestClient
+
+    import api.app.routers.search as search
+    from api.app.main import app
+
+    sent = []
+    monkeypatch.setattr(search, "capture_server_event", lambda e, p, **k: sent.append((e, p)))
+    c = TestClient(app)
+    payload = {
+        "verification_token": "tok",
+        "type": "Donation",
+        "amount": "5.00",
+        "currency": "USD",
+        "from_name": "Jo Supporter",
+        "email": "jo@example.com",
+        "message": "deep search is great",
+        "kofi_transaction_id": "abc",
+    }
+    form = {"Content-Type": "application/x-www-form-urlencoded"}
+
+    monkeypatch.delenv("KOFI_VERIFICATION_TOKEN", raising=False)
+    assert c.post("/api/kofi/webhook", content=urlencode({"data": json.dumps(payload)}), headers=form).status_code == 503
+
+    monkeypatch.setenv("KOFI_VERIFICATION_TOKEN", "tok")
+    bad = dict(payload, verification_token="nope")
+    assert c.post("/api/kofi/webhook", content=urlencode({"data": json.dumps(bad)}), headers=form).status_code == 401
+    assert sent == []
+
+    r = c.post("/api/kofi/webhook", content=urlencode({"data": json.dumps(payload)}), headers=form)
+    assert r.status_code == 200
+    (event, props), = sent
+    assert event == "support_donated" and props["amount"] == 5.0 and props["message"] == "deep search is great"
+    assert "Jo Supporter" not in json.dumps(props) and "jo@example.com" not in json.dumps(props)
