@@ -30,7 +30,7 @@ const UNINDEXED_FETCH_CONCURRENCY = 6;
 const MAX_VIDEOS = 60;
 // Tip jar (Ko-fi takes 0% on tips). Donations reach PostHog through the API's
 // /api/kofi/webhook as support_donated.
-const SUPPORT_URL = "https://ko-fi.com/clipchase";
+const SUPPORT_URL = "https://ko-fi.com/notacp";
 
 type ChannelResolutionSource =
   | "suggestion"
