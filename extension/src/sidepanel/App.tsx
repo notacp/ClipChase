@@ -28,6 +28,9 @@ const UNINDEXED_FETCH_CONCURRENCY = 6;
 // next window (offset), so only users who want the back catalogue pay for it.
 // Also the page size of each older window.
 const MAX_VIDEOS = 60;
+// Tip jar (Ko-fi takes 0% on tips). Donations reach PostHog through the API's
+// /api/kofi/webhook as support_donated.
+const SUPPORT_URL = "https://ko-fi.com/clipchase";
 
 type ChannelResolutionSource =
   | "suggestion"
@@ -136,6 +139,9 @@ export function App() {
   // help is the step nobody takes. See components/FeedbackCard.tsx.
   // After-videos prompt fires once ever, after the 2nd video opened.
   const [showFeedbackPrompt, setShowFeedbackPrompt] = useState(false);
+  // Shown once ever, the first time an older-videos search finds something:
+  // the moment the costliest feature just paid off for this user.
+  const [showSupportLine, setShowSupportLine] = useState(false);
   // Zero-result feedback expands inline from the link that already gets
   // clicks; keyed per search so a new search offers it again.
   const [zeroFeedbackFor, setZeroFeedbackFor] = useState<string | null>(null);
@@ -653,6 +659,11 @@ export function App() {
             had_any_transcript: hadAnyTranscript,
             offset,
           });
+          if (offset > 0 && !localStorage.getItem("supportLineShown")) {
+            localStorage.setItem("supportLineShown", "1");
+            setShowSupportLine(true);
+            posthog.capture("support_shown", { placement: "older_results", offset });
+          }
         }
       }
     }
@@ -966,6 +977,21 @@ export function App() {
         </div>
       )}
 
+      {showSupportLine && results.length > 0 && (
+        <p className="mt-3 text-[11px] text-yt-light-gray leading-relaxed">
+          Found it? ClipChase is free, but searching older videos runs on real servers.{" "}
+          <a
+            href={SUPPORT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => posthog.capture("support_clicked", { placement: "older_results" })}
+            className="font-semibold text-yt-text underline underline-offset-2 hover:text-white rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-yt-red"
+          >
+            ☕ Support it
+          </a>
+        </p>
+      )}
+
       {/* Below the zero-result note or the results list, whichever showed.
           74% of zero-result searches had used the whole 60-video window. */}
       {searchingOlder && isLoading ? (
@@ -1010,6 +1036,15 @@ export function App() {
           >
             Feedback
           </button>
+          <a
+            href={SUPPORT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => posthog.capture("support_clicked", { placement: "footer" })}
+            className="text-[9px] text-yt-tert hover:text-yt-light-gray transition-colors rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-yt-red"
+          >
+            ☕ Support
+          </a>
           <a
             href="https://clipchase.xyz"
             target="_blank"
