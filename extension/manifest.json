@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "ClipChase: YouTube channel transcript search",
-  "version": "1.3.8",
-  "description": "Ctrl+F for YouTube. Search everything a creator has said, across their whole channel, and jump to the exact second they said it.",
+  "version": "1.3.9",
+  "description": "Ctrl+F for YouTube channels. Search every video and stream VOD for a word, then jump to the exact second it was said.",
   "minimum_chrome_version": "116",
   "permissions": ["sidePanel", "tabs", "storage", "declarativeNetRequestWithHostAccess"],
   "host_permissions": [
