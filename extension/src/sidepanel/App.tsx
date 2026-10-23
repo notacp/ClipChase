@@ -10,6 +10,7 @@ import { SearchResults } from "../components/SearchResults";
 import { LoadingStream } from "../components/LoadingStream";
 import { WelcomeModal } from "../components/WelcomeModal";
 import { FeedbackCard } from "../components/FeedbackCard";
+import { soundHintFor } from "./soundHint";
 import posthog from "../shared/posthog";
 import { PREFERRED_TRANSCRIPT_LANGS } from "../shared/constants";
 import { detectKeywordScript } from "../lib/keyword-script";
@@ -31,6 +32,10 @@ const MAX_VIDEOS = 60;
 // Tip jar (Ko-fi takes 0% on tips). Donations reach PostHog through the API's
 // /api/kofi/webhook as support_donated.
 const SUPPORT_URL = "https://ko-fi.com/notacp";
+const REVIEWS_URL = "https://chromewebstore.google.com/detail/ojgacfpcibnmggkenjndnogpfglmhefn/reviews";
+// A sound search (burp, fart…) with fewer hits than this gets the
+// "try what people say around it" hint. See soundHint.ts.
+const SOUND_HINT_BELOW = 5;
 
 type ChannelResolutionSource =
   | "suggestion"
@@ -630,6 +635,9 @@ export function App() {
           success: !searchFailed,
           duration_ms: Date.now() - searchStartedAt,
         });
+        if (chain.matches < SOUND_HINT_BELOW && !searchFailed && soundHintFor(keyword)) {
+          posthog.capture("sound_hint_shown", { keyword, result_count: chain.matches, offset });
+        }
         // Zero-result events follow what the user sees: an older page that
         // adds nothing to earlier results isn't a zero-result search.
         if (chain.matches === 0 && !searchFailed) {
@@ -864,7 +872,7 @@ export function App() {
               ) : lastSearch.failureReason === "no_captions" && (lastSearch.failureRatio ?? 0) > 0.5 ? (
                 <>
                   No mentions of <span className="text-yt-text font-medium">&ldquo;{lastSearch.keyword}&rdquo;</span> in the {lastSearch.videosScanned} videos we searched.<br />
-                  <span className="text-yt-tert">Most of them have no captions — common for Shorts and live streams.</span>
+                  <span className="text-yt-tert">Most of them have no captions — common for Shorts, live streams and ASMR. Whispers and sounds rarely get captioned.</span>
                 </>
               ) : (
                 // Never say "in recent videos" — it's false on an All-range
@@ -992,6 +1000,38 @@ export function App() {
         </p>
       )}
 
+      {hasSearched &&
+        !isLoading &&
+        !error &&
+        lastSearch &&
+        results.length < SOUND_HINT_BELOW &&
+        (() => {
+          const say = soundHintFor(lastSearch.keyword);
+          return say ? (
+            <div className="mt-4 text-center">
+              <p className="text-[11px] text-yt-light-gray leading-relaxed">
+                Sounds aren&rsquo;t in captions. Try what people say around the moment:
+              </p>
+              <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+                {say.map((phrase) => (
+                  <button
+                    key={phrase}
+                    type="button"
+                    onClick={() => {
+                      posthog.capture("sound_hint_clicked", { from: lastSearch.keyword, to: phrase });
+                      setKeyword(phrase);
+                      void runSearch(phrase, lastSearch.channel);
+                    }}
+                    className="px-2.5 py-1 rounded-full border border-yt-dark-gray text-[11px] text-yt-text hover:border-yt-red hover:text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-yt-red"
+                  >
+                    &ldquo;{phrase}&rdquo;
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null;
+        })()}
+
       {/* Below the zero-result note or the results list, whichever showed.
           74% of zero-result searches had used the whole 60-video window. */}
       {searchingOlder && isLoading ? (
@@ -1036,6 +1076,15 @@ export function App() {
           >
             Feedback
           </button>
+          <a
+            href={REVIEWS_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => posthog.capture("rate_clicked", { placement: "footer" })}
+            className="text-[9px] text-yt-tert hover:text-yt-light-gray transition-colors rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-yt-red"
+          >
+            ☆ Rate
+          </a>
           <a
             href={SUPPORT_URL}
             target="_blank"
