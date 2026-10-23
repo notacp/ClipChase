@@ -1,3 +1,4 @@
+import functools
 import html
 import re
 import unicodedata
@@ -89,17 +90,26 @@ def _expand_contractions(text: str) -> str:
     return expanded
 
 
+# Pure str -> str and hot: /search runs every segment of every indexed video
+# through _keyword_matches, which re-normalized the keyword per segment and the
+# segment per keyword. That burned Active CPU until the Hobby team was paused
+# (Oct 2026). ponytail: bounded LRU per instance; segments rarely repeat
+# across searches, so most of the win is the keyword and multi-term repeats.
+@functools.lru_cache(maxsize=4096)
 def _match_normalize(text: str) -> str:
     cleaned = _expand_contractions(_normalize_text(text).translate(_QUOTE_TRANS))
     cleaned = _MATCH_PUNCT_RE.sub(" ", cleaned)
     return re.sub(r"\s+", " ", cleaned).strip()
 
 
+@functools.lru_cache(maxsize=4096)
 def _strip_diacritics(text: str) -> str:
     # Decompose then drop combining marks so "M\u00e9xico" -> "Mexico", "caf\u00e9" ->
     # "cafe". Applied only to latin-script matching paths; Devanagari uses
     # matras (combining marks) for vowels so stripping there would corrupt the
     # script. Keep this off the Hindi branch in _keyword_matches.
+    if not text or text.isascii():
+        return text or ""  # no combining marks possible; skips the per-char loop
     decomposed = unicodedata.normalize("NFD", text or "")
     return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
 
@@ -363,6 +373,11 @@ def _keyword_matches(text: str, keyword: str, language_code: str) -> bool:
     if len(normalized_keyword) >= 5:
         kw_lower = normalized_keyword.casefold()
         words = normalized_text.casefold().split()
+        # A 2-3 word join can only equal the keyword if the keyword appears in
+        # the space-free text — one substring check skips the window loop on
+        # the (vast majority of) segments that can't match.
+        if kw_lower not in "".join(words):
+            return False
         for i in range(len(words)):
             for window in range(2, 4):
                 if i + window > len(words):

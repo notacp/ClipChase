@@ -73,6 +73,17 @@ def test_search_in_transcript_matches_compound_word_split_in_transcript():
     assert matches[0]["text"] == "we use post hog for analytics"
 
 
+def test_search_in_transcript_matches_across_accents_both_ways():
+    # Accented text vs ASCII query, and the reverse: one side takes the
+    # _strip_diacritics ASCII fast path, the other the NFD path.
+    service = YouTubeService(api_key="fake-key")
+    accented = [{"start": 0, "duration": 2, "text": "we flew to México"}]
+    plain = [{"start": 0, "duration": 2, "text": "we flew to Mexico"}]
+
+    assert len(service.search_in_transcript(accented, ["mexico"], transcript_language="en")) == 1
+    assert len(service.search_in_transcript(plain, ["méxico"], transcript_language="en")) == 1
+
+
 def test_search_in_transcript_rejects_partial_compound_match():
     service = YouTubeService(api_key="fake-key")
     transcript = [{"start": 0, "duration": 2, "text": "thank you tuber for watching"}]
