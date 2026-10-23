@@ -449,7 +449,7 @@ def test_last_partial_window_reports_no_more():
 
 
 def test_deeper_page_skips_indexed_rescan_but_excludes_indexed_from_live():
-    # u4 is indexed: the first page already matched it from the catalog scan.
+    # u4 is indexed and inside page 1's cap: page 1 matched it already.
     service, index = _deep_fixtures(n_uploads=10, indexed_ids=["u4", "u0"])
     output, meta, live = _run_stream(service, index, offset=3)
     assert live == ["u3", "u5"]
@@ -458,12 +458,35 @@ def test_deeper_page_skips_indexed_rescan_but_excludes_indexed_from_live():
     index.get_transcripts_for.assert_not_called()
 
 
-def test_first_page_still_scans_whole_indexed_catalog():
+def test_first_page_still_scans_indexed_catalog_beyond_the_window():
     service, index = _deep_fixtures(n_uploads=10, indexed_ids=["u9"])
     output, meta, live = _run_stream(service, index, offset=0)
     assert '"u9"' in output
     assert live == ["u0", "u1", "u2"]
     assert meta["has_more"] is True
+
+
+def test_page1_cap_hands_older_indexed_videos_to_their_window(monkeypatch):
+    """Oct 23 (Vercel CPU pause): page 1 matches only the newest
+    _INDEX_PAGE1_CAP indexed videos. An indexed video past the cap must be
+    matched by the deeper page whose window contains it, exactly once, and
+    never sent to the client as live."""
+    import api.app.routers.search as search
+
+    monkeypatch.setattr(search, "_INDEX_PAGE1_CAP", 2)
+    indexed = ["u0", "u1", "u4", "u7"]  # newest-first; cap keeps u0, u1
+    service, index = _deep_fixtures(n_uploads=10, indexed_ids=indexed)
+
+    page1, meta1, live1 = _run_stream(service, index, offset=0)
+    assert meta1["indexed"] == 2 and live1 == ["u2"]
+    assert '"u4"' not in page1 and '"u7"' not in page1
+
+    page2, meta2, live2 = _run_stream(service, index, offset=3)  # window u3-u5
+    assert meta2["indexed"] == 1 and '"u4"' in page2 and live2 == ["u3", "u5"]
+
+    page3, meta3, live3 = _run_stream(service, index, offset=6)  # window u6-u8
+    assert '"u7"' in page3 and live3 == ["u6", "u8"]
+    assert '"u0"' not in page2 + page3  # page-1 videos are not matched again
 
 
 def test_has_more_stops_at_offset_ceiling():

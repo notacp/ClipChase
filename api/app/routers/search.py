@@ -268,6 +268,14 @@ def _match_stored(
 _INDEX_READ_CHUNK = 40
 _INDEX_READ_WORKERS = 4
 
+# Page 1 matches at most this many indexed videos (newest first); each older
+# page matches the indexed videos inside its own window that page 1 didn't.
+# Oct 23: matching the WHOLE catalog (up to 500) on every page-1 search made
+# CPU grow with the index and paused the whole Vercel account (Hobby Active
+# CPU cap). This keeps per-request matching at ~120 / ~60 videos however big
+# the index gets; every indexed video is still searched once across pages.
+_INDEX_PAGE1_CAP = 120
+
 
 def _parse_published_at(value: Optional[str]) -> Optional[datetime]:
     if not value:
@@ -328,10 +336,8 @@ def _search_stream(
         preferred_languages = preferred_transcript_languages(query_language)
 
         try:
-            # Scan the channel's ENTIRE indexed catalog, not just the newest
-            # max_videos — a quote from an old, already-indexed video should
-            # never miss because of the enumeration window. max_videos still
-            # bounds the live (un-indexed) handoff below.
+            # Read the channel's whole indexed catalog (cheap: metadata only).
+            # What gets MATCHED per page is capped below (_INDEX_PAGE1_CAP).
             indexed_videos = index_service.get_channel_videos(channel_id)
         except Exception:
             # Fail open: index down must not kill search — fall through to live path.
@@ -367,12 +373,19 @@ def _search_stream(
         indexed_video_ids = {v["id"] for v in indexed_videos}
         live_videos = [video for video in videos if video["id"] not in indexed_video_ids]
 
-        # Deeper pages: the first page already scanned the whole indexed
-        # catalog, so re-streaming it would only duplicate results. The index
-        # read still runs, to keep already-indexed videos out of the live
-        # handoff (no point making the client refetch them).
+        # Indexed videos never go to the live handoff (no point making the
+        # client refetch them); they're matched here instead. Page 1 takes
+        # the newest _INDEX_PAGE1_CAP; a deeper page takes the indexed videos
+        # in its own window that page 1 left out, so none is matched twice.
+        page1 = indexed_videos[:_INDEX_PAGE1_CAP]
         if offset > 0:
-            indexed_videos = []
+            page1_ids = {v["id"] for v in page1}
+            window_ids = {v["id"] for v in videos}
+            indexed_videos = [
+                v for v in indexed_videos if v["id"] in window_ids and v["id"] not in page1_ids
+            ]
+        else:
+            indexed_videos = page1
 
         meta_payload = {
             "channel_id": channel_id,
