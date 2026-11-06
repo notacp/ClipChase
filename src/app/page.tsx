@@ -21,7 +21,7 @@ import {
   splitOnKeyword,
   type Theme,
 } from "./lib";
-import { Logo, ThemeToggle, handleCtaClick } from "./shared";
+import { Logo, ThemeToggle, handleCtaClick, CtaLabel } from "./shared";
 
 const EASE_OUT: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
@@ -114,7 +114,7 @@ function Nav({
         <ThemeToggle dark={dark} onToggle={onToggle} T={T} />
         <motion.a
           href={buildInstallUrl("header")}
-          onClick={() => handleCtaClick("header")}
+          onClick={(e) => handleCtaClick("header", e)}
           variants={{ hover: { backgroundColor: ACCENT_HOVER } }}
           whileHover="hover"
           whileTap={{ scale: 0.97 }}
@@ -135,7 +135,7 @@ function Nav({
             whiteSpace: "nowrap",
           }}
         >
-          Add to Chrome
+          <CtaLabel desktop="Add to Chrome" mobile="Send to computer" />
           <motion.span
             variants={{ hover: { x: 3 } }}
             transition={{ duration: 0.15 }}
@@ -231,7 +231,7 @@ function HeroSection({ T, dark }: { T: Theme; dark: boolean }) {
 
         <motion.a
           href={buildInstallUrl("hero")}
-          onClick={() => handleCtaClick("hero")}
+          onClick={(e) => handleCtaClick("hero", e)}
           variants={{ hover: { backgroundColor: ACCENT_HOVER } }}
           whileHover="hover"
           whileTap={{ scale: 0.97 }}
@@ -250,7 +250,7 @@ function HeroSection({ T, dark }: { T: Theme; dark: boolean }) {
             whiteSpace: "nowrap",
           }}
         >
-          Add to Chrome · Free
+          <CtaLabel desktop="Add to Chrome · Free" mobile="Send to my computer" />
           <motion.span
             variants={{ hover: { x: 3 } }}
             transition={{ duration: 0.15 }}
@@ -259,6 +259,9 @@ function HeroSection({ T, dark }: { T: Theme; dark: boolean }) {
             <ArrowRight size={12} />
           </motion.span>
         </motion.a>
+        <p className="cta-mobile" style={{ margin: "12px 0 0", fontSize: 13, color: T.muted }}>
+          ClipChase runs in Chrome on a computer. Send yourself the link.
+        </p>
       </motion.div>
 
       {/* Right: interactive demo */}
@@ -1236,11 +1239,11 @@ function SiteFooter({ T }: { T: Theme }) {
         </a>
         <a
           href={buildInstallUrl("footer_links")}
-          onClick={() => handleCtaClick("footer_links")}
+          onClick={(e) => handleCtaClick("footer_links", e)}
           className="footer-link"
           style={{ fontSize: 12, color: T.muted, textUnderlineOffset: 2 }}
         >
-          Install
+          <CtaLabel desktop="Install" mobile="Send to computer" />
         </a>
       </div>
     </footer>
@@ -1306,7 +1309,7 @@ function StickyCta({ T, dark, visible }: { T: Theme; dark: boolean; visible: boo
           {/* Right: CTA */}
           <motion.a
             href={buildInstallUrl("sticky_bar")}
-            onClick={() => handleCtaClick("sticky_bar")}
+            onClick={(e) => handleCtaClick("sticky_bar", e)}
             variants={{ hover: { backgroundColor: ACCENT_HOVER } }}
             whileHover="hover"
             whileTap={{ scale: 0.97 }}
@@ -1326,7 +1329,7 @@ function StickyCta({ T, dark, visible }: { T: Theme; dark: boolean; visible: boo
               whiteSpace: "nowrap",
             }}
           >
-            Add to Chrome
+            <CtaLabel desktop="Add to Chrome" mobile="Send to computer" />
             <motion.span
               variants={{ hover: { x: 3 } }}
               transition={{ duration: 0.15 }}

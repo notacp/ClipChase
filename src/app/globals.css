@@ -73,3 +73,17 @@ body {
     justify-content: space-between !important;
   }
 }
+
+/* Phones/tablets can't install Chrome extensions: install buttons become
+   "Send to my computer" (see handleCtaClick in shared.tsx, same query). */
+.cta-mobile {
+  display: none;
+}
+@media (hover: none) and (pointer: coarse) {
+  .cta-desktop {
+    display: none;
+  }
+  .cta-mobile {
+    display: revert;
+  }
+}

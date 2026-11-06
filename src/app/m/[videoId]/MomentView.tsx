@@ -12,7 +12,7 @@ import {
   makeTheme,
   splitOnKeyword,
 } from "../../lib";
-import { handleCtaClick } from "../../shared";
+import { handleCtaClick, CtaLabel } from "../../shared";
 
 const EASE_OUT = [0.16, 1, 0.3, 1] as const;
 
@@ -234,7 +234,7 @@ export function MomentView({
           </div>
           <motion.a
             href={buildInstallUrl("share_link", "moment_page")}
-            onClick={() => handleCtaClick("moment_page")}
+            onClick={(e) => handleCtaClick("moment_page", e)}
             whileHover={reduced ? undefined : { backgroundColor: ACCENT_HOVER }}
             whileTap={reduced ? undefined : { scale: 0.97 }}
             transition={{ duration: 0.15 }}
@@ -252,7 +252,7 @@ export function MomentView({
               whiteSpace: "nowrap",
             }}
           >
-            Add to Chrome · Free
+            <CtaLabel desktop="Add to Chrome · Free" mobile="Send to my computer" />
             <ArrowRight size={12} />
           </motion.a>
         </motion.div>
