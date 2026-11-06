@@ -22,6 +22,7 @@ function InstalledInner() {
       clicked_at?: number;
       referrer?: string | null;
       landing_distinct_id?: string;
+      utm_source?: string | null;
     } = {};
     try {
       const raw = localStorage.getItem("ts_pre_install_source");
@@ -48,6 +49,7 @@ function InstalledInner() {
       cta_clicked_at: preInstall.clicked_at ?? null,
       original_referrer: preInstall.referrer ?? null,
       time_to_install_ms: safeTimeToInstall,
+      utm_source: preInstall.utm_source ?? null,
     });
 
     // $set_once: lock first-touch attribution. Revisits to /installed must not
@@ -57,6 +59,7 @@ function InstalledInner() {
       {
         install_source: preInstall.location ?? "direct",
         original_referrer: preInstall.referrer ?? null,
+        install_utm_source: preInstall.utm_source ?? null,
         first_seen_at: new Date().toISOString(),
       },
     );

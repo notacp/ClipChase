@@ -8,6 +8,9 @@ import { ACCENT, type Theme } from "./lib";
 // Records the CTA click and stashes attribution for the /installed page to
 // merge with the extension's stable ID after install.
 export function handleCtaClick(location: string) {
+  // Tagged links (clipchase.xyz/?utm_source=<group>) tell us which audience an
+  // install came from; carry the tag through to /installed.
+  const utmSource = new URLSearchParams(window.location.search).get("utm_source");
   try {
     localStorage.setItem(
       "ts_pre_install_source",
@@ -16,6 +19,7 @@ export function handleCtaClick(location: string) {
         clicked_at: Date.now(),
         referrer: document.referrer || null,
         landing_distinct_id: posthog.get_distinct_id(),
+        utm_source: utmSource,
       })
     );
   } catch {
@@ -24,6 +28,7 @@ export function handleCtaClick(location: string) {
   posthog.capture("cta_clicked", {
     location,
     referrer: document.referrer || null,
+    utm_source: utmSource,
   });
 }
 
