@@ -1,0 +1,18 @@
+# Upload set for site.cloudbuild.yaml: the Next.js app only.
+.git/
+node_modules/
+.next/
+api/
+extension/
+demo-video/
+docs/
+scripts/
+*.zip
+.env*
+.venv/
+.vercel/
+.playwright*/
+.hallmark/
+.impeccable/
+.claude/
+__pycache__/

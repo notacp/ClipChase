@@ -1,0 +1,17 @@
+# Builds the site image. Deploy:
+#   gcloud builds submit --config site.cloudbuild.yaml --ignore-file site.gcloudignore \
+#     --substitutions _POSTHOG_KEY=<phc_ key> --project clipchase-api-1109 --region us-central1
+#   gcloud run deploy clipchase-site --image us-central1-docker.pkg.dev/clipchase-api-1109/cloud-run-source-deploy/clipchase-site ...
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - site.Dockerfile
+      - --build-arg
+      - NEXT_PUBLIC_POSTHOG_KEY=${_POSTHOG_KEY}
+      - -t
+      - us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/clipchase-site
+      - .
+images:
+  - us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/clipchase-site
