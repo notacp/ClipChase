@@ -1,0 +1,10 @@
+# Cloud Run source deploy: ship only what the Dockerfile copies.
+*
+!Dockerfile
+!requirements.txt
+!api/
+!api/**
+api/tests/
+api/scripts/
+**/__pycache__/
+**/.pytest_cache/

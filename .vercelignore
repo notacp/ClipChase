@@ -40,3 +40,14 @@ __pycache__/
 .devcontainer/
 
 .DS_Store
+
+# Cloud Run build files (API moved to GCP Cloud Run, Nov 2026).
+Dockerfile
+.gcloudignore
+
+# Python API runs on GCP Cloud Run (api.clipchase.xyz) since Nov 2026: its
+# uploads blew Vercel Hobby Fast Origin Transfer. Keep it out of Vercel builds.
+api/
+requirements.txt
+pyproject.toml
+uv.lock
